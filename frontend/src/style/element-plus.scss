@@ -187,3 +187,104 @@
     background: rgb(199 201 203); /* 滑块hover颜色 */
   }
 }
+
+// ============================================================================
+// 数据密集界面的组件精修（现代数据产品风）
+// ---------------------------------------------------------------------------
+// 改造前的问题（来自真实页面截图）：
+//   1) 表头是深藏青底 + 白字，和页面其余部分割裂，视觉重量过大
+//   2) 单元格数字用默认比例字体，纵向扫读时小数点对不齐
+//   3) 行分隔线偏重，整张表显得"脏"
+//   4) 控件圆角与项目自定义面板的圆角不一致，拼接处能看出接缝
+// 这里统一从 tokens 取值，让 Element Plus 与页面级样式看起来是同一套系统。
+// ============================================================================
+
+// ── 表格 ─────────────────────────────────────────────────────────────────
+.el-table {
+  // 数字等宽：小数点对齐是数据表格的基本素养
+  --el-table-border-color: var(--la-border-subtle);
+  --el-table-header-text-color: var(--el-text-color-regular);
+  --el-table-text-color: var(--el-text-color-primary);
+  --el-table-row-hover-bg-color: var(--la-surface-sunken);
+  --el-table-header-bg-color: var(--la-surface-sunken);
+  --el-table-current-row-bg-color: color-mix(in oklab, var(--el-color-primary) 6%, #fff);
+
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+// 表头：去掉重底色，用「浅底 + 稍高字重 + 细底边」表达层级
+.el-table th.el-table__cell {
+  background: var(--la-surface-sunken);
+  font-weight: 600;
+  font-size: var(--la-text-xs);
+  color: var(--el-text-color-regular);
+  letter-spacing: 0.01em;
+}
+
+// 单元格：数字不换行 —— 列宽稍窄时 "53.52 %" 会被拆成两行，非常难看
+.el-table td.el-table__cell .cell {
+  font-variant-numeric: tabular-nums;
+  line-height: var(--la-leading-normal);
+  // ⚠️ Element Plus 给 `.el-table .cell` 设了 `word-break: break-all`。
+  // 它的效果是**在词内**也允许断行，所以列宽稍窄时 "53.52%" 会被从中间
+  // 劈成两行 —— 而且单加 `white-space: nowrap` 压不住它，必须同时把
+  // word-break 改回 normal。只设 nowrap 会出现"改了没反应"的假象。
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+// 外框线：Element Plus 用 inner-wrapper::before 画表格外框，
+// 默认是 1px 实线；这里改成只用底边，避免与卡片描边叠成"双线"
+.el-table__inner-wrapper::before {
+  background-color: var(--la-border-default);
+}
+
+// 固定列的投影：原样式偏重，改成只在滚动时"暗示"存在
+.el-table .el-table__fixed,
+.el-table .el-table__fixed-right {
+  box-shadow: 2px 0 6px -2px rgb(16 24 40 / 8%);
+}
+
+.el-table .el-table__fixed-right {
+  box-shadow: -2px 0 6px -2px rgb(16 24 40 / 8%);
+}
+
+// ── 表单控件：圆角与描边统一到 token ─────────────────────────────────────
+.el-button,
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner,
+.el-input-number,
+.el-date-editor.el-input__wrapper {
+  border-radius: var(--la-radius-sm);
+  box-shadow: 0 0 0 1px var(--la-border-default) inset;
+  transition: box-shadow 0.18s ease-out;
+}
+
+// 聚焦：不用 Element Plus 默认的粗边框，改成一圈柔和的光环
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow: var(--la-ring-focus) !important;
+}
+
+.el-button {
+  font-weight: 500;
+  transition: background-color 0.18s ease-out, border-color 0.18s ease-out,
+    color 0.18s ease-out;
+}
+
+// ── 标签 / 状态点 ────────────────────────────────────────────────────────
+.el-tag {
+  border-radius: var(--la-radius-xs);
+  font-weight: 500;
+}
+
+// ── 表单标签 ─────────────────────────────────────────────────────────────
+// 默认样式偏重，密集表单里会让标签抢走输入框的注意力
+.el-form-item__label {
+  color: var(--el-text-color-regular);
+  font-weight: 500;
+}

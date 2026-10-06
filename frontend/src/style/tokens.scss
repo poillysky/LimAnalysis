@@ -1,0 +1,143 @@
+// ============================================================================
+// 设计 Token —— 全站视觉的单一事实来源
+// ============================================================================
+//
+// 设计依据见项目根目录 `.impeccable.md`（现代数据产品风 / 亮色为主 / 数据密集）。
+//
+// 为什么单独建这一层：
+//   改造前页面里散落着 `#c6c6c6`、`#1e4e79`、`#f4cccc` 这类硬编码，
+//   同一个「边框色」在十几个文件里各写一遍，改主题要全局搜、且必然漏。
+//   这里把「间距 / 圆角 / 阴影 / 字号 / 语义色」定义成刻度，页面只取值不写值。
+//
+// 约束：
+//   1. 语义色一律用 color-mix 从 Element Plus 的 --el-color-* 派生，
+//      不自己定义色相 —— 换主色时语义色自动跟着走。
+//   2. 亮/暗两套都定义（`html.dark` 覆盖），本项目两套主题都要能用。
+//   3. 数字排版相关（tabular-nums 等）放在 --la-* 之外的工具类里，见文件末尾。
+
+// ── 间距刻度 ──────────────────────────────────────────────────────────────
+// 4 的倍数 + 6 / 10 / 18 这类"差一点"的刻度，供紧凑场景使用。
+// 不用 5 / 7 / 9 这类零碎值：那会让节奏变得不可预测。
+:root {
+  --la-space-2xs: 2px;
+  --la-space-xs: 4px;
+  --la-space-sm: 6px;
+  --la-space-md: 8px;
+  --la-space-lg: 12px;
+  --la-space-xl: 16px;
+  --la-space-2xl: 20px;
+  --la-space-3xl: 24px;
+  --la-space-4xl: 32px;
+
+  // 表格密集场景专用的行内间距（比 --la-space-sm 更紧）
+  --la-space-cell-x: 10px;
+  --la-space-cell-y: 5px;
+}
+
+// ── 圆角 ─────────────────────────────────────────────────────────────────
+// 克制。现代数据产品风里圆角是「分组提示」而不是「装饰」，
+// 所以只留三档，且控件圆角要小于容器圆角（视觉上才不会显得鼓。
+:root {
+  --la-radius-xs: 3px; // 标签、输入框内的角标
+  --la-radius-sm: 5px; // 按钮、输入框、下拉
+  --la-radius-md: 8px; // 卡片、面板
+  --la-radius-lg: 12px; // 弹层、抽屉
+  --la-radius-pill: 999px; // 状态点、胶囊
+}
+
+// ── 阴影 ─────────────────────────────────────────────────────────────────
+// 只保留两级。层级靠边框与留白建立，阴影只用来表达"浮起"（浮层）。
+:root {
+  --la-shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
+  --la-shadow-md: 0 4px 12px -2px rgb(16 24 40 / 8%), 0 2px 4px -2px rgb(16 24 40 / 4%);
+  --la-shadow-lg: 0 12px 32px -8px rgb(16 24 40 / 14%);
+  --la-ring-focus: 0 0 0 3px color-mix(in oklab, var(--el-color-primary) 22%, transparent);
+}
+
+// ── 字号刻度 ─────────────────────────────────────────────────────────────
+// 密集型数据界面需要比常规后台更小的一档，所以从 11px 起步。
+:root {
+  --la-text-2xs: 11px; // 表格数字、轴标签
+  --la-text-xs: 12px; // 次要信息、表头
+  --la-text-sm: 13px; // 正文（默认）
+  --la-text-md: 14px; // 区块标题
+  --la-text-lg: 16px; // 页面标题
+  --la-text-xl: 20px; // KPI 数值
+  --la-text-2xl: 24px; // 强调数值
+
+  --la-leading-tight: 1.25; // 标题与大数字
+  --la-leading-normal: 1.5; // 正文
+  --la-leading-loose: 1.7; // 表格单元格（上下两行时用）
+}
+
+// ── 表面与描边 ───────────────────────────────────────────────────────────
+// 不用纯白纯黑：纯白在亮屏上会"发光"，纯黑会显脏。
+// 中性色带一点冷调，与项目主色（藏青）同族，整体更协调。
+:root {
+  --la-surface-page: #f7f8fa;
+  --la-surface-card: #fff;
+  --la-surface-sunken: #f2f4f7; // 表头、只读区、轨道底
+  --la-surface-overlay: #fff;
+
+  --la-border-subtle: #eef0f4; // 行分隔线
+  --la-border-default: #e3e6ec; // 卡片/输入框描边
+  --la-border-strong: #d0d5dd; // 需要强调的边界
+}
+
+// ── 语义色（由 Element Plus 主色派生）────────────────────────────────────
+// 关键设计决策：**底色一律淡到 6%~10%**，靠「深色文字 + 左侧色条」表达异常，
+// 而不是靠大面积高饱和底色。满屏高亮会让视线无处落，异常反而看不出来。
+:root {
+  --la-danger-weak: color-mix(in oklab, var(--el-color-danger) 7%, #fff);
+  --la-danger-text: color-mix(in oklab, var(--el-color-danger) 82%, #000);
+  --la-danger-bar: var(--el-color-danger);
+
+  --la-warning-weak: color-mix(in oklab, var(--el-color-warning) 10%, #fff);
+  --la-warning-text: color-mix(in oklab, var(--el-color-warning) 78%, #000);
+
+  --la-success-weak: color-mix(in oklab, var(--el-color-success) 8%, #fff);
+  --la-success-text: color-mix(in oklab, var(--el-color-success) 78%, #000);
+
+  --la-info-weak: color-mix(in oklab, var(--el-color-info) 8%, #fff);
+  --la-info-text: color-mix(in oklab, var(--el-color-info) 78%, #000);
+}
+
+// 暗色下的对应值：底色不再是"淡红"，而是"暗红 + 微亮"，文字用亮色系
+html.dark {
+  --la-surface-page: #0f1115;
+  --la-surface-card: #171a21;
+  --la-surface-sunken: #1e222b;
+  --la-surface-overlay: #1e222b;
+
+  --la-border-subtle: #232833;
+  --la-border-default: #2b313d;
+  --la-border-strong: #3a4252;
+
+  --la-shadow-sm: 0 1px 2px rgb(0 0 0 / 32%);
+  --la-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 42%);
+  --la-shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 55%);
+
+  --la-danger-weak: color-mix(in oklab, var(--el-color-danger) 20%, #171a21);
+  --la-danger-text: color-mix(in oklab, var(--el-color-danger) 62%, #fff);
+  --la-warning-weak: color-mix(in oklab, var(--el-color-warning) 20%, #171a21);
+  --la-warning-text: color-mix(in oklab, var(--el-color-warning) 62%, #fff);
+  --la-success-weak: color-mix(in oklab, var(--el-color-success) 18%, #171a21);
+  --la-success-text: color-mix(in oklab, var(--el-color-success) 62%, #fff);
+  --la-info-weak: color-mix(in oklab, var(--el-color-info) 18%, #171a21);
+  --la-info-text: color-mix(in oklab, var(--el-color-info) 62%, #fff);
+}
+
+// ── 数字排版工具类 ───────────────────────────────────────────────────────
+// 放进全局是因为几乎每个数据表格都要用；漏一个就会在某页看到
+// "53.52" 和 "%" 被拆成两行（列宽一窄就换行，非常难看）。
+// tabular-nums 让所有数字等宽，纵向扫读时小数点能对齐 —— 这是数据界面的基本素养。
+:where(.la-num),
+.el-table .cell,
+.el-table .num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+:where(.la-num) {
+  white-space: nowrap;
+}

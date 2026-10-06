@@ -1,3 +1,5 @@
+// tokens 必须排第一：它定义的 --la-* 刻度要被后面的 theme / element-plus 引用
+@use "tokens";
 @use "theme";
 @use "transition";
 @use "element-plus";

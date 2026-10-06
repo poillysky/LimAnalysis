@@ -279,9 +279,10 @@
   flex-direction: column;
   flex: none;
   min-height: 0;
-  background: #fff;
-  border: 1px solid #c6c6c6;
-  border-radius: 4px;
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
+  border-radius: var(--la-radius-md);
+  box-shadow: var(--la-shadow-sm);
   overflow: hidden;
 }
 
@@ -307,8 +308,8 @@
   left: 0;
   width: 3px;
   height: 0.95em;
-  background: #1e4e79;
-  border-radius: 99px;
+  background: var(--el-color-primary);
+  border-radius: var(--la-radius-pill);
 }
 
 .cavity-panel__head span {
@@ -318,12 +319,12 @@
 
 .cavity-table {
   flex: none;
-  --el-table-border-color: #c6c6c6;
-  --el-table-header-bg-color: #1e4e79;
-  --el-table-header-text-color: #fff;
-  --el-table-row-hover-bg-color: #f5f5f5;
-  font-family: Calibri, "Microsoft YaHei", "Segoe UI", sans-serif;
-  font-size: 12px;
+  --el-table-border-color: var(--la-border-subtle);
+  --el-table-header-bg-color: var(--la-surface-sunken);
+  --el-table-header-text-color: var(--el-text-color-regular);
+  --el-table-row-hover-bg-color: var(--la-surface-sunken);
+  font-size: var(--la-text-2xs);
+  line-height: var(--la-leading-loose);
 }
 
 .cavity-table :deep(.el-table__inner-wrapper::before) {
@@ -332,21 +333,44 @@
 
 .cavity-table :deep(.el-table__header-wrapper th.el-table__cell) {
   padding: 0;
-  height: 30px;
-  background: #1e4e79 !important;
-  color: #fff;
-  border-color: #163c5c;
+  height: 28px;
+  background: var(--la-surface-sunken) !important;
+  color: var(--el-text-color-regular);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-bottom: 1px solid var(--la-border-default);
 }
 
 .cavity-table :deep(td.el-table__cell) {
   height: 26px;
-  border-color: #c6c6c6;
+  border-color: var(--la-border-subtle);
+}
+
+// ⚠️ 内边距必须加在 `.cell` 上，**不是** `td` 上 ——
+// Element Plus 的单元格内边距是 `.el-table .cell { padding: 0 12px }`，
+// td 本身没有内边距。之前我误加在 td 上，改了两次都毫无效果（截图字节完全相同）。
+//
+// 为什么要收紧：交叉表有 17 个模穴列，列宽只有 58px。
+// 12px×2 = 24px 内边距吃掉后只剩 34px，装不下 `53.52%`（约 39px），
+// 配合 nowrap 就变成省略号截断 —— 那比换行更糟，数字被整个藏起来了。
+// 收到 4px 后内容区 50px，11px 等宽数字刚好放得下。
+.cavity-table :deep(td.el-table__cell .cell) {
+  padding: 0 var(--la-space-xs);
+  // 数字整体不换行。必须同时配合 element-plus.scss 里对
+  // `.el-table .cell` 的 `word-break: normal` 覆盖 —— Element Plus 默认是
+  // `break-all`，单设 white-space: nowrap 压不住它。
+  white-space: nowrap;
 }
 
 .cavity-table :deep(td.el-table__cell.is-alert) {
-  background: #f4cccc !important;
-  color: #9c0006 !important;
-  font-weight: 700;
+  // 原来是 #f4cccc（浓红粉）+ 字重 700，一屏下来几十个高亮格，
+  // 视线反而找不到真正该看的那个 —— 异常淹没了正常。
+  // 改为：底色淡到 7%、数字用深红、左侧 2px 色条。
+  // 异常依然是"跳出来"的，但不再靠大面积高饱和底色喊叫。
+  background: var(--la-danger-weak) !important;
+  color: var(--la-danger-text) !important;
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--la-danger-bar);
 }
 
 .cavity-table :deep(td.el-table__cell.is-series) {
@@ -359,11 +383,11 @@
 
 .cavity-table :deep(.el-table__fixed),
 .cavity-table :deep(.el-table__fixed-right) {
-  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.06);
+  box-shadow: 2px 0 6px -2px rgb(16 24 40 / 8%);
 }
 
 .cavity-table :deep(.el-table__fixed-right) {
-  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.06);
+  box-shadow: -2px 0 6px -2px rgb(16 24 40 / 8%);
 }
 
 .num {

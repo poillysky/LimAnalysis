@@ -93,7 +93,10 @@ cd backend && .venv/Scripts/python.exe scripts/check.py lint    # 只 lint
 cd backend && .venv/Scripts/python.exe scripts/check.py test    # 只测试
 ```
 - 当前基线：ruff 0 问题 / 148 个 unittest 全过
-- 前端：`pnpm typecheck:strict`（业务 0 错 / 模板层 415 基线）、`pnpm verify:dedup`
+- 前端：
+  - `pnpm typecheck:strict` —— 业务 0 错 / 模板层 415 基线
+  - `pnpm verify:css <改前目录> <改后目录>` —— CSS 产物规则级比对（忽略顺序、归一化 scoped hash）
+  - `pnpm verify:dedup` —— **当前跑不起来**，见下方遗留
 
 ## 五、已知遗留
 
@@ -102,5 +105,14 @@ cd backend && .venv/Scripts/python.exe scripts/check.py test    # 只测试
 - 无 CI（`.github/workflows` 不存在），上述命令仍需人肉记得跑
 - `deploy/docker-compose*.yml` 里 `POSTGRES_PASSWORD: lim` 是硬编码明文
 - 前端模板层 375 个 strict 类型错误待逐步消
-- Sass `@import` 已废弃（Dart Sass 3.0 将移除），
-  `views/*/*.styles/scoped.scss` 的 `@import` 需迁到 `@use`
+- **`pnpm verify:dedup` 已失效**：它要读外部 `LIM_SNAP_DIR` 快照目录，
+  而那是阶段一的一次性产物（临时目录已清理）。要么重建快照，
+  要么把脚本改成自包含（把旧实现内联进去，不依赖外部快照）。
+
+## 六、样式相关约定
+
+- 页面的 `<style>` 外移到 `<页面名>.styles/` 目录，用 `@use "..." as *` 引入
+  （**不要再用 `@import`**，Dart Sass 3.0 会移除它）
+- `popper.scss` 这类需要 teleport 到 body 的样式必须放**非 scoped** 的 `<style>` 块
+- 改任何 `<style>` 内容都会让 Vue 的 scope id（`data-v-xxxxxxxx`）变化，
+  CSS 与 JS 产物文件名随之改变 —— 属正常，但要确认两侧一致
