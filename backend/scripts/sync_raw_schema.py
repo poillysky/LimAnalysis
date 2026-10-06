@@ -9,9 +9,9 @@ BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
 sys.path.insert(0, str(BACKEND))
 
-from app.core.db import refresh_pg_engines, raw_engine  # noqa: E402
-from app.core.sql_ident import unique_idents  # noqa: E402
-from collector.raw_loader import (  # noqa: E402
+from app.core.db import raw_engine, refresh_pg_engines
+from app.core.sql_ident import unique_idents
+from collector.raw_loader import (
     decode_csv,
     drop_stale_columns,
     ensure_conflict_target,
@@ -19,7 +19,6 @@ from collector.raw_loader import (  # noqa: E402
     relax_legacy_primary_key,
     unique_column,
 )
-
 
 SAMPLES = {
     "eagle_rcvr_raw": REPO
@@ -40,7 +39,7 @@ def main() -> None:
         frame = parse_csv(text)
         pk_src = unique_column(frame)
         cols = unique_idents([str(c) for c in frame.columns])
-        rename = {str(s): d for s, d in zip(frame.columns, cols)}
+        rename = dict(zip((str(s) for s in frame.columns), cols, strict=True))
         pk = rename[pk_src]
         relax_legacy_primary_key(raw_engine, table, pk)
         dropped = drop_stale_columns(raw_engine, table, cols)

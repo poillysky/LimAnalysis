@@ -11,9 +11,15 @@ from sqlalchemy import text
 
 from app.core import db as stores
 from app.core.sql_ident import ident, q
-from processor.agg_store import assert_model_runnable, get_model, touch_model_run
 from processor.ads_bi import ads_pg_type, ads_types_match, ensure_ads_for_metabase
-from processor.executor import _as_copy_cell, _copy_rows, _dwh_columns, _dwh_exists, _strip_sql_comments
+from processor.agg_store import assert_model_runnable, get_model, touch_model_run
+from processor.executor import (
+    _as_copy_cell,
+    _copy_rows,
+    _dwh_columns,
+    _dwh_exists,
+    _strip_sql_comments,
+)
 from processor.sql_rewrite import wrap_source_time_window
 
 logger = logging.getLogger(__name__)
@@ -143,7 +149,7 @@ def _rebuild_ads(
         conn.execute(text(f"CREATE TABLE {q(table_i)} ({col_defs})"))
         if rows:
             _copy_rows(conn, table_i, columns, rows)
-    return int(len(rows))
+    return len(rows)
 
 
 def _replace_window(
@@ -188,7 +194,7 @@ def _replace_window(
             for rec in rows:
                 write_rows.append([rec[index[c]] for c in write_cols])
             _copy_rows(conn, table_i, write_cols, write_rows)
-    return int(len(rows))
+    return len(rows)
 
 
 def preview_model(model_id: int, *, hours: int | None = None, limit: int = 200) -> dict:
@@ -219,7 +225,7 @@ def preview_model(model_id: int, *, hours: int | None = None, limit: int = 200) 
         f"SELECT * FROM ({run_sql}) AS _preview LIMIT {int(max(1, min(limit, 500)))}"
     )
     columns, records = _fetch_dwh(limited, {"preview_from": preview_from})
-    rows = [dict(zip(columns, rec)) for rec in records]
+    rows = [dict(zip(columns, rec, strict=True)) for rec in records]
     return {
         "columns": columns,
         "rows": rows,
@@ -262,7 +268,7 @@ def query_ads(model_id: int, *, hours: int | None = None, limit: int = 500) -> d
         f"LIMIT {limited}"
     )
     columns, records = _fetch_dwh(sql, {"preview_from": preview_from})
-    rows = [dict(zip(columns, rec)) for rec in records]
+    rows = [dict(zip(columns, rec, strict=True)) for rec in records]
     return {
         "columns": columns,
         "rows": rows,
@@ -301,7 +307,10 @@ def execute_model(
     target = model["target_table"]
     time_field = model.get("time_field") or "ServerTime"
     time_out = model.get("time_field_name") or "hour"
-    hours = int(backfill_hours if backfill_hours is not None else (model.get("backfill_hours") or 12))
+    raw_hours = (
+        backfill_hours if backfill_hours is not None else (model.get("backfill_hours") or 12)
+    )
+    hours = int(raw_hours)
 
     stores.refresh_pg_engines()
     if not _dwh_exists(source):
@@ -312,7 +321,8 @@ def execute_model(
     type_map.setdefault("etl_at", "datetime")
     mode = "full" if full_refresh or not _dwh_exists(target) else "incremental"
     if mode == "incremental":
-        probe = [ident(f["target_field"]) for f in (model.get("fields") or []) if f.get("target_field")]
+        fields = model.get("fields") or []
+        probe = [ident(f["target_field"]) for f in fields if f.get("target_field")]
         probe.extend([ident(time_out), "etl_at"])
         if not ads_types_match(target, probe, time_out, type_map):
             logger.warning("ads %s column types mismatch model; forcing full refresh", target)
@@ -352,7 +362,7 @@ def execute_model(
             "target_table": target,
             "mode": mode,
             "backfill_hours": hours,
-            "source_rows": int(len(records)),
+            "source_rows": len(records),
             "rows": rows,
             "duration": round(time.time() - started, 3),
             "message": msg,

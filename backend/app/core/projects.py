@@ -93,7 +93,8 @@ def load_machine_catalog() -> dict:
         cleaned = []
         for group in groups:
             name = str(group.get("name") or "").strip()
-            machines = [str(item).strip() for item in (group.get("machines") or []) if str(item).strip()]
+            raw_machines = group.get("machines") or []
+            machines = [str(item).strip() for item in raw_machines if str(item).strip()]
             if name and machines:
                 cleaned.append({"name": name, "machines": machines})
         return {"groups": cleaned or DEFAULT_MACHINE_CATALOG["groups"]}

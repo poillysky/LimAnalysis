@@ -26,8 +26,6 @@ from collector.raw_loader import (
     upsert_dataframe,
 )
 from collector.sfc_client import (
-    AccountError,
-    NetworkUnreachableError,
     SessionExpiredError,
     download_project_csv,
     login_with_pool,
@@ -299,7 +297,7 @@ def _run_job(trigger: str, log_id: int) -> None:
                 session, account, relog = login_with_pool(config, accounts, retry=retry)
                 lines.extend(relog)
                 if session is None:
-                    raise RuntimeError("重新登录失败")
+                    raise RuntimeError("重新登录失败") from exc
             except Exception as exc:
                 add("error", f"{name}: {exc}")
                 _touch_project(project["project_id"], False, 0, str(exc))
@@ -345,7 +343,7 @@ def _sync_project_schema_unlocked(project_id: str, content: bytes) -> dict:
         raise ValueError("CSV 无表头")
     pk_src = unique_column(frame)
     sql_cols = unique_idents([str(c) for c in frame.columns])
-    rename = {str(s): d for s, d in zip(frame.columns, sql_cols)}
+    rename = dict(zip((str(s) for s in frame.columns), sql_cols, strict=True))
     if pk_src not in rename:
         raise ValueError("唯一键列不在 CSV 表头中")
     pk = rename[pk_src]

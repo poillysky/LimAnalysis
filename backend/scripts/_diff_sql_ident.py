@@ -45,7 +45,7 @@ def load_old() -> dict:
     consts = re.search(r"^_FORBIDDEN = re\.compile\([\s\S]*?\)\n", val_src, re.M)
     if not consts:
         raise SystemExit("快照里找不到 _FORBIDDEN")
-    exec(  # noqa: S102 - 差分测试刻意执行旧实现
+    exec(
         consts.group(0) + "\n\n"
         + grab(raw_src, ["ident", "unique_idents", "q", "table_name"]) + "\n\n"
         + grab(val_src, ["is_safe_sql_expression"]),
@@ -88,7 +88,7 @@ UNIQUE_CASES = [
 ]
 for _i in range(120):
     UNIQUE_CASES.append([f"n{_i % 5}" for _ in range(_i % 9)])
-    UNIQUE_CASES.append([f"dup" for _ in range(_i % 7)])
+    UNIQUE_CASES.append(["dup" for _ in range(_i % 7)])
     UNIQUE_CASES.append(["x" * (55 + _i % 20)] * (1 + _i % 4))
 
 TABLE_CASES = [
@@ -128,7 +128,7 @@ def main() -> int:
 
     def cmp(name: str, argname: str, args, olds, news):
         nonlocal checks
-        for a, o, n in zip(args, olds, news):
+        for a, o, n in zip(args, olds, news, strict=True):
             checks += 1
             if o != n:
                 fails.append(f"{name}({argname}={a!r}): 旧={o!r} 新={n!r}")

@@ -1,6 +1,7 @@
+from fastapi import APIRouter
+
 from app.core.response import ok
 from app.modules.exception_monitor.service import list_exceptions
-from fastapi import APIRouter
 
 router = APIRouter(prefix="/exceptions", tags=["exceptions"])
 

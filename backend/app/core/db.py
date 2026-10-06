@@ -1,7 +1,7 @@
-from collections.abc import Generator
 import logging
 import threading
 import time
+from collections.abc import Generator
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine

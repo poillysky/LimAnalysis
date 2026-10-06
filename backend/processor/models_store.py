@@ -211,7 +211,8 @@ def update_model(model_id: int, data: dict) -> dict:
         if "unique_key" in data and data["unique_key"] is not None:
             row.unique_key = ident(str(data["unique_key"]).strip())
         if "incremental_field" in data and data["incremental_field"] is not None:
-            row.incremental_field = ident(str(data["incremental_field"]).strip()) if data["incremental_field"] else ""
+            raw_field = str(data["incremental_field"]).strip()
+            row.incremental_field = ident(raw_field) if raw_field else ""
         if "is_enabled" in data and data["is_enabled"] is not None:
             enabled = bool(data["is_enabled"])
             if enabled and (row.is_draft or not row.sql_path):
@@ -262,7 +263,9 @@ def save_fields(model_id: int, fields: list[dict]) -> dict:
                 "constant_value": str(
                     item.get("constant_value") if item.get("constant_value") is not None else ""
                 ),
-                "sort_order": int(item.get("sort_order") if item.get("sort_order") is not None else idx),
+                "sort_order": int(
+                    item.get("sort_order") if item.get("sort_order") is not None else idx
+                ),
                 "is_required": bool(item.get("is_required")),
                 "description": str(item.get("description") or "")[:500],
             }

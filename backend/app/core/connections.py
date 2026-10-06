@@ -248,7 +248,9 @@ def _clean_metabase(raw, fallback: dict | None = None) -> dict:
     url = str(src.get("url") or base.get("url") or DEFAULT_METABASE["url"]).strip()
     if not url:
         url = DEFAULT_METABASE["url"]
-    username = str(src.get("username") if src.get("username") is not None else base.get("username") or "").strip()
+    username = str(
+        src.get("username") if src.get("username") is not None else base.get("username") or ""
+    ).strip()
     password = src.get("password")
     if password is None or str(password) == "":
         password = base.get("password") or ""

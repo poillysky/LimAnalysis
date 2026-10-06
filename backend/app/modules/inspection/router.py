@@ -1,3 +1,6 @@
+from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
+
 from app.core.inspection import (
     bootstrap,
     image_response,
@@ -11,8 +14,6 @@ from app.core.inspection import (
 )
 from app.core.response import fail, ok
 from app.modules.inspection.schemas import InspectionSettingsIn
-from fastapi import APIRouter, Query
-from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/inspection", tags=["inspection"])
 

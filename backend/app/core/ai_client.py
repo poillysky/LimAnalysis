@@ -142,10 +142,9 @@ def list_ai_models() -> dict[str, Any]:
     base = str(raw.get("base_url") or "").strip()
     if not base:
         return {"ok": False, "error": "请先填写接口地址", "models": []}
-    if not api_key and "11434" not in base:
-        # Ollama 常无 key；其它服务一般需要
-        if not public.get("api_key_set"):
-            return {"ok": False, "error": "请先填写并保存 API Key", "models": []}
+    # Ollama 常无 key；其它服务一般需要
+    if not api_key and "11434" not in base and not public.get("api_key_set"):
+        return {"ok": False, "error": "请先填写并保存 API Key", "models": []}
 
     url = _models_url(base)
     headers = {"Content-Type": "application/json"}

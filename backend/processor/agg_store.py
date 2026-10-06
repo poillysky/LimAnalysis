@@ -284,7 +284,9 @@ def _normalize_fields(fields: list[dict]) -> list[dict]:
                 "aggregate_func": func,
                 "derive_level": int(item.get("derive_level") or level),
                 "formula": str(item.get("formula") or ""),
-                "sort_order": int(item.get("sort_order") if item.get("sort_order") is not None else idx),
+                "sort_order": int(
+                    item.get("sort_order") if item.get("sort_order") is not None else idx
+                ),
                 "description": str(item.get("description") or "")[:500],
             }
         )

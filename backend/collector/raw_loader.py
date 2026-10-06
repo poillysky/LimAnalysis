@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import re
 from io import StringIO
@@ -16,21 +17,21 @@ _BATCH = 1000
 # 以及历史脚本仍按 `from collector.raw_loader import ident` 取用，不必全量改。
 # 实现只有一份（sql_ident），这里只是别名，不存在两份实现漂移的风险。
 __all__ = [
-    "ident",
-    "unique_idents",
-    "q",
-    "table_name",
-    "decode_csv",
-    "parse_csv",
-    "unique_column",
-    "ensure_table",
-    "drop_stale_columns",
-    "purge_empty_pk_rows",
-    "desired_column_order",
     "align_column_order",
-    "relax_legacy_primary_key",
+    "decode_csv",
+    "desired_column_order",
     "drop_competing_unique_indexes",
+    "drop_stale_columns",
     "ensure_conflict_target",
+    "ensure_table",
+    "ident",
+    "parse_csv",
+    "purge_empty_pk_rows",
+    "q",
+    "relax_legacy_primary_key",
+    "table_name",
+    "unique_column",
+    "unique_idents",
     "upsert_dataframe",
 ]
 
@@ -105,10 +106,8 @@ def unique_column(frame: pd.DataFrame) -> str:
 def _existing_columns(engine, table: str) -> list[str]:
     table_i = ident(table)
     inspector = inspect(engine)
-    try:
+    with contextlib.suppress(Exception):
         inspector.clear_cache()
-    except Exception:
-        pass
     if not inspector.has_table(table_i):
         return []
     # 直接查 catalog，避免 SQLAlchemy 反射缓存漏掉刚变更的列
@@ -465,7 +464,7 @@ def upsert_dataframe(frame: pd.DataFrame, prefix: str, project_id: str) -> dict:
     # 中文表头保留为合法 PG 标识符，并消除规范化后的重名
     src_cols = [str(col) for col in frame.columns]
     sql_cols = unique_idents(src_cols)
-    rename = {src: sql for src, sql in zip(src_cols, sql_cols)}
+    rename = dict(zip(src_cols, sql_cols, strict=True))
     pk = rename[pk_src]
     frame = frame.rename(columns=rename)
     columns = sql_cols
@@ -516,7 +515,7 @@ def upsert_dataframe(frame: pd.DataFrame, prefix: str, project_id: str) -> dict:
         else:
             raise
     return {
-        "total": int(len(rows)),
+        "total": len(rows),
         "unique": int(frame[pk].nunique()),
         "table": table,
         "unique_key": pk,

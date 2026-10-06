@@ -1,9 +1,10 @@
-from app.core.response import fail, ok
-from app.core.tokens import issue_session, parse_token
-from app.core.users import authenticate, get_user
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from app.core.response import fail, ok
+from app.core.tokens import issue_session, parse_token
+from app.core.users import authenticate, get_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

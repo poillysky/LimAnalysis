@@ -1,0 +1,93 @@
+# ============================================================================
+# LimAnalysis 后端工具配置（Ruff）
+# ============================================================================
+#
+# 为什么只有 [tool.ruff]、没有 [project]：
+#   运行时依赖的事实来源（source of truth）当前是 requirements.txt，
+#   并且 .venv 是用 `pip install -r requirements.txt` 建的。
+#   这里再写一份 [project.dependencies] 会出现**两个事实来源**，
+#   迟早漂移（改了这边忘了那边 → 本地能跑、新机器装不上）。
+#   所以本文件只承担「工具配置」职责，依赖仍归 requirements.txt。
+#   哪天要把依赖也收进来，请**一次性**迁移并删掉 requirements.txt，
+#   不要长期并存。
+#
+# 为什么 line-length 是 100 而不是 ruff/black 默认的 88：
+#   实测现有代码共 15971 行，>88 的有约 500 行、>100 只有 23 行、最长 124。
+#   定 88 会立刻产生 500 处行宽告警，逼着一轮无关的大规模重排（diff 不可审）。
+#   定 100 只需收拾 23 行，且符合这份代码既有的书写习惯。
+# ============================================================================
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+# 从这些目录解析导入，让 isort 知道 app/collector/processor 是一方包
+src = ["app", "collector", "processor", "tests", "scripts"]
+
+extend-exclude = [
+    ".venv",
+    "refence",          # 历史项目参考源码，不是本仓库的代码，不参与检查
+    "processor/sql_models",  # 生成出来的 .sql，不是 Python 代码
+]
+
+[tool.ruff.lint]
+select = [
+    "E4",    # 导入相关错误：重复导入、通配符导入
+    "E7",    # 语句级错误：与 None 用 == 比较等
+    "E9",    # 运行时错误：语法/IO 级别
+    "E501",  # 行超过 line-length
+    "W",     # 警告（含 W6 无效转义序列 —— 正则里最容易踩）
+    "F",     # pyflakes：未使用导入 / 未定义名 / 重复定义 ← 收益最高
+    "I",     # isort：导入排序与分组
+    "B",     # flake8-bugbear：真实 bug 模式
+    "C4",    # 推导式 / 字面量构造简化
+    "SIM",   # 可简化写法
+    "RUF",   # ruff 自有规则集
+]
+
+ignore = [
+    # ---- 与「这份代码是中文注释的中文项目」直接冲突，必须关 ----
+    "RUF001",  # 字符串里的歧义 Unicode 字符
+    "RUF002",  # docstring 里的歧义 Unicode 字符
+    "RUF003",  # 注释里的歧义 Unicode 字符
+    # 说明：这三个规则会把中文全角标点（，。：）当成「看起来像 ASCII 的歧义字符」。
+    # 本项目的注释、docstring、业务字符串**刻意使用中文**，全角标点是正确写法，
+    # 不是缺陷。开着只会产生成百上千条噪音，把真问题淹掉。
+
+    # ---- 与既有代码约定冲突 ----
+    "E402",    # 模块级 import 不在文件顶部
+    # 说明：scripts/ 下的脚本需要先 sys.path.insert(BACKEND) 才能 import app.*，
+    # 这是脚本的固有写法，不是缺陷。详见 per-file-ignores 的进一步收窄。
+
+    "B008",    # 函数调用作为默认参数
+    # 说明：本项目当前没有用 FastAPI 的 Depends()/Query() 默认参数写法，
+    # 但保留了它以便将来引入依赖注入时不必回来改配置。
+
+    "SIM118",  # 把 `x in d.keys()` 简写成 `x in d` —— ⚠️ 对非 dict 是误报
+    # 说明：这条规则假设带 .keys() 的对象是 dict。但本项目在多处对
+    # **SQLAlchemy CursorResult** 用 .keys() 取列名，例如
+    # processor/executor.py 与 processor/agg_executor.py：
+    #
+    #     result = conn.execute(text(sql), params)      # CursorResult，不是 dict
+    #     columns = [ident(str(k)) for k in result.keys()]   # ← 这里取【列名】
+    #     rows    = [[... for v in rec] for rec in result]   # ← 这里遍历【数据行】
+    #
+    # 同一对象相邻两行用途不同：`.keys()` 给列名、直接迭代给行对象。
+    # 按 ruff 的建议删掉 `.keys()`，第 278 行就会把 Row 对象当列名用，
+    # 静默产出垃圾列名并写坏下游表结构。
+    # 这不是风格偏好，是**必须关掉的误报**。
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 脚本要先把 backend 加进 sys.path 再 import 一方包，E402 属于必需
+"scripts/*.py" = ["E402"]
+
+# 测试里允许用 assert，也允许较长的一次性构造
+"tests/*.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "collector", "processor"]
+
+[tool.ruff.lint.flake8-bugbear]
+# 视为不可变、可安全作为默认值的内置调用
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Header"]

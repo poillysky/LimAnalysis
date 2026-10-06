@@ -94,16 +94,16 @@ class StaleRequeueTest(_JobTestBase):
         # B 在 A 启动后才领到 10:00:05 的任务（绝不能动）。
         self._add_jobs(
             [
-                dict(id=1, job_type="sfc_crawl", status="running",
-                     started_at="2026-10-06 09:50:00", message="running"),
-                dict(id=2, job_type="sfc_crawl", status="running",
-                     started_at="2026-10-06 10:00:05", message="running"),
-                dict(id=3, job_type="sfc_crawl", status="running",
-                     started_at="", message="running"),
-                dict(id=4, job_type="sfc_crawl", status="queued",
-                     started_at="", message=""),
-                dict(id=5, job_type="sfc_upload", status="running",
-                     started_at="2026-10-06 09:40:00", message="running"),
+                {"id": 1, "job_type": "sfc_crawl", "status": "running",
+                     "started_at": "2026-10-06 09:50:00", "message": "running"},
+                {"id": 2, "job_type": "sfc_crawl", "status": "running",
+                     "started_at": "2026-10-06 10:00:05", "message": "running"},
+                {"id": 3, "job_type": "sfc_crawl", "status": "running",
+                     "started_at": "", "message": "running"},
+                {"id": 4, "job_type": "sfc_crawl", "status": "queued",
+                     "started_at": "", "message": ""},
+                {"id": 5, "job_type": "sfc_upload", "status": "running",
+                     "started_at": "2026-10-06 09:40:00", "message": "running"},
             ]
         )
 
@@ -176,7 +176,7 @@ class ClaimNextJobTest(_JobTestBase):
     def test_claim_marks_running_with_started_at(self) -> None:
         from collector.jobs import claim_next_job
 
-        self._add_jobs([dict(id=1, job_type="sfc_crawl", status="queued", message="")])
+        self._add_jobs([{"id": 1, "job_type": "sfc_crawl", "status": "queued", "message": ""}])
         got = claim_next_job(("sfc_crawl",))
         self.assertIsNotNone(got)
         self.assertEqual(got["status"], "running")

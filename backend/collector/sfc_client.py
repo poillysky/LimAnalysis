@@ -132,7 +132,9 @@ def login_with_pool(config: dict, accounts: list[dict], retry: int = 3):
     return None, None, logs
 
 
-def download_project_csv(session: requests.Session, config: dict, project: dict, retry: int = 3) -> bytes:
+def download_project_csv(
+    session: requests.Session, config: dict, project: dict, retry: int = 3
+) -> bytes:
     url = (
         f"{config['sfc_base_url'].rstrip('/')}{config['sfc_data_path']}"
         f"?p={project['sfc_code']}&&type={project['btype']}"
@@ -154,8 +156,14 @@ def download_project_csv(session: requests.Session, config: dict, project: dict,
                 ("__VIEWSTATE", r'name="__VIEWSTATE"[^>]*value="([^"]*)"'),
                 ("__VIEWSTATEGENERATOR", r'name="__VIEWSTATEGENERATOR"[^>]*value="([^"]*)"'),
                 ("__EVENTVALIDATION", r'name="__EVENTVALIDATION"[^>]*value="([^"]*)"'),
-                ("ctl00$pageBody$txtStartTime", r'name="ctl00\$pageBody\$txtStartTime"[^>]*value="([^"]*)"'),
-                ("ctl00$pageBody$txtEndTime", r'name="ctl00\$pageBody\$txtEndTime"[^>]*value="([^"]*)"'),
+                (
+                    "ctl00$pageBody$txtStartTime",
+                    r'name="ctl00\$pageBody\$txtStartTime"[^>]*value="([^"]*)"',
+                ),
+                (
+                    "ctl00$pageBody$txtEndTime",
+                    r'name="ctl00\$pageBody\$txtEndTime"[^>]*value="([^"]*)"',
+                ),
             ):
                 match = re.search(pattern, page.text)
                 if match:

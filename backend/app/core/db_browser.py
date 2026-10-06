@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 
 from sqlalchemy import inspect, text
@@ -48,10 +49,8 @@ def list_tables(target: str) -> list[dict]:
     engine = _engine(target)
     inspector = inspect(engine)
     names = list(inspector.get_table_names())
-    try:
+    with contextlib.suppress(Exception):
         names.extend(inspector.get_view_names())
-    except Exception:
-        pass
     rows = []
     for name in sorted(set(names)):
         try:
@@ -76,10 +75,8 @@ def table_preview(
         raise ValueError("请选择表")
     inspector = inspect(engine)
     existing = set(inspector.get_table_names())
-    try:
+    with contextlib.suppress(Exception):
         existing.update(inspector.get_view_names())
-    except Exception:
-        pass
     if table not in existing:
         raise ValueError("表不存在")
     limit = max(1, min(int(limit or 50), 200))

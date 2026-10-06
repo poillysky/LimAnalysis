@@ -101,7 +101,8 @@ def generate_link_select_sql(
                 level1.append(expr)
                 level1_targets.append(target_field)
         elif mapping_type == "constant":
-            value = str(field.get("constant_value") if field.get("constant_value") is not None else "")
+            raw_value = field.get("constant_value")
+            value = str(raw_value if raw_value is not None else "")
             escaped = value.replace("'", "''")
             typed = coerce_sql_to_field_type(
                 f"'{escaped}'", str(field.get("field_type") or "text")

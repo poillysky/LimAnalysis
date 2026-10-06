@@ -1,11 +1,12 @@
 """AI 模型连接配置。"""
 
-from app.core.ai_client import list_ai_models, test_ai_connection
-from app.core.ai_config import load_ai_config_public, save_ai_config
-from app.core.response import fail, ok
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from app.core.ai_client import list_ai_models, test_ai_connection
+from app.core.ai_config import load_ai_config_public, save_ai_config
+from app.core.response import fail, ok
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 

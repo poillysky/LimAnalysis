@@ -26,7 +26,12 @@ def ads_pg_type(
         return pg_type_for_field_type(normalize_field_type(field_type))
     if col == ident(time_field_name) or col == "etl_at":
         return "TIMESTAMPTZ"
-    if col.endswith("产量") or col.endswith("不良数") or col.endswith("不良率") or col.endswith("良率"):
+    if (
+        col.endswith("产量")
+        or col.endswith("不良数")
+        or col.endswith("不良率")
+        or col.endswith("良率")
+    ):
         return "NUMERIC"
     return "TEXT"
 

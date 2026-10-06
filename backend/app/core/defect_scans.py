@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from app.core.db import MetaSession
-from app.core.defect_store import insert_upload, list_ops as list_pg_ops, query_analysis
+from app.core.defect_store import insert_upload, query_analysis
+from app.core.defect_store import list_ops as list_pg_ops
 from app.core.meta_init import (
     DEFECT_ANALYSIS_ALERT_KEY,
     DEFECT_SCAN_ITEMS_KEY,

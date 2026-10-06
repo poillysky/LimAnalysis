@@ -335,7 +335,9 @@ def _group_rows(sql, params: dict) -> list[dict]:
 
 def _merge_qty_ng(qty_rows: list[dict], ng_rows: list[dict], left: str, right: str) -> list[dict]:
     ng_map = {
-        (str(row.get(left) or "").strip(), str(row.get(right) or "").strip()): int(row.get("ng") or 0)
+        (str(row.get(left) or "").strip(), str(row.get(right) or "").strip()): int(
+            row.get("ng") or 0
+        )
         for row in ng_rows
     }
     out = []

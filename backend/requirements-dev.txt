@@ -1,0 +1,18 @@
+# 开发/校验工具（不参与运行时，生产环境无需安装）
+#
+# 安装：.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+# 若本机 pip 因代理不可用，ruff 可用 scripts/_fetch_ruff.py 单独取二进制：
+#   .venv/Scripts/python.exe scripts/_fetch_ruff.py
+#
+# 为什么单独一个文件而不是塞进 requirements.txt：
+#   生产部署只该装运行时依赖。lint/测试工具混进去会让部署镜像无谓变大，
+#   也会让人误以为「线上需要 ruff」。分成两份，职责清晰。
+
+# 代码检查 + 格式化（lint 规则配置见 pyproject.toml 的 [tool.ruff]）
+ruff>=0.6
+
+# 测试：本项目现在用标准库 unittest，无需 pytest。
+# 之所以不用 pytest 是因为本机 pip 装不上（SSL/代理问题），而 unittest 零依赖、
+# 且足以覆盖现有 148 个用例。若将来网络正常且需要 fixture/参数化，
+# 加回下面这行即可，现有 unittest 用例 pytest 能直接跑：
+# pytest>=8.0

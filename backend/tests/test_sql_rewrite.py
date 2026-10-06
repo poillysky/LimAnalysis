@@ -28,7 +28,10 @@ def _rewrite(sql, *, table="raw_tbl", col="ServerTime", pred=None, strict=False,
 class RewriteSuccessTest(unittest.TestCase):
     def test_simple_select_is_wrapped(self):
         out = _rewrite('SELECT a, b FROM "raw_tbl" WHERE a > 1')
-        self.assertIn('FROM (SELECT * FROM "raw_tbl" WHERE "ServerTime" >= NOW()) AS "raw_tbl"', out)
+        self.assertIn(
+            'FROM (SELECT * FROM "raw_tbl" WHERE "ServerTime" >= NOW()) AS "raw_tbl"',
+            out,
+        )
         self.assertIn("a > 1", out, "原有 WHERE 必须保留")
         self.assertTrue(out.startswith("SELECT a, b "))
 
@@ -42,13 +45,19 @@ class RewriteSuccessTest(unittest.TestCase):
         out = _rewrite(
             'SELECT * FROM (SELECT x FROM "other") t JOIN "raw_tbl" r ON t.x = r.x'
         )
-        self.assertIn('JOIN (SELECT * FROM "raw_tbl" WHERE "ServerTime" >= NOW()) AS "raw_tbl" r', out)
+        self.assertIn(
+            'JOIN (SELECT * FROM "raw_tbl" WHERE "ServerTime" >= NOW()) AS "raw_tbl" r',
+            out,
+        )
         self.assertEqual(out.count("AS \"raw_tbl\""), 1)
         self.assertIn('FROM (SELECT x FROM "other") t', out, "子查询不应被改写")
 
     def test_explicit_join_keyword_form(self):
         out = _rewrite('SELECT * FROM "raw_tbl" r JOIN "other" o ON r.id = o.id')
-        self.assertIn('FROM (SELECT * FROM "raw_tbl" WHERE "ServerTime" >= NOW()) AS "raw_tbl" r', out)
+        self.assertIn(
+            'FROM (SELECT * FROM "raw_tbl" WHERE "ServerTime" >= NOW()) AS "raw_tbl" r',
+            out,
+        )
 
     def test_alias_preserved_on_from(self):
         out = _rewrite('SELECT r.a FROM "raw_tbl" r WHERE r.a > 1')
@@ -61,7 +70,10 @@ class RewriteSuccessTest(unittest.TestCase):
 
     def test_join_with_alias_preserved(self):
         out = _rewrite('SELECT * FROM "other" o JOIN "raw_tbl" r ON o.id = r.id')
-        self.assertIn('JOIN (SELECT * FROM "raw_tbl" WHERE "ServerTime" >= NOW()) AS "raw_tbl" r', out)
+        self.assertIn(
+            'JOIN (SELECT * FROM "raw_tbl" WHERE "ServerTime" >= NOW()) AS "raw_tbl" r',
+            out,
+        )
         self.assertIn('FROM "other" o', out)
 
 

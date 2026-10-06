@@ -13,9 +13,9 @@ from app.core.ads_query import (
 )
 from app.core.db import MetaSession
 from app.core.duty_roster import list_roster
-from app.core.personnel import list_persons
 from app.core.meta_init import CAVITY_ALERT_RULES_KEY, init_meta_store
 from app.core.meta_models import MetaSetting
+from app.core.personnel import list_persons
 
 CAVITY_LETTERS = frozenset("ABCDEFGHJKLMNPQR")
 DAY_START_MIN = 7 * 60 + 30

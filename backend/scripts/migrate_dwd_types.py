@@ -9,13 +9,13 @@ BACKEND = Path(__file__).resolve().parents[1]
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from sqlalchemy import text  # noqa: E402
+from sqlalchemy import text
 
-from app.core import db as stores  # noqa: E402
-from app.core.sql_ident import ident, q  # noqa: E402
-from processor.agg_executor import execute_project as agg_exec  # noqa: E402
-from processor.field_types import normalize_field_type, pg_type_for_field_type  # noqa: E402
-from processor.models_store import get_model_by_project, list_models  # noqa: E402
+from app.core import db as stores
+from app.core.sql_ident import ident, q
+from processor.agg_executor import execute_project as agg_exec
+from processor.field_types import normalize_field_type, pg_type_for_field_type
+from processor.models_store import get_model_by_project, list_models
 
 
 def _udt(table: str, col: str) -> str:

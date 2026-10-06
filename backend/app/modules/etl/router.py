@@ -1,10 +1,11 @@
 """数据清洗：字段映射配置 + 投递 etl_clean 任务。"""
 
-from app.core.projects import load_projects
-from app.core.response import fail, ok
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from app.core.projects import load_projects
+from app.core.response import fail, ok
 
 router = APIRouter(prefix="/etl", tags=["etl"])
 

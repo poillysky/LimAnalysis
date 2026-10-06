@@ -15,7 +15,7 @@ from app.core.meta_models import MetaSetting
 from app.core.projects import get_project, load_projects
 
 CAVITY_LETTERS = frozenset("ABCDEFGHJKLMNPQR")
-CAVITY_ORDER = [c for c in "ABCDEFGHJKLMNPQR"]
+CAVITY_ORDER = list("ABCDEFGHJKLMNPQR")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
 TZ = ZoneInfo("Asia/Shanghai")
 VIEWER_STATUSES = ["OK", "定位NG", "底涂不良", "无料NG", "扫码不良", "相机掉线"]

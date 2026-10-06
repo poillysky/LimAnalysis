@@ -115,7 +115,11 @@ def _handle(job: dict) -> None:
     payload = job.get("payload") or {}
     try:
         if job.get("job_type") != JOB_ETL_AGG:
-            finish_job(job_id, status=STATUS_FAILED, message=f"unknown job_type: {job.get('job_type')}")
+            finish_job(
+                job_id,
+                status=STATUS_FAILED,
+                message=f"unknown job_type: {job.get('job_type')}",
+            )
             return
         result = execute_agg(
             project_id=payload.get("project_id"),
@@ -179,7 +183,9 @@ def run_loop(*, poll_seconds: float = 1.0) -> None:
         logger.warning("marked %s stale running jobs as failed", n)
 
     start_agg_scheduler()
-    logger.info("agg worker started (poll=%.1fs, types=%s)", poll_seconds, ",".join(AGG_WORKER_TYPES))
+    logger.info(
+        "agg worker started (poll=%.1fs, types=%s)", poll_seconds, ",".join(AGG_WORKER_TYPES)
+    )
 
     while True:
         job = claim_next_job(AGG_WORKER_TYPES)

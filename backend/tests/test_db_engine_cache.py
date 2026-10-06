@@ -11,8 +11,8 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from app.core import db
 import app.core.connections as conn_mod
+from app.core import db
 
 
 class _FakeEngine:

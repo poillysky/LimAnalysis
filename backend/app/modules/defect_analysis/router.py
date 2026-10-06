@@ -1,6 +1,7 @@
+from fastapi import APIRouter
+
 from app.core.response import ok
 from app.modules.defect_analysis.service import get_summary
-from fastapi import APIRouter
 
 router = APIRouter(prefix="/defects", tags=["defects"])
 

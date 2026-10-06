@@ -1,4 +1,13 @@
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+
 from app.core import db as stores
+from app.core.ads_query import (
+    list_query_catalog,
+    query_body_cavity,
+    query_machine_cavity,
+    query_series,
+)
 from app.core.connections import (
     ping_dbweb,
     ping_metabase,
@@ -16,6 +25,26 @@ from app.core.db_browser import (
     table_preview,
     target_info,
 )
+from app.core.duty_roster import (
+    create_roster_entry,
+    delete_roster_entry,
+    list_roster,
+    update_roster_entry,
+)
+from app.core.manual_notices import (
+    delete_manual_notice,
+    list_manual_notices,
+    send_manual_notice,
+)
+from app.core.metabase_embed import board_for_project
+from app.core.personnel import (
+    create_person,
+    delete_person,
+    get_person,
+    list_persons,
+    load_personnel_options,
+    update_person,
+)
 from app.core.projects import (
     create_project,
     delete_project,
@@ -26,20 +55,7 @@ from app.core.projects import (
     save_system_defaults,
     update_project,
 )
-from app.core.duty_roster import (
-    create_roster_entry,
-    delete_roster_entry,
-    list_roster,
-    update_roster_entry,
-)
-from app.core.personnel import (
-    create_person,
-    delete_person,
-    get_person,
-    list_persons,
-    load_personnel_options,
-    update_person,
-)
+from app.core.response import fail, ok
 from app.core.users import (
     create_user,
     delete_user,
@@ -47,30 +63,17 @@ from app.core.users import (
     list_users,
     update_user,
 )
-from app.core.ads_query import (
-    list_query_catalog,
-    query_body_cavity,
-    query_machine_cavity,
-    query_series,
-)
 from app.core.yield_alerts import list_yield_alerts, load_alert_rules, save_alert_rules
-from app.core.manual_notices import (
-    delete_manual_notice,
-    list_manual_notices,
-    send_manual_notice,
-)
-from app.core.metabase_embed import board_for_project
-from app.core.response import fail, ok
 from app.modules.system.schemas import (
     CavityAlertRulesIn,
-    ConnectionTest,
     ConnectionsUpdate,
+    ConnectionTest,
     DbwebTest,
-    MetabaseTest,
     DefaultsUpdate,
     DutyRosterCreate,
     DutyRosterUpdate,
     ManualNoticeCreate,
+    MetabaseTest,
     PersonCreate,
     PersonUpdate,
     ProjectCreate,
@@ -78,8 +81,6 @@ from app.modules.system.schemas import (
     UserCreate,
     UserUpdate,
 )
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/system", tags=["system"])
 

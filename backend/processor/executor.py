@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date, datetime, time as dt_time
+from datetime import date, datetime
+from datetime import time as dt_time
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
@@ -77,7 +78,7 @@ def preview_model(model_id: int, *, limit: int = 50) -> dict:
     stores.refresh_pg_engines()
     limited = f"SELECT * FROM ({sql}) AS _preview LIMIT {int(max(1, min(limit, 200)))}"
     columns, records = _fetch_rows(limited)
-    rows = [dict(zip(columns, rec)) for rec in records]
+    rows = [dict(zip(columns, rec, strict=True)) for rec in records]
     return {"columns": columns, "rows": rows, "sql": sql}
 
 
@@ -282,10 +283,9 @@ def _fetch_rows(sql: str, params: dict | None = None) -> tuple[list[str], list[l
 def _copy_rows(conn, table_i: str, columns: list[str], rows: list[list]) -> None:
     col_sql = ", ".join(q(c) for c in columns)
     raw = conn.connection.driver_connection
-    with raw.cursor() as cur:
-        with cur.copy(f"COPY {q(table_i)} ({col_sql}) FROM STDIN") as copy:
-            for row in rows:
-                copy.write_row(row)
+    with raw.cursor() as cur, cur.copy(f"COPY {q(table_i)} ({col_sql}) FROM STDIN") as copy:
+        for row in rows:
+            copy.write_row(row)
 
 
 def _rebuild_dwh(
@@ -301,7 +301,7 @@ def _rebuild_dwh(
     engine = stores.dwh_engine
     cols = list(columns) or ([pk] if pk else ["etl_at"])
     if pk and pk not in cols:
-        cols = [pk] + cols
+        cols = [pk, *cols]
     if "etl_at" not in cols:
         cols.append("etl_at")
 
@@ -328,7 +328,7 @@ def _rebuild_dwh(
         _copy_rows(conn, table_i, columns, rows)
         if pk and pk in columns:
             conn.execute(text(f"ALTER TABLE {q(table_i)} ADD PRIMARY KEY ({q(pk)})"))
-    return int(len(rows))
+    return len(rows)
 
 
 def _upsert_dwh(
@@ -402,7 +402,7 @@ def _upsert_dwh(
                 ON CONFLICT ({q(pk)}) {conflict}
                 """
             )
-    return int(len(rows))
+    return len(rows)
 
 
 def execute_model(model_id: int, *, full_refresh: bool = False) -> dict:
@@ -431,7 +431,8 @@ def execute_model(model_id: int, *, full_refresh: bool = False) -> dict:
     # 类型与模型不一致时必须全量重建，禁止在 TEXT 表上继续打补丁
     if can_incremental:
         # 先读一列名：用已有 SQL 列序判断（执行前未知列时用模型 target 字段）
-        probe_cols = [ident(f["target_field"]) for f in (model.get("fields") or []) if f.get("target_field")]
+        fields = model.get("fields") or []
+        probe_cols = [ident(f["target_field"]) for f in fields if f.get("target_field")]
         probe_cols.append("etl_at")
         if not _dwh_types_match(target, probe_cols, type_map, unique_key):
             logger.warning("dwd %s column types mismatch model; forcing full refresh", target)
@@ -470,7 +471,7 @@ def execute_model(model_id: int, *, full_refresh: bool = False) -> dict:
             "unique_key": unique_key,
             "mode": mode,
             "watermark": watermark or "",
-            "source_rows": int(len(records)),
+            "source_rows": len(records),
             "rows": rows,
             "duration": round(time.time() - started, 3),
             "message": msg,

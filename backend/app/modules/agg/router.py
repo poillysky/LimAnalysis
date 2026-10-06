@@ -1,10 +1,11 @@
 """数据聚合：DWD → ADS，投递 etl_agg 给独立 Worker。"""
 
-from app.core.projects import load_projects
-from app.core.response import fail, ok
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from app.core.projects import load_projects
+from app.core.response import fail, ok
 
 router = APIRouter(prefix="/agg", tags=["agg"])
 

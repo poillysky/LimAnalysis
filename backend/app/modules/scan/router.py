@@ -1,3 +1,6 @@
+from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi.responses import JSONResponse
+
 from app.core.defect_scans import (
     bootstrap,
     import_sn_file,
@@ -13,8 +16,6 @@ from app.core.defect_scans import (
 from app.core.response import fail, ok
 from app.modules.scan.schemas import DefectScanBatchIn, DefectScanCreate, DefectScanItemsIn
 from app.modules.system.schemas import CavityAlertRulesIn
-from fastapi import APIRouter, File, Form, Query, UploadFile
-from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/scan", tags=["scan"])
 

@@ -13,12 +13,12 @@ _FIELD_NAME = re.compile(r"^[\w\u4e00-\u9fff]+$", re.UNICODE)
 from app.core.sql_ident import is_safe_sql_expression
 
 __all__ = [
-    "is_valid_field_name",
     "is_safe_sql_expression",
-    "validate_field_mapping",
-    "validate_agg_model",
+    "is_valid_field_name",
     "validate_agg_field",
     "validate_agg_fields",
+    "validate_agg_model",
+    "validate_field_mapping",
     "validate_fields",
 ]
 
@@ -36,10 +36,9 @@ def validate_field_mapping(mapping: dict[str, Any]) -> dict[str, Any]:
     target = str(mapping.get("target_field") or "").strip()
     if not target:
         errors.append("缺少目标字段 target_field")
-    elif not is_valid_field_name(target.replace("-", "_")):
-        # 允许经 ident 规范化前的中文名；仅拦空/过长
-        if len(target) > 100:
-            errors.append(f"目标字段名过长: {target}")
+    # 允许经 ident 规范化前的中文名；仅拦空/过长
+    elif not is_valid_field_name(target.replace("-", "_")) and len(target) > 100:
+        errors.append(f"目标字段名过长: {target}")
 
     if mapping_type not in {"direct", "derived", "constant"}:
         errors.append(f"不支持的 mapping_type: {mapping_type}")

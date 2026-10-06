@@ -27,10 +27,10 @@ import re
 
 __all__ = [
     "ident",
-    "unique_idents",
+    "is_safe_sql_expression",
     "q",
     "table_name",
-    "is_safe_sql_expression",
+    "unique_idents",
 ]
 
 
@@ -91,6 +91,4 @@ def is_safe_sql_expression(formula: str) -> bool:
         return False
     if ";" in text:
         return False
-    if "--" in text or "/*" in text:
-        return False
-    return True
+    return not ("--" in text or "/*" in text)

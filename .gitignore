@@ -36,6 +36,11 @@ refence/**/*.csv
 .DS_Store
 Thumbs.db
 
+# 工具缓存 / 下载暂存
+.ruff_cache/
+.codegraph/
+backend/.tmpdl/
+
 # 大文件保护：任何路径下的 sqlite 库/日志都不提交
 *.sqlite
 *.sqlite-shm
