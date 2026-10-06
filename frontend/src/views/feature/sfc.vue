@@ -1223,5 +1223,6 @@ onUnmounted(() => {
 </template>
 
 <style lang="scss" scoped>
-@import "./sfc.styles/scoped.scss";
+// as *：与原 @import 的全局作用域语义一致
+@use "./sfc.styles/scoped.scss" as *;
 </style>

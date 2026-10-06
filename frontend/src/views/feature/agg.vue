@@ -1277,5 +1277,6 @@ onUnmounted(stopRunTimers);
 </template>
 
 <style lang="scss" scoped>
-@import "./agg.styles/scoped.scss";
+// as *：与原 @import 的全局作用域语义一致
+@use "./agg.styles/scoped.scss" as *;
 </style>

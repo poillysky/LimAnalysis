@@ -2057,5 +2057,6 @@ onUnmounted(() => {
 </template>
 
 <style lang="scss" scoped>
-@import "./etl.styles/scoped.scss";
+// as *：与原 @import 的全局作用域语义一致
+@use "./etl.styles/scoped.scss" as *;
 </style>

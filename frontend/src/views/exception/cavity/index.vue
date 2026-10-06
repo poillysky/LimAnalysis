@@ -988,9 +988,11 @@ onUnmounted(() => {
 </template>
 
 <style lang="scss" scoped>
-@import "./index.styles/scoped.scss";
+// as *：与原 @import 的全局作用域语义一致
+@use "./index.styles/scoped.scss" as *;
 </style>
 
 <style lang="scss">
-@import "./index.styles/popper.scss";
+// as *：与原 @import 的全局作用域语义一致
+@use "./index.styles/popper.scss" as *;
 </style>
