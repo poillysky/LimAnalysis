@@ -1,0 +1,373 @@
+// 腔体分析页的组件内样式（原内联在 index.vue 的 <style scoped> 里，
+// 2026-10-06 外移）。样式逐条机械搬移，未做任何视觉改动。
+//
+// 仍由 index.vue 的 scoped 属性保证隔离，定位上下文（data-v-xxx）与搬移前一致。
+
+.cavity-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  min-height: calc(100vh - 86px);
+  height: auto;
+  margin: 0 !important;
+  padding: 10px 12px 12px;
+  background: color-mix(in srgb, var(--el-fill-color-light) 65%, var(--el-bg-color));
+}
+
+.cavity-projects {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  width: 100%;
+  padding: 2px 0 4px;
+}
+
+.cavity-alert-btn {
+  margin-left: auto;
+}
+
+.cavity-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cavity-filter {
+  display: inline-flex;
+  align-items: stretch;
+  height: 32px;
+  min-width: 0;
+  overflow: hidden;
+  background: color-mix(
+    in srgb,
+    var(--el-fill-color-light) 82%,
+    var(--el-bg-color)
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--el-border-color) 48%, transparent);
+  border-radius: 8px;
+}
+
+.cavity-filter:hover {
+  border-color: color-mix(in srgb, var(--el-border-color) 72%, transparent);
+}
+
+.cavity-filter:focus-within {
+  border-color: color-mix(
+    in srgb,
+    var(--el-color-primary) 42%,
+    var(--el-border-color)
+  );
+}
+
+.cavity-filter > span {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  padding: 0 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--el-fill-color) 55%, transparent);
+  border-right: 1px solid
+    color-mix(in srgb, var(--el-border-color) 40%, transparent);
+}
+
+.cavity-filter :deep(.el-select) {
+  width: 156px;
+}
+
+.cavity-filter :deep(.el-select__wrapper) {
+  min-height: 30px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  background: transparent;
+  box-shadow: none !important;
+}
+
+.cavity-filter :deep(.el-select__selection) {
+  min-height: 30px;
+}
+
+.cavity-filter :deep(.el-select__selected-item),
+.cavity-filter :deep(.el-select__placeholder) {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 30px;
+  color: var(--el-text-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cavity-filter :deep(.el-select__caret) {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.cavity-exclude {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
+  background: color-mix(
+    in srgb,
+    var(--el-fill-color-light) 82%,
+    var(--el-bg-color)
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--el-border-color) 48%, transparent);
+  border-radius: 8px;
+}
+
+.cavity-exclude :deep(.el-checkbox) {
+  height: auto;
+}
+
+.cavity-exclude :deep(.el-checkbox__label) {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+  padding-left: 6px;
+}
+
+.alert-dialog__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.alert-dialog__head strong {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--el-text-color-primary);
+}
+
+.alert-dialog__head span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.alert-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+}
+
+.alert-group + .alert-group {
+  padding-left: 20px;
+  border-left: 1px solid
+    color-mix(in srgb, var(--el-border-color) 70%, transparent);
+}
+
+.alert-group__head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+
+.alert-group__head strong {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #1e4e79;
+}
+
+.alert-group__head span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.alert-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.alert-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 12px;
+  background: color-mix(
+    in srgb,
+    var(--el-fill-color-light) 80%,
+    var(--el-bg-color)
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--el-border-color) 45%, transparent);
+  border-radius: 10px;
+}
+
+.alert-block__title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--el-text-color-primary);
+}
+
+.alert-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 4px;
+  align-items: center;
+}
+
+.alert-field > span {
+  grid-column: 1 / -1;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.alert-field :deep(.el-input-number) {
+  width: 100%;
+}
+
+.alert-field--wide :deep(.el-input-number) {
+  grid-column: 1 / -1;
+}
+
+.alert-field :deep(.el-input-number .el-input__inner) {
+  font-variant-numeric: tabular-nums;
+}
+
+.alert-field em {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+@media (max-width: 720px) {
+  .alert-grid,
+  .alert-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .alert-group + .alert-group {
+    margin-top: 14px;
+    padding-top: 14px;
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid
+      color-mix(in srgb, var(--el-border-color) 70%, transparent);
+  }
+}
+
+.cavity-hint {
+  flex: none;
+}
+
+.cavity-panel {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+  background: #fff;
+  border: 1px solid #c6c6c6;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.cavity-panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px 8px;
+}
+
+.cavity-panel__head strong {
+  position: relative;
+  padding-left: 12px;
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.cavity-panel__head strong::before {
+  content: "";
+  position: absolute;
+  top: 0.2em;
+  left: 0;
+  width: 3px;
+  height: 0.95em;
+  background: #1e4e79;
+  border-radius: 99px;
+}
+
+.cavity-panel__head span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.cavity-table {
+  flex: none;
+  --el-table-border-color: #c6c6c6;
+  --el-table-header-bg-color: #1e4e79;
+  --el-table-header-text-color: #fff;
+  --el-table-row-hover-bg-color: #f5f5f5;
+  font-family: Calibri, "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+
+.cavity-table :deep(.el-table__inner-wrapper::before) {
+  display: none;
+}
+
+.cavity-table :deep(.el-table__header-wrapper th.el-table__cell) {
+  padding: 0;
+  height: 30px;
+  background: #1e4e79 !important;
+  color: #fff;
+  border-color: #163c5c;
+}
+
+.cavity-table :deep(td.el-table__cell) {
+  height: 26px;
+  border-color: #c6c6c6;
+}
+
+.cavity-table :deep(td.el-table__cell.is-alert) {
+  background: #f4cccc !important;
+  color: #9c0006 !important;
+  font-weight: 700;
+}
+
+.cavity-table :deep(td.el-table__cell.is-series) {
+  cursor: pointer;
+}
+
+.cavity-table :deep(td.el-table__cell.is-series:hover) {
+  filter: brightness(0.97);
+}
+
+.cavity-table :deep(.el-table__fixed),
+.cavity-table :deep(.el-table__fixed-right) {
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.06);
+}
+
+.cavity-table :deep(.el-table__fixed-right) {
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.06);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+

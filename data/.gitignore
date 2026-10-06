@@ -1,0 +1,9 @@
+*
+!.gitignore
+!raw/
+!raw/.gitkeep
+# meta/ 也留一个占位：根 .gitignore 已声明想保 .gitkeep，
+# 但这里的 `*` 会把它吞掉（子目录 .gitignore 优先级更高）。
+# 只放行目录与 .gitkeep，lim_meta.sqlite 仍被 `*` 挡住。
+!meta/
+!meta/.gitkeep

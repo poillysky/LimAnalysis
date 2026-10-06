@@ -1,0 +1,410 @@
+// 由 agg.vue 的内联 <style> 外移（2026-10-06）。
+// 样式逐条机械搬移，未做任何视觉改动。
+// 仍由 .vue 的 scoped 属性保证隔离。
+
+.etl-page {
+  padding: 4px 2px 16px;
+}
+.etl-page.is-editing {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 132px);
+  max-height: calc(100vh - 132px);
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 0 8px;
+}
+.etl-runbar {
+  margin-bottom: 14px;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+}
+.etl-runbar.is-success {
+  border-color: var(--el-color-success-light-5);
+  background: var(--el-color-success-light-9);
+}
+.etl-runbar.is-failed {
+  border-color: var(--el-color-danger-light-5);
+  background: var(--el-color-danger-light-9);
+}
+.etl-runbar__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.etl-runbar__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 13px;
+}
+.etl-runbar__text {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+.etl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.etl-head__actions {
+  display: flex;
+  gap: 8px;
+}
+.etl-head h2,
+.etl-panel__head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.etl-panel__head h2 {
+  font-size: 16px;
+}
+.etl-head p,
+.etl-panel__head p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.etl-alert {
+  margin-bottom: 12px;
+}
+.etl-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.etl-stat {
+  padding: 14px 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+}
+.etl-stat__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.etl-stat strong {
+  font-size: 22px;
+  font-weight: 700;
+}
+.etl-schedule {
+  margin-bottom: 14px;
+}
+.etl-schedule__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.etl-schedule__head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.etl-schedule__head p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.etl-schedule__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+}
+.etl-schedule__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.etl-schedule__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.etl-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.etl-flow code,
+.etl-schedule__head code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+}
+.etl-flow__arrow {
+  color: var(--el-text-color-placeholder);
+}
+.etl-run-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.etl-run-cell__time {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.etl-result-text {
+  word-break: break-all;
+  line-height: 1.5;
+}
+.etl-panel {
+  padding: 16px 18px 20px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+}
+.etl-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+.etl-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.etl-panel__title h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.etl-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.etl-path code {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+}
+.etl-count {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.etl-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.etl-config-bar {
+  margin-bottom: 8px;
+  padding: 4px 4px 0;
+}
+.etl-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.etl-meta-form :deep(.el-form-item) {
+  margin-bottom: 8px;
+}
+.etl-meta-form :deep(.el-form-item__label) {
+  margin-bottom: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.etl-meta-form :deep(.el-select),
+.etl-meta-form :deep(.el-input-number) {
+  width: 100%;
+}
+.etl-meta-form :deep(.el-form-item__content) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.etl-unit {
+  flex-shrink: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.etl-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.etl-toolbar.sticky {
+  flex-shrink: 0;
+  z-index: 5;
+  padding: 2px 0 8px;
+  background: var(--el-bg-color);
+}
+.etl-toolbar__left,
+.etl-toolbar__right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.etl-search {
+  width: 180px;
+}
+.etl-table-wrap {
+  flex: 1;
+  min-height: 240px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+}
+.etl-fields-table {
+  width: 100%;
+  height: 100%;
+}
+.etl-fields-table :deep(.el-table__inner-wrapper::before) {
+  display: none;
+}
+.etl-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 220px;
+  padding: 24px;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 12px;
+  background: var(--el-fill-color-blank);
+  text-align: center;
+}
+.etl-empty__title {
+  margin: 0;
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+.etl-empty__lead {
+  margin: 0 0 8px;
+  max-width: 36em;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.etl-formula {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.etl-formula :deep(.el-input) {
+  flex: 1;
+  min-width: 0;
+}
+.etl-assist-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding-right: 28px;
+}
+.etl-assist-lead {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+.etl-assist-link {
+  margin-left: 6px;
+  color: var(--el-color-primary);
+}
+.etl-assist-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.etl-assist-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.etl-assist-actions {
+  margin: 12px 0;
+}
+.etl-assist-explain {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--el-color-primary);
+}
+.etl-editor .etl-panel__head,
+.etl-editor .etl-config-bar,
+.etl-editor .etl-tip {
+  flex-shrink: 0;
+}
+.etl-fields-table :deep(.agg-row--dimension td) {
+  background: transparent;
+}
+.etl-fields-table :deep(.agg-row--measure td) {
+  background: color-mix(in srgb, var(--el-color-primary) 4%, transparent);
+}
+.etl-fields-table :deep(.agg-row--derived td) {
+  background: color-mix(in srgb, var(--el-color-warning) 6%, transparent);
+}
+.etl-tip {
+  margin: 8px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.etl-sql-dialog {
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  font-weight: 400;
+}
+.ml-2 {
+  margin-left: 8px;
+}
+@media (max-width: 1100px) {
+  .etl-grid,
+  .etl-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

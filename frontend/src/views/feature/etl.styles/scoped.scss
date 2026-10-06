@@ -1,0 +1,651 @@
+// 由 etl.vue 的内联 <style> 外移（2026-10-06）。
+// 样式逐条机械搬移，未做任何视觉改动。
+// 仍由 .vue 的 scoped 属性保证隔离。
+
+.etl-page {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px 28px;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.etl-runbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin-bottom: 14px;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-bg-color);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 6%);
+}
+
+.etl-runbar.is-running,
+.etl-runbar.is-queued {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+
+.etl-runbar.is-success {
+  border-color: var(--el-color-success-light-5);
+  background: var(--el-color-success-light-9);
+}
+
+.etl-runbar.is-failed {
+  border-color: var(--el-color-danger-light-5);
+  background: var(--el-color-danger-light-9);
+}
+
+.etl-runbar__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.etl-runbar__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.etl-runbar__meta strong {
+  font-weight: 650;
+  color: var(--el-text-color-primary);
+}
+
+.etl-runbar__text {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--el-text-color-regular);
+  word-break: break-word;
+}
+
+/* 配置态铺满主内容区到底，表格吃掉剩余高度 */
+.etl-page.is-editing.main-content {
+  height: calc(100vh - 132px);
+  max-height: calc(100vh - 132px);
+  margin-bottom: 0;
+  padding: 12px 0 8px;
+  overflow: hidden;
+}
+
+.etl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.etl-head__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.etl-head h2,
+.etl-panel__head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.etl-panel__head h2 {
+  font-size: 16px;
+}
+
+.etl-head p,
+.etl-panel__head p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.etl-alert {
+  margin-bottom: 12px;
+}
+
+.etl-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.etl-stat {
+  padding: 14px 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+}
+
+.etl-stat__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.etl-stat strong {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.etl-schedule {
+  margin-bottom: 14px;
+}
+
+.etl-schedule__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.etl-schedule__head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.etl-schedule__head p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.etl-schedule__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+}
+
+.etl-schedule__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.etl-schedule__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.etl-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.etl-flow code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+}
+
+.etl-flow__arrow {
+  color: var(--el-text-color-placeholder);
+}
+
+.etl-run-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  line-height: 1.4;
+}
+
+.etl-run-cell__time {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+
+.etl-result-text {
+  display: inline-block;
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.etl-list-table {
+  width: 100%;
+}
+
+.etl-list-table :deep(.el-table .cell) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.5;
+}
+
+.etl-panel {
+  padding: 16px 18px 20px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+}
+
+@media (max-width: 900px) {
+  .etl-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.etl-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+
+.etl-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.etl-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.etl-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.etl-count {
+  margin-left: 8px;
+  font-size: 12px;
+}
+
+.etl-src-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.etl-type-grid-wrap {
+  flex: 1;
+  min-height: 240px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.etl-type-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.etl-type-card {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-blank);
+}
+
+.etl-type-card__idx {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  text-align: center;
+}
+
+.etl-type-card__select {
+  width: 120px;
+}
+
+.etl-empty-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 1100px) {
+  .etl-type-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .etl-type-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.etl-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.etl-steps li {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--el-fill-color-lighter);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.etl-steps li.active {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+
+.etl-steps li.done {
+  color: var(--el-color-success);
+}
+
+.etl-config-bar {
+  margin-bottom: 10px;
+  padding: 10px 12px 2px;
+  border-radius: 10px;
+  background: var(--el-fill-color-lighter);
+}
+
+.etl-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px 16px;
+}
+
+.etl-meta-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.etl-enable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.etl-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.etl-toolbar.sticky {
+  flex-shrink: 0;
+  z-index: 5;
+  padding: 4px 0 8px;
+  background: var(--el-bg-color);
+}
+
+.etl-table-wrap {
+  flex: 1;
+  min-height: 240px;
+  overflow: hidden;
+}
+
+.etl-toolbar__left,
+.etl-toolbar__right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.etl-search {
+  width: 180px;
+}
+
+.etl-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 220px;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
+}
+
+.etl-fields-table {
+  width: 100%;
+  height: 100%;
+}
+
+.etl-editor .etl-panel__head,
+.etl-editor .etl-steps,
+.etl-editor .etl-config-bar,
+.etl-editor .etl-tip {
+  flex-shrink: 0;
+}
+
+.etl-formula {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.etl-formula :deep(.el-input) {
+  flex: 1;
+  min-width: 0;
+}
+
+.etl-assist-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding-right: 28px;
+}
+
+.etl-assist-lead {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+
+.etl-assist-link {
+  margin-left: 6px;
+  color: var(--el-color-primary);
+}
+
+.etl-assist-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.etl-assist-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.etl-assist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.etl-assist-editor {
+  min-height: 76px;
+  padding: 8px 11px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+}
+
+.etl-assist-editor:focus {
+  border-color: var(--el-color-primary);
+}
+
+.etl-assist-editor[data-empty="true"]:before {
+  content: attr(data-placeholder);
+  color: var(--el-text-color-placeholder);
+  pointer-events: none;
+}
+
+.etl-assist-editor :deep(.etl-assist-token),
+.etl-assist-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 3px;
+  padding: 0 9px 0 7px;
+  height: 24px;
+  border-radius: 6px;
+  background: #0f766e;
+  color: #fff;
+  border: 2px solid #115e59;
+  box-shadow: 0 0 0 1px #99f6e4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 20px;
+  vertical-align: middle;
+  user-select: none;
+  cursor: default;
+}
+
+.etl-assist-editor :deep(.etl-assist-token__mark),
+.etl-assist-token__mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #5eead4;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 35%);
+  flex-shrink: 0;
+}
+
+@media (max-width: 700px) {
+  .etl-assist-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.etl-assist-actions {
+  margin: 12px 0;
+}
+
+.etl-assist-explain {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--el-color-primary);
+}
+
+.etl-tip {
+  margin: 8px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.etl-tip code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--el-fill-color);
+  font-size: 12px;
+}
+
+.etl-sql-dialog {
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+
+.ml-2 {
+  margin-left: 8px;
+}
+
+@media (max-width: 1100px) {
+  .etl-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .etl-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .etl-panel__head {
+    flex-direction: column;
+  }
+
+  .etl-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

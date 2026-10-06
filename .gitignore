@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.eslintcache
+*.local
+
+# 采集落地与元数据文件
+data/raw/*
+!data/raw/.gitkeep
+data/meta/*
+!data/meta/.gitkeep
+
+# 明文 .env（含真实连接信息）。注意只写 `.env` 会漏掉 `.env.dbweb` 这种带后缀的，
+# 所以补一条通配；但**.example 模板必须留下**（新环境靠它起步）。
+.env
+.env.*
+!.env.example
+!*.env.example
+!.env.dbweb.example
+
+# 参考用的历史项目自带的生产数据导出（单文件 50MB 级），只留源码不留数据。
+# 它们和 data/raw/* 同性质：是采集落地的业务数据，不该进版本库。
+refence/**/*.csv
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 大文件保护：任何路径下的 sqlite 库/日志都不提交
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log

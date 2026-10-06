@@ -1,0 +1,32 @@
+# 数据库 Web 管理（Adminer）：PostgreSQL + SQLite，可读写，可嵌入前端 iframe
+# 1. copy .env.dbweb.example -> .env.dbweb
+# 2. docker compose --env-file .env.dbweb -f docker-compose.dbweb.yml up -d
+# 3. 前端「功能管理 → 数据浏览」
+#
+# SQLite：容器内路径 /data/meta/lim_meta.sqlite（已挂载仓库 data/meta）
+# PostgreSQL：登录时选 PostgreSQL，填外部连接里的主机/库/账号
+
+services:
+  adminer:
+    image: adminer:4
+    container_name: lim-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: ${ADMINER_DEFAULT_SERVER:-192.168.2.38:15432}
+      ADMINER_DESIGN: pepa-linha
+    volumes:
+      # 元数据 SQLite：可读写
+      - ../data/meta:/data/meta
+    expose:
+      - "8080"
+
+  adminer-proxy:
+    image: nginx:alpine
+    container_name: lim-adminer-proxy
+    restart: unless-stopped
+    depends_on:
+      - adminer
+    ports:
+      - "${DBWEB_PORT:-8080}:80"
+    volumes:
+      - ./dbweb/nginx.conf:/etc/nginx/conf.d/default.conf:ro

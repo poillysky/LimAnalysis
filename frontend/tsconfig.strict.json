@@ -1,0 +1,19 @@
+{
+  "// 说明": "全量 strict 类型检查。tsconfig.strict.json 的 include 只限制入口文件、不限制依赖图，TS 仍会把被 import 的文件一并纳入检查 —— 所以这里改成全量 include，改用 scripts/typecheck-strict.mjs 做「业务目录零容忍 + 模板层基线」的分级守卫。",
+  "// 用法": "pnpm typecheck:strict（改代码后必跑；退出码非 0 即为回归）",
+  "// 现状": "开启 strict 后全量 394 个错误，其中 392 个在 pure-admin 模板层，2 个在模板自带的 views/login。业务目录（views 除 login / api / utils 业务文件 / composables）已经是 0 错误。",
+  "// 模板层不是不管，是记账": "基线记在 scripts/typecheck-strict-baseline.json 里，只允许减少不许增长；模板层升级或改造时顺手修一批，基线自动下调。",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "strictFunctionTypes": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "types": ["node", "vite/client", "element-plus/global"]
+  },
+  "// 注意": "include 必须带上 types/*.d.ts，否则 shims-vue.d.ts 里的 `*.svg?component` 声明不生效，views/error/*.vue 会误报 TS2307。",
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "types/*.d.ts"]
+}

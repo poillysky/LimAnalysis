@@ -1,0 +1,44 @@
+# 原始库 / 处理后库 / 次品库：三个独立 Postgres 容器
+# 元数据：仓库 data/meta/lim_meta.sqlite（不在容器里）
+
+services:
+  postgres-raw:
+    image: postgres:16-alpine
+    container_name: lim-raw
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: lim
+      POSTGRES_PASSWORD: lim
+      POSTGRES_DB: lim_raw
+    volumes:
+      - lim_raw:/var/lib/postgresql/data
+
+  postgres-dwh:
+    image: postgres:16-alpine
+    container_name: lim-dwh
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: lim
+      POSTGRES_PASSWORD: lim
+      POSTGRES_DB: lim_dwh
+    volumes:
+      - lim_dwh:/var/lib/postgresql/data
+
+  postgres-defect:
+    image: postgres:16-alpine
+    container_name: lim-defect
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: lim
+      POSTGRES_PASSWORD: lim
+      POSTGRES_DB: lim_defect
+    volumes:
+      - lim_defect:/var/lib/postgresql/data
+
+volumes:
+  lim_raw:
+  lim_dwh:
+  lim_defect:

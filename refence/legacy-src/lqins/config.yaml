@@ -1,0 +1,81 @@
+# NAS工业图片自动化归档与巡机审核系统配置文件
+#
+# Docker 部署说明：
+# - 源数据、归档目录在 docker-compose 中独立挂载（见 SOURCE_DATA_PATH / ARCHIVE_DATA_PATH）
+# - 容器内路径保持 data/source、data/archive 即可
+# - 数据库与日志位于 ./data/data.db、./data/logs（不随 NAS 源/归档卷迁移）
+
+# 路径配置
+paths:
+  # A区原始数据目录
+  source_dir: "data/source"
+  # B区归档目录
+  archive_dir: "data/archive"
+  # 数据库文件路径
+  database: "data/data.db"
+
+# 归档规则配置（历史遗留，当前主流程使用 TransferService 扁平复制，此处规则不会自动生效）
+archive_rules:
+  - name: "项目A - D6穴位01"
+    source_pattern: "D6/*/OK/*.jpg"
+    target_pattern: "项目A/D6/穴位01/{date}/"
+    rename: "{filename}"
+  
+  - name: "项目A - D6穴位02"
+    source_pattern: "D6/*/NG/*.jpg"
+    target_pattern: "项目A/D6/穴位02/{date}/"
+    rename: "{filename}"
+
+# 清理策略配置
+cleanup:
+  # A区保留天数（数据库有归档记录且超期后删除，不要求B区文件仍存在）
+  source_retention_days: 7
+  # B区保留天数（供在线巡机查阅，默认仅保留 1 天）
+  archive_retention_days: 1
+  # 定时清理时间（cron表达式，默认每天凌晨2点）
+  schedule: "0 2 * * *"
+
+# 归档服务配置（watch_enabled 仅作说明；监控开关以配置页「文件转移」为准，默认关闭）
+archive_service:
+  # 实时监听目录（需在配置页手动开启监控）
+  watch_enabled: true
+  # 定时扫描间隔（秒）
+  scan_interval: 300
+  # 归档延迟阈值（分钟）
+  max_delay_minutes: 2
+
+# 巡机审核配置
+inspection:
+  # 每个穴位取最近N张图片（在线巡机：项目下每台机 × 每个穴位各取 N 张）
+  recent_count: 20
+  # 判定后自动翻页
+  auto_next: true
+  # 图片浏览模式（single=单图模式）
+  image_mode: "single"
+  # 缺陷类型定义
+  defect_types:
+    1: "合格"
+    2: "缺胶"
+    3: "溢胶"
+    4: "压印"
+    5: "模印"
+    6: "烟囱变形"
+    7: "自定义"
+
+# Web服务配置
+web:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "data/logs/app.log"
+  max_size_mb: 50
+  backup_count: 10
+
+# 机台客户端心跳
+client_heartbeat:
+  # 超过该秒数未收到心跳则判定离线
+  timeout_seconds: 60
