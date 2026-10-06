@@ -320,8 +320,11 @@
 .cavity-table {
   flex: none;
   --el-table-border-color: var(--la-border-subtle);
-  --el-table-header-bg-color: var(--la-surface-sunken);
-  --el-table-header-text-color: var(--el-text-color-regular);
+  // 表头保持原来的深藏青实底白字（2026-10-06 试过改成浅底，已按要求还原）。
+  // 深色表头在这类交叉表里有个实际好处：它把「表头」和「数据区」明确分开，
+  // 17 列横向铺开时更容易判断哪一行是表头。
+  --el-table-header-bg-color: #1e4e79;
+  --el-table-header-text-color: #fff;
   --el-table-row-hover-bg-color: var(--la-surface-sunken);
   font-size: var(--la-text-2xs);
   line-height: var(--la-leading-loose);
@@ -333,12 +336,10 @@
 
 .cavity-table :deep(.el-table__header-wrapper th.el-table__cell) {
   padding: 0;
-  height: 28px;
-  background: var(--la-surface-sunken) !important;
-  color: var(--el-text-color-regular);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  border-bottom: 1px solid var(--la-border-default);
+  height: 30px;
+  background: #1e4e79 !important;
+  color: #fff;
+  border-color: #163c5c;
 }
 
 .cavity-table :deep(td.el-table__cell) {

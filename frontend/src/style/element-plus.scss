@@ -206,20 +206,14 @@
   --el-table-header-text-color: var(--el-text-color-regular);
   --el-table-text-color: var(--el-text-color-primary);
   --el-table-row-hover-bg-color: var(--la-surface-sunken);
-  --el-table-header-bg-color: var(--la-surface-sunken);
+  // ⚠️ 这里**刻意不覆盖**表头底色/字色。
+  // 试过统一改成浅底（与页面浅色内容区更协调），但深色表头在数据密集的
+  // 交叉表里更好用：横向铺开十几列时，深色带能明确标出「哪行是表头」，
+  // 数据区则保持安静。所以交回 Element Plus 默认 + 页面自身定义。
   --el-table-current-row-bg-color: color-mix(in oklab, var(--el-color-primary) 6%, #fff);
 
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
-}
-
-// 表头：去掉重底色，用「浅底 + 稍高字重 + 细底边」表达层级
-.el-table th.el-table__cell {
-  background: var(--la-surface-sunken);
-  font-weight: 600;
-  font-size: var(--la-text-xs);
-  color: var(--el-text-color-regular);
-  letter-spacing: 0.01em;
 }
 
 // 单元格：数字不换行 —— 列宽稍窄时 "53.52 %" 会被拆成两行，非常难看
