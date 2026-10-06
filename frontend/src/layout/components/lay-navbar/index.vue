@@ -80,6 +80,14 @@ const {
   width: 100%;
   height: 48px;
   overflow: hidden;
+  // 顶栏原本是透明的，与下方白色内容区糊在一起、看不出这是一块独立区域。
+  // 加一层极浅冷灰底 + 1px 分隔线：既能立刻分清「顶栏 / 内容」，
+  // 又和左侧深色 logo 块形成「深-浅」对比而不至于头重脚轻。
+  // 用 token 而非写死色值 —— 暗色主题下会自动取对应的深色档。
+  background: var(--la-surface-sunken);
+  border-bottom: 1px solid var(--la-border-subtle);
+  // 顶栏内容贴到分隔线时会显得压线，留 1px 让开
+  box-sizing: border-box;
 
   .hamburger-container {
     float: left;
