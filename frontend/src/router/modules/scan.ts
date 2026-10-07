@@ -8,7 +8,7 @@ export default {
   meta: {
     icon: "ri/qr-scan-2-line",
     title: "扫码分析",
-    rank: 5
+    rank: 4
   },
   children: [
     {
@@ -16,7 +16,7 @@ export default {
       name: "ScanDefect",
       component: () => import("@/views/scan/defect.vue"),
       meta: {
-        title: "次品扫码",
+        title: "人工外观次品扫码",
         icon: "ri/barcode-line"
       }
     },
@@ -25,7 +25,7 @@ export default {
       name: "ScanDefectAnalysis",
       component: () => import("@/views/scan/analysis.vue"),
       meta: {
-        title: "次品分析",
+        title: "人工外观次品分析",
         icon: "ri/grid-line"
       }
     }

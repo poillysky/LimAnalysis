@@ -102,6 +102,15 @@ export default {
       }
     },
     {
+      path: "/feature/disk-cleanup",
+      name: "FeatureDiskCleanup",
+      component: () => import("@/views/feature/disk-cleanup.vue"),
+      meta: {
+        title: "磁盘清理",
+        icon: "ri/hard-drive-2-line"
+      }
+    },
+    {
       path: "/feature/scan-defects",
       name: "FeatureScanDefects",
       component: () => import("@/views/feature/scan-defects.vue"),

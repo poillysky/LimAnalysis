@@ -25,6 +25,11 @@ from app.core.db_browser import (
     table_preview,
     target_info,
 )
+from app.core.disk_cleanup import (
+    request_disk_cleanup,
+    save_disk_cleanup_config,
+    status_payload,
+)
 from app.core.duty_roster import (
     create_roster_entry,
     delete_roster_entry,
@@ -70,6 +75,7 @@ from app.modules.system.schemas import (
     ConnectionTest,
     DbwebTest,
     DefaultsUpdate,
+    DiskCleanupUpdate,
     DutyRosterCreate,
     DutyRosterUpdate,
     ManualNoticeCreate,
@@ -297,6 +303,31 @@ def alert_rules_get():
 @router.put("/alert-rules")
 def alert_rules_put(body: CavityAlertRulesIn):
     return ok(save_alert_rules(body.model_dump()))
+
+
+@router.get("/disk-cleanup")
+def disk_cleanup_get():
+    try:
+        return ok(status_payload())
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
+
+
+@router.put("/disk-cleanup")
+def disk_cleanup_put(body: DiskCleanupUpdate):
+    try:
+        config = save_disk_cleanup_config(body.model_dump(exclude_unset=True))
+        return ok({"config": config})
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
+
+
+@router.post("/disk-cleanup/run")
+def disk_cleanup_run():
+    result = request_disk_cleanup(trigger="manual")
+    if not result.get("accepted"):
+        return JSONResponse(fail(result.get("message") or "无法入队"), status_code=409)
+    return ok(result)
 
 
 @router.get("/db/{target}/info")

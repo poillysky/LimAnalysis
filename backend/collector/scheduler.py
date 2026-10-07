@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.sfc_config import load_sfc_config
@@ -91,6 +92,48 @@ def _tick_etl() -> None:
     logger.info("enqueue etl: %s", result.get("message"))
 
 
+def _tick_disk_cleanup() -> None:
+    """每天定点投递磁盘清理（实际清理在 Worker）。"""
+    from app.core.disk_cleanup import load_disk_cleanup_config, patch_disk_cleanup_config, request_disk_cleanup
+    from collector.jobs import JOB_DISK_CLEANUP, find_active_job
+
+    config = load_disk_cleanup_config()
+    if not config.get("enabled"):
+        return
+    if find_active_job(JOB_DISK_CLEANUP):
+        return
+    now = datetime.now()
+    run_hour = int(config.get("run_hour") or 3)
+    if now.hour != run_hour:
+        return
+    today = now.strftime("%Y-%m-%d")
+    last = str(config.get("last_run_time") or "")
+    if last.startswith(today):
+        return
+
+    logger.info("定时投递磁盘清理任务")
+    result = request_disk_cleanup(trigger="auto")
+    stamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    if result.get("accepted"):
+        patch_disk_cleanup_config(
+            {
+                "last_run_time": stamp,
+                "last_run_status": "queued",
+                "last_run_message": result.get("message")
+                or f"job #{result.get('job_id')}",
+            }
+        )
+    else:
+        patch_disk_cleanup_config(
+            {
+                "last_run_time": stamp,
+                "last_run_status": "busy",
+                "last_run_message": result.get("message") or "已有任务在跑",
+            }
+        )
+    logger.info("enqueue disk_cleanup: %s", result.get("message"))
+
+
 def start_scheduler() -> None:
     global _scheduler
     if _scheduler and _scheduler.running:
@@ -112,5 +155,14 @@ def start_scheduler() -> None:
         max_instances=1,
         coalesce=True,
     )
+    # 每小时整点检查一次是否到了配置的 run_hour（配置变更无需重载调度器）
+    _scheduler.add_job(
+        _tick_disk_cleanup,
+        CronTrigger(minute=0, timezone="Asia/Shanghai"),
+        id="disk_cleanup_check",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     _scheduler.start()
-    logger.info("调度器已启动（SFC 采集 + ETL 清洗，仅投递队列）")
+    logger.info("调度器已启动（SFC 采集 + ETL 清洗 + 磁盘清理，仅投递队列）")

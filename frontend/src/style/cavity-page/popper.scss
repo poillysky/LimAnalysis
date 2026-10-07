@@ -1,8 +1,7 @@
-// 腔体筛选下拉浮层的样式。
+// 交叉表页筛选下拉浮层（模穴预警 / 扫码次品分析共用）。
 //
 // ⚠️ 必须是**非 scoped** 的：Element Plus 的 select popper 通过
 // teleport 挂到 body 下，scoped 加的 data-v-xxx 属性选择器根本匹配不到它。
-// 这是刻意的，不是漏写 —— 原 index.vue 里也是独立的第二个 `<style>`（无 scoped）。
 //
 // 所有选择器都以 `.cavity-filter-popper` 打头，不会泄漏到其他页面。
 

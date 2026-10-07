@@ -8,7 +8,7 @@ export default {
   meta: {
     icon: "ri/dashboard-fill",
     title: "数据看板",
-    rank: 2
+    rank: 3
   },
   children: [
     {
@@ -16,7 +16,7 @@ export default {
       name: "ExceptionMonitor",
       component: () => import("@/views/exception/monitor/index.vue"),
       meta: {
-        title: "数据看板",
+        title: "自动外观数据看板",
         icon: "ri/dashboard-line"
       }
     },
@@ -33,7 +33,7 @@ export default {
       name: "ExceptionCavity",
       component: () => import("@/views/exception/cavity/index.vue"),
       meta: {
-        title: "机台模穴良率",
+        title: "自动外观数据分析",
         icon: "ri/grid-line"
       }
     }

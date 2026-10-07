@@ -8,7 +8,7 @@ export default {
   meta: {
     icon: "ri/notification-3-fill",
     title: "通知中心",
-    rank: 3
+    rank: 1
   },
   children: [
     {

@@ -1,7 +1,5 @@
-// 腔体分析页的组件内样式（原内联在 index.vue 的 <style scoped> 里，
-// 2026-10-06 外移）。样式逐条机械搬移，未做任何视觉改动。
-//
-// 仍由 index.vue 的 scoped 属性保证隔离，定位上下文（data-v-xxx）与搬移前一致。
+// 交叉表页共享样式：模穴预警（exception/cavity）与扫码次品分析（scan/analysis）。
+// 由各页面 <style scoped> @use，靠 Vue scoped 属性隔离。
 
 .cavity-page {
   display: flex;

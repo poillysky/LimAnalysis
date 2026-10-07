@@ -26,10 +26,22 @@ DEFECT_SCAN_ITEMS_KEY = "defect_scan_items"
 CAVITY_ALERT_RULES_KEY = "cavity_alert_rules"
 DEFECT_ANALYSIS_ALERT_KEY = "defect_analysis_alert"
 INSPECTION_KEY = "inspection"
+DISK_CLEANUP_KEY = "disk_cleanup"
 
 DEFAULT_INSPECTION = {
     "mold_root_path": "",
     "appearance_root_path": "",
+}
+
+DEFAULT_DISK_CLEANUP = {
+    "enabled": True,
+    "db_retention_days": 90,
+    "image_retention_days": 90,
+    "run_hour": 3,
+    "last_run_time": "",
+    "last_run_status": "",
+    "last_run_message": "",
+    "last_run_result": {},
 }
 
 # 代码只放默认值，不含任何项目名单
@@ -136,6 +148,8 @@ def init_meta_store() -> None:
             db.add(MetaSetting(key=ETL_SCHEDULER_KEY, value=DEFAULT_ETL_SCHEDULER))
         if db.get(MetaSetting, AGG_SCHEDULER_KEY) is None:
             db.add(MetaSetting(key=AGG_SCHEDULER_KEY, value=DEFAULT_AGG_SCHEDULER))
+        if db.get(MetaSetting, DISK_CLEANUP_KEY) is None:
+            db.add(MetaSetting(key=DISK_CLEANUP_KEY, value=DEFAULT_DISK_CLEANUP))
         db.commit()
     except Exception:
         db.rollback()

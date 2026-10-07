@@ -6,8 +6,8 @@ LimAnalysis 重任务 Worker（独立进程）。
   python -m collector.worker
 
 职责：
-  - 定时调度：只投递 sfc_crawl 到 meta_jobs
-  - 串行消费：sfc_crawl / sfc_upload / sfc_sync_schema / etl_clean
+  - 定时调度：只投递 sfc_crawl / disk_cleanup 到 meta_jobs
+  - 串行消费：sfc_crawl / sfc_upload / sfc_sync_schema / etl_clean / disk_cleanup
   - 数据聚合 etl_agg 由独立进程 python -m processor.agg_worker 消费
 主 API 进程不应再跑采集、大批量入库或清洗。
 """
@@ -18,6 +18,7 @@ import argparse
 import logging
 import sys
 import time
+from pathlib import Path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,6 +30,7 @@ logger = logging.getLogger("collector.worker")
 def _handle(job: dict) -> None:
     from collector.jobs import (
         JOB_CRAWL,
+        JOB_DISK_CLEANUP,
         JOB_ETL_CLEAN,
         JOB_SYNC_SCHEMA,
         JOB_UPLOAD,
@@ -47,6 +49,37 @@ def _handle(job: dict) -> None:
     job_type = job["job_type"]
     payload = job.get("payload") or {}
     try:
+        if job_type == JOB_DISK_CLEANUP:
+            from datetime import datetime
+
+            from app.core.disk_cleanup import patch_disk_cleanup_config, run_cleanup
+
+            try:
+                result = run_cleanup()
+            except Exception as exc:
+                patch_disk_cleanup_config(
+                    {
+                        "last_run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "last_run_status": "failed",
+                        "last_run_message": str(exc)[:500],
+                    }
+                )
+                raise
+            ok = bool(result.get("ok", True))
+            finish_job(
+                job_id,
+                status=STATUS_SUCCESS if ok else STATUS_FAILED,
+                message=str(result.get("message") or "disk cleanup done")[:500],
+                result=result,
+            )
+            logger.info(
+                "job #%s disk_cleanup ok=%s rows=%s files=%s",
+                job_id,
+                ok,
+                result.get("deleted_rows"),
+                result.get("deleted_files"),
+            )
+            return
         if job_type == JOB_ETL_CLEAN:
             result = execute_etl(
                 project_id=payload.get("project_id"),
@@ -98,11 +131,18 @@ def _handle(job: dict) -> None:
             logger.info("job #%s crawl ok log_id=%s", job_id, result.get("log_id"))
             return
         if job_type == JOB_UPLOAD:
+            file_path = str(payload.get("file_path") or "")
             result = execute_upload_file(
                 str(payload.get("project_id") or ""),
-                str(payload.get("file_path") or ""),
+                file_path,
                 str(payload.get("filename") or ""),
             )
+            # 入库成功后立即删除本地 CSV（失败则保留，与爬虫行为一致）
+            if file_path:
+                try:
+                    Path(file_path).unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("upload csv unlink failed: %s", file_path)
             finish_job(
                 job_id,
                 status=STATUS_SUCCESS,
@@ -193,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--only",
-        choices=("crawl", "upload", "schema", "etl"),
+        choices=("crawl", "upload", "schema", "etl", "cleanup"),
         action="append",
         help="limit job types (repeatable); default all",
     )
@@ -204,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         "upload": "sfc_upload",
         "schema": "sfc_sync_schema",
         "etl": "etl_clean",
+        "cleanup": "disk_cleanup",
     }
     only = tuple(type_map[x] for x in (args.only or [])) or None
     try:

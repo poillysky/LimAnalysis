@@ -505,7 +505,11 @@ onUnmounted(() => {
         aria-label="项目"
         @change="onProjectChange"
       />
-      <el-button class="cavity-rule-btn" @click="openAlertConfig">
+      <el-button
+        class="cavity-alert-btn"
+        size="small"
+        @click="openAlertConfig"
+      >
         显红规则
       </el-button>
     </div>
@@ -584,7 +588,7 @@ onUnmounted(() => {
 
     <section class="cavity-panel">
       <div class="cavity-panel__head">
-        <strong>LIM 机台 × 模穴</strong>
+        <strong>LIM 机台 × 模穴交叉表</strong>
         <span>纵：机台 · 横：模穴 A–R · 不良率 = 次品数 / 原始库产量 · {{ limAlertHint }}</span>
       </div>
       <el-table
@@ -643,7 +647,7 @@ onUnmounted(() => {
 
     <section class="cavity-panel">
       <div class="cavity-panel__head">
-        <strong>本体 × 模穴</strong>
+        <strong>本体 × 模穴交叉表</strong>
         <span>纵：本体第 1 位（模具） · 横：本体第 2 位 1–8 → A–H · {{ bodyAlertHint }}</span>
       </div>
       <el-table
@@ -847,296 +851,10 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
-.cavity-page {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  box-sizing: border-box;
-  min-height: calc(100vh - 86px);
-  margin: 0 !important;
-  padding: 10px 16px 16px;
-}
+<style lang="scss" scoped>
+@use "@/style/cavity-page/scoped.scss" as *;
+</style>
 
-.cavity-projects {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
-.cavity-rule-btn {
-  margin-left: auto;
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.cavity-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.cavity-filter {
-  display: inline-flex;
-  align-items: stretch;
-  height: 32px;
-  overflow: hidden;
-  background: color-mix(
-    in srgb,
-    var(--el-fill-color-light) 82%,
-    var(--el-bg-color)
-  );
-  border: 1px solid color-mix(in srgb, var(--el-border-color) 48%, transparent);
-  border-radius: 8px;
-}
-
-.cavity-filter > span {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  padding: 0 8px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  background: color-mix(in srgb, var(--el-fill-color) 55%, transparent);
-  border-right: 1px solid
-    color-mix(in srgb, var(--el-border-color) 40%, transparent);
-}
-
-.cavity-filter :deep(.el-select) {
-  width: 156px;
-}
-
-.cavity-filter :deep(.el-select__wrapper) {
-  min-height: 30px;
-  height: 30px;
-  padding: 0 8px 0 10px;
-  background: transparent;
-  box-shadow: none !important;
-}
-
-.cavity-exclude {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 10px;
-  background: color-mix(
-    in srgb,
-    var(--el-fill-color-light) 82%,
-    var(--el-bg-color)
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--el-border-color) 48%, transparent);
-  border-radius: 8px;
-}
-
-.cavity-exclude :deep(.el-checkbox) {
-  height: auto;
-}
-
-.cavity-exclude :deep(.el-checkbox__label) {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--el-text-color-primary);
-  padding-left: 6px;
-}
-
-.cavity-hint {
-  margin: 0;
-}
-
-.cavity-panel {
-  background: #fff;
-  border: 1px solid #d5ddd8;
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.cavity-panel__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  padding: 10px 14px 8px;
-}
-
-.cavity-panel__head strong {
-  position: relative;
-  padding-left: 12px;
-  color: var(--el-text-color-primary);
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.cavity-panel__head strong::before {
-  content: "";
-  position: absolute;
-  top: 0.2em;
-  left: 0;
-  width: 3px;
-  height: 0.95em;
-  background: #1e4e79;
-  border-radius: 99px;
-}
-
-.cavity-panel__head span {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.cavity-table {
-  --el-table-border-color: #c6c6c6;
-  --el-table-header-bg-color: #1e4e79;
-  --el-table-header-text-color: #fff;
-  font-family: Calibri, "Microsoft YaHei", "Segoe UI", sans-serif;
-  font-size: 12px;
-}
-
-.cavity-table :deep(.el-table__header-wrapper th.el-table__cell) {
-  padding: 0;
-  height: 30px;
-  background: #1e4e79 !important;
-  color: #fff;
-  border-color: #163c5c;
-  vertical-align: middle;
-}
-
-.cavity-table :deep(td.el-table__cell) {
-  height: 26px;
-  border-color: #c6c6c6;
-  vertical-align: middle;
-}
-
-.cavity-table :deep(.el-table__cell .cell) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 0 4px;
-  line-height: 1.2;
-}
-
-.cavity-table :deep(td.el-table__cell.is-alert) {
-  background: #f4cccc !important;
-  color: #9c0006 !important;
-  font-weight: 700;
-}
-
-.num {
-  font-variant-numeric: tabular-nums;
-}
-
-.alert-dialog__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 12px;
-}
-
-.alert-dialog__head strong {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-
-.alert-dialog__head span {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.alert-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 20px;
-}
-
-.alert-group + .alert-group {
-  padding-left: 20px;
-  border-left: 1px solid
-    color-mix(in srgb, var(--el-border-color) 70%, transparent);
-}
-
-.alert-group__head {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-bottom: 10px;
-}
-
-.alert-group__head strong {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1e4e79;
-}
-
-.alert-group__head span {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.alert-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.alert-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 10px 12px;
-  background: color-mix(
-    in srgb,
-    var(--el-fill-color-light) 80%,
-    var(--el-bg-color)
-  );
-  border: 1px solid color-mix(in srgb, var(--el-border-color) 45%, transparent);
-  border-radius: 10px;
-}
-
-.alert-block__title {
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.alert-field {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  column-gap: 4px;
-  align-items: center;
-}
-
-.alert-field > span {
-  grid-column: 1 / -1;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-}
-
-.alert-field :deep(.el-input-number) {
-  width: 100%;
-}
-
-.alert-field--wide :deep(.el-input-number) {
-  grid-column: 1 / -1;
-}
-
-.alert-field em {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  font-style: normal;
-}
-
-@media (max-width: 720px) {
-  .alert-grid,
-  .alert-pair {
-    grid-template-columns: 1fr;
-  }
-}
+<style lang="scss">
+@use "@/style/cavity-page/popper.scss" as *;
 </style>

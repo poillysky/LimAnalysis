@@ -8,7 +8,7 @@ export default {
   meta: {
     icon: "ri/camera-fill",
     title: "图片查阅",
-    rank: 4
+    rank: 5
   },
   children: [
     {

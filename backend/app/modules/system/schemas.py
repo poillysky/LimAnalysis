@@ -145,3 +145,10 @@ class ConnectionTest(BaseModel):
     database: str = Field(min_length=1, max_length=100)
     username: str = Field(min_length=1, max_length=100)
     password: str = ""
+
+
+class DiskCleanupUpdate(BaseModel):
+    enabled: bool | None = None
+    db_retention_days: int | None = Field(default=None, ge=1, le=3650)
+    image_retention_days: int | None = Field(default=None, ge=1, le=3650)
+    run_hour: int | None = Field(default=None, ge=0, le=23)
