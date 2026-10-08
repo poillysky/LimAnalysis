@@ -44,17 +44,17 @@
 
 推送标签 `V*` / `v*`（如 `V1.0.0`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送：
 
-- `{DOCKERHUB}/limanalysis-frontend:V1.0.0`（及 `:latest`）
-- `{DOCKERHUB}/limanalysis-backend:V1.0.0`（及 `:latest`）
+- `{用户名}/limanalysis-frontend:V1.0.0`（及 `:latest`）
+- `{用户名}/limanalysis-backend:V1.0.0`（及 `:latest`）
 
-仓库 Secrets（你已有 `DOCKERHUB`）：
+仓库 Secrets：
 
 | Secret | 含义 |
 | --- | --- |
-| `DOCKERHUB` | Docker Hub **用户名** |
-| `DOCKERHUB_TOKEN` | Docker Hub **Access Token**（需再建一个；权限 Read & Write） |
+| `DOCKERHUB` | Docker Hub **Access Token**（你已建的这个名字） |
+| `DOCKERHUB_USER` | Docker Hub **用户名**（可选；不填则用 GitHub 仓库 owner，如 `poillysky`） |
 
-Token：Docker Hub → Account Settings → Personal access tokens → Create。
+确认 `DOCKERHUB` 里填的是 Token，不是用户名。Token：Docker Hub → Account Settings → Personal access tokens。
 
 ## 桌面图标（PWA · Windows 独立窗口）
 

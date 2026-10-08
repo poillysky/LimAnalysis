@@ -1,7 +1,7 @@
 # 打标签 V* / v* 或手动触发 → 构建并推送到 Docker Hub
 # Secrets（Settings → Secrets and variables → Actions）：
-#   DOCKERHUB       = Docker Hub 用户名（你已创建）
-#   DOCKERHUB_TOKEN = Docker Hub Access Token（需再建；权限 Read & Write）
+#   DOCKERHUB      = Docker Hub Access Token（你已创建的这个名字）
+#   DOCKERHUB_USER = Docker Hub 用户名（可选；不填则用 GitHub 仓库 owner）
 
 name: Publish Docker Hub
 
@@ -40,18 +40,19 @@ jobs:
           else
             TAG="${GITHUB_REF_NAME}"
           fi
+          USER="${{ secrets.DOCKERHUB_USER }}"
+          if [ -z "$USER" ]; then
+            USER="${{ github.repository_owner }}"
+          fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Using tag: ${TAG}"
+          echo "user=${USER}" >> "$GITHUB_OUTPUT"
+          echo "Using tag=${TAG} user=${USER}"
 
       - name: Check Docker Hub secrets
         shell: bash
         run: |
           if [ -z "${{ secrets.DOCKERHUB }}" ]; then
-            echo "::error::缺少 secret DOCKERHUB（Docker Hub 用户名）"
-            exit 1
-          fi
-          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "::error::缺少 secret DOCKERHUB_TOKEN（Docker Hub Access Token）。请在仓库 Settings → Secrets 新建。"
+            echo "::error::缺少 secret DOCKERHUB（填 Docker Hub Access Token）"
             exit 1
           fi
 
@@ -64,8 +65,8 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ steps.meta.outputs.user }}
+          password: ${{ secrets.DOCKERHUB }}
 
       - name: Build & push frontend
         uses: docker/build-push-action@v6
@@ -74,8 +75,8 @@ jobs:
           file: ./frontend/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-            ${{ secrets.DOCKERHUB }}/${{ env.FRONTEND_IMAGE }}:latest
+            ${{ steps.meta.outputs.user }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.user }}/${{ env.FRONTEND_IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -86,15 +87,15 @@ jobs:
           file: ./backend/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-            ${{ secrets.DOCKERHUB }}/${{ env.BACKEND_IMAGE }}:latest
+            ${{ steps.meta.outputs.user }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.user }}/${{ env.BACKEND_IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Summary
         shell: bash
         run: |
-          U="${{ secrets.DOCKERHUB }}"
+          U="${{ steps.meta.outputs.user }}"
           T="${{ steps.meta.outputs.tag }}"
           {
             echo "## Docker Hub"
