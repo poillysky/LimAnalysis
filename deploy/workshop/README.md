@@ -56,6 +56,11 @@
 
 确认 `DOCKERHUB` 里填的是 Token，不是用户名。Token：Docker Hub → Account Settings → Personal access tokens。
 
+## NAS 应用单独部署（`/vol1/1000/Docker/limana`）
+
+只部署 web/api/collector/agg；三库仍用 [`../docker-compose.nas.yml`](../docker-compose.nas.yml)。  
+见 [`../limana/README.md`](../limana/README.md) 与 [`../docker-compose.limana.yml`](../docker-compose.limana.yml)。
+
 ## 桌面图标（PWA · Windows 独立窗口）
 
 前端已支持安装为 **Windows 桌面应用样式**（无浏览器地址栏；Edge 支持标题栏控件叠加）。

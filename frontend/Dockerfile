@@ -8,11 +8,11 @@ RUN corepack enable \
 ARG NPM_REGISTRY=https://registry.npmjs.org
 RUN npm config set registry "${NPM_REGISTRY}"
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm build
+RUN pnpm run build
 
 FROM nginx:stable-alpine AS production-stage
 

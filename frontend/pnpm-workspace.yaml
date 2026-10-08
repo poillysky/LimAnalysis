@@ -1,3 +1,8 @@
+# 单包仓库也必须声明 packages，否则 pnpm 9（Docker）报：packages field missing or empty
+packages:
+  - "."
+
+# pnpm 10+：批准依赖侧构建脚本（与 package.json pnpm.onlyBuiltDependencies 配合）
 allowBuilds:
   esbuild: true
   vue-demi: true
