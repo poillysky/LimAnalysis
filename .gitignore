@@ -26,6 +26,8 @@ data/meta/*
 !*.env.example
 !.env.dbweb.example
 !.env.workshop.example
+# 前端生产构建变量（无密钥），Docker Hub 镜像依赖此文件
+!frontend/.env.production
 
 # 参考用的历史项目自带的生产数据导出（单文件 50MB 级），只留源码不留数据。
 # 它们和 data/raw/* 同性质：是采集落地的业务数据，不该进版本库。

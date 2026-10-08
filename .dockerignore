@@ -25,6 +25,7 @@ docs/
 .env
 .env.*
 !.env.example
+!frontend/.env.production
 frontend/tests
 backend/tests
 backend/.tmpdl
