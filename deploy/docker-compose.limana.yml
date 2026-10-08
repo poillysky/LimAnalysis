@@ -1,97 +1,88 @@
-# LimAnalysis 应用单独部署（不含 Postgres / Adminer / Metabase）
+# LimAnalysis 应用单独部署（一体镜像，不含 Postgres）
 # 数据根：/vol1/1000/Docker/limana
-# 三库沿用已有 NAS 栈：deploy/docker-compose.nas.yml（LimAnalysis）
+# 三库沿用：deploy/docker-compose.nas.yml（LimAnalysis）
 #
 # 准备：
-#   mkdir -p /vol1/1000/Docker/limana/{meta,raw,photos/mold,photos/appearance}
-#   cp deploy/limana/.env.example /vol1/1000/Docker/limana/.env
-#   cp deploy/limana/nginx.conf /vol1/1000/Docker/limana/nginx-web.conf
-#   # 编辑 .env：PG_HOST / CORS_ORIGINS
+#   mkdir -p /vol1/1000/Docker/limana/{meta,raw,zsj,zdwg}
 #
-# 启动（在仓库 deploy 目录）：
-#   docker compose --env-file /vol1/1000/Docker/limana/.env \
-#     -f docker-compose.limana.yml up -d
+# 启动（无需 .env）：
+#   docker compose -f docker-compose.limana.yml pull
+#   docker compose -f docker-compose.limana.yml up -d
 #
-# 访问：
-#   前端 http://<NAS>:${WEB_PORT:-8080}
-#   API  http://<NAS>:${API_PORT:-8000}/api/health
+# 访问：http://<NAS>:8080
+# 图片目录（功能管理）：注塑机 /data/photos/zsj ；自动外观 /data/photos/zdwg
+# PG 连不上时，把下面 host.docker.internal 改成 NAS 局域网 IP
 
-name: ${COMPOSE_PROJECT_NAME:-limana}
+name: limana
 
-x-backend-env: &backend-env
+x-app-env: &app-env
   TZ: Asia/Shanghai
   APP_NAME: LimAnalysis API
   API_PREFIX: /api/v1
-  CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}
-  WORKSHOP_OFFLINE: ${WORKSHOP_OFFLINE:-true}
+  CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
+  WORKSHOP_OFFLINE: "true"
   META_SQLITE_PATH: /data/meta/lim_meta.sqlite
-  RAW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lim}:${POSTGRES_PASSWORD:-lim}@${PG_HOST:-host.docker.internal}:${PG_RAW_PORT:-15432}/lim_raw
-  DWH_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lim}:${POSTGRES_PASSWORD:-lim}@${PG_HOST:-host.docker.internal}:${PG_DWH_PORT:-15433}/lim_dwh
-  DEFECT_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lim}:${POSTGRES_PASSWORD:-lim}@${PG_HOST:-host.docker.internal}:${PG_DEFECT_PORT:-15434}/lim_defect
+  RAW_DATABASE_URL: postgresql+psycopg://lim:lim@host.docker.internal:15432/lim_raw
+  DWH_DATABASE_URL: postgresql+psycopg://lim:lim@host.docker.internal:15433/lim_dwh
+  DEFECT_DATABASE_URL: postgresql+psycopg://lim:lim@host.docker.internal:15434/lim_defect
 
-x-backend-volumes: &backend-volumes
-  - ${DATA_ROOT:-/vol1/1000/Docker/limana}/meta:/data/meta
-  - ${DATA_ROOT:-/vol1/1000/Docker/limana}/raw:/data/raw
-  - ${DATA_ROOT:-/vol1/1000/Docker/limana}/photos:/data/photos
+x-app-volumes: &app-volumes
+  - /vol1/1000/Docker/limana/meta:/data/meta
+  - /vol1/1000/Docker/limana/raw:/data/raw
+  - /vol1/1000/Docker/limana/zsj:/data/photos/zsj
+  - /vol1/1000/Docker/limana/zdwg:/data/photos/zdwg
 
 x-extra-hosts: &extra-hosts
   - "host.docker.internal:host-gateway"
 
 services:
-  api:
-    image: ${DOCKERHUB_USER:-poillysky}/limanalysis-backend:${IMAGE_TAG:-V1.0.0}
-    container_name: limana-api
+  app:
+    image: poillysky/limanalysis:V1.0.0
+    container_name: limana-app
     restart: unless-stopped
-    mem_limit: 1g
+    mem_limit: 1536m
+    command: ["app"]
     extra_hosts: *extra-hosts
     environment:
-      <<: *backend-env
-    volumes: *backend-volumes
+      <<: *app-env
+    volumes: *app-volumes
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "8080:80"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/api/health || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 8
-      start_period: 40s
+      start_period: 45s
 
   collector:
-    image: ${DOCKERHUB_USER:-poillysky}/limanalysis-backend:${IMAGE_TAG:-V1.0.0}
+    image: poillysky/limanalysis:V1.0.0
     container_name: limana-collector
     restart: unless-stopped
     mem_limit: 1g
+    command: ["collector"]
     depends_on:
-      api:
+      app:
         condition: service_healthy
     extra_hosts: *extra-hosts
     environment:
-      <<: *backend-env
-    volumes: *backend-volumes
-    command: ["python", "-m", "collector.worker"]
+      <<: *app-env
+    volumes: *app-volumes
+    healthcheck:
+      disable: true
 
   agg:
-    image: ${DOCKERHUB_USER:-poillysky}/limanalysis-backend:${IMAGE_TAG:-V1.0.0}
+    image: poillysky/limanalysis:V1.0.0
     container_name: limana-agg
     restart: unless-stopped
     mem_limit: 1g
+    command: ["agg"]
     depends_on:
-      api:
+      app:
         condition: service_healthy
     extra_hosts: *extra-hosts
     environment:
-      <<: *backend-env
-    volumes: *backend-volumes
-    command: ["python", "-m", "processor.agg_worker"]
-
-  web:
-    image: ${DOCKERHUB_USER:-poillysky}/limanalysis-frontend:${IMAGE_TAG:-V1.0.0}
-    container_name: limana-web
-    restart: unless-stopped
-    mem_limit: 128m
-    depends_on:
-      - api
-    ports:
-      - "${WEB_PORT:-8080}:80"
-    volumes:
-      - ${DATA_ROOT:-/vol1/1000/Docker/limana}/nginx-web.conf:/etc/nginx/conf.d/default.conf:ro
+      <<: *app-env
+    volumes: *app-volumes
+    healthcheck:
+      disable: true

@@ -1,7 +1,7 @@
-# 打标签 V* / v* 或手动触发 → 构建并推送到 Docker Hub
-# Secrets（Settings → Secrets and variables → Actions）：
-#   DOCKERHUB      = Docker Hub Access Token（你已创建的这个名字）
-#   DOCKERHUB_USER = Docker Hub 用户名（可选；不填则用 GitHub 仓库 owner）
+# 打标签 V* / v* 或手动触发 → 构建一体镜像并推送到 Docker Hub
+# Secrets：
+#   DOCKERHUB      = Docker Hub Access Token
+#   DOCKERHUB_USER = Docker Hub 用户名（可选；默认 github.repository_owner）
 
 name: Publish Docker Hub
 
@@ -21,8 +21,7 @@ permissions:
   contents: read
 
 env:
-  FRONTEND_IMAGE: limanalysis-frontend
-  BACKEND_IMAGE: limanalysis-backend
+  IMAGE_NAME: limanalysis
 
 jobs:
   publish:
@@ -68,27 +67,15 @@ jobs:
           username: ${{ steps.meta.outputs.user }}
           password: ${{ secrets.DOCKERHUB }}
 
-      - name: Build & push frontend
+      - name: Build & push
         uses: docker/build-push-action@v6
         with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
+          context: .
+          file: ./Dockerfile
           push: true
           tags: |
-            ${{ steps.meta.outputs.user }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-            ${{ steps.meta.outputs.user }}/${{ env.FRONTEND_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build & push backend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.user }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-            ${{ steps.meta.outputs.user }}/${{ env.BACKEND_IMAGE }}:latest
+            ${{ steps.meta.outputs.user }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.user }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -99,7 +86,7 @@ jobs:
           T="${{ steps.meta.outputs.tag }}"
           {
             echo "## Docker Hub"
-            echo "- \`${U}/${{ env.FRONTEND_IMAGE }}:${T}\`"
-            echo "- \`${U}/${{ env.BACKEND_IMAGE }}:${T}\`"
+            echo "- \`${U}/${{ env.IMAGE_NAME }}:${T}\`"
             echo "- 同时推送了 \`:latest\`"
+            echo "- 角色：\`app\` / \`api\` / \`collector\` / \`agg\`"
           } >> "$GITHUB_STEP_SUMMARY"

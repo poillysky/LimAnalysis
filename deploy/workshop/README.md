@@ -42,10 +42,10 @@
 
 ## Docker Hub 镜像（GitHub Actions）
 
-推送标签 `V*` / `v*`（如 `V1.0.0`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送：
+推送标签 `V*` / `v*`（如 `V1.0.0`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送一体镜像：
 
-- `{用户名}/limanalysis-frontend:V1.0.0`（及 `:latest`）
-- `{用户名}/limanalysis-backend:V1.0.0`（及 `:latest`）
+- `{用户名}/limanalysis:V1.0.0`（及 `:latest`）
+- 同一镜像角色：`app`（nginx+API）/ `api` / `collector` / `agg`
 
 仓库 Secrets：
 
@@ -58,7 +58,7 @@
 
 ## NAS 应用单独部署（`/vol1/1000/Docker/limana`）
 
-只部署 web/api/collector/agg；三库仍用 [`../docker-compose.nas.yml`](../docker-compose.nas.yml)。  
+一体镜像 `limanalysis`：`app` + `collector` + `agg`；三库仍用 [`../docker-compose.nas.yml`](../docker-compose.nas.yml)。  
 见 [`../limana/README.md`](../limana/README.md) 与 [`../docker-compose.limana.yml`](../docker-compose.limana.yml)。
 
 ## 桌面图标（PWA · Windows 独立窗口）
