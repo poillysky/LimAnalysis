@@ -37,7 +37,7 @@ x-extra-hosts: &extra-hosts
 
 services:
   app:
-    image: poillysky/limanalysis:V1.0.0
+    image: poillysky/limanalysis:V1.0.1
     container_name: limana-app
     restart: unless-stopped
     mem_limit: 1536m
@@ -56,7 +56,7 @@ services:
       start_period: 45s
 
   collector:
-    image: poillysky/limanalysis:V1.0.0
+    image: poillysky/limanalysis:V1.0.1
     container_name: limana-collector
     restart: unless-stopped
     mem_limit: 1g
@@ -72,7 +72,7 @@ services:
       disable: true
 
   agg:
-    image: poillysky/limanalysis:V1.0.0
+    image: poillysky/limanalysis:V1.0.1
     container_name: limana-agg
     restart: unless-stopped
     mem_limit: 1g
