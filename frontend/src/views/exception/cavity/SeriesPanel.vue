@@ -5,9 +5,17 @@ import {
   type QueryFilters,
   type QueryHourRow
 } from "@/api/modules/exception";
+import {
+  getViewerDates,
+  getViewerFolders,
+  getViewerImages,
+  type InspectionImage,
+  type PhotoSource
+} from "@/api/modules/inspection";
 import { backendErrorHint } from "@/api/http";
 import echarts from "@/plugins/echarts";
 import PageTabs from "@/components/PageTabs/index.vue";
+import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 
 const props = defineProps<{
   projectId: string;
@@ -15,12 +23,16 @@ const props = defineProps<{
   filters: QueryFilters;
 }>();
 
+type PaneKey = "chart" | "table" | "mold" | "appearance";
+
 const loading = ref(false);
 const hint = ref("");
-const pane = ref<"chart" | "table">("chart");
+const pane = ref<PaneKey>("chart");
 const paneOptions = [
   { value: "chart", label: "历史曲线" },
-  { value: "table", label: "每小时明细" }
+  { value: "table", label: "每小时明细" },
+  { value: "mold", label: "注塑机图片" },
+  { value: "appearance", label: "自动外观图片" }
 ];
 const metricLabel = ref("不良率");
 const rows = ref<QueryHourRow[]>([]);
@@ -28,6 +40,22 @@ const chartEl = ref<HTMLDivElement | null>(null);
 let chart: ReturnType<typeof echarts.init> | null = null;
 let seriesAbort: AbortController | null = null;
 let resizeObs: ResizeObserver | null = null;
+
+const photoLoading = ref(false);
+const photoHint = ref("");
+const photoImages = ref<InspectionImage[]>([]);
+const photoIndex = ref(0);
+const photoCameras = ref<string[]>([]);
+const photoCamera = ref("");
+const photoCurrent = computed(
+  () => photoImages.value[photoIndex.value] || null
+);
+const photoMachine = computed(() => String(props.filters?.machine || "").trim());
+const photoCavity = computed(() =>
+  String(props.filters?.cavity_letter || props.filters?.cavity || "")
+    .trim()
+    .toUpperCase()
+);
 
 function isAbortError(error: unknown) {
   return (
@@ -335,6 +363,123 @@ async function loadSeries() {
   }
 }
 
+async function ensurePhotoCameras() {
+  if (!props.projectId) {
+    photoCameras.value = [];
+    photoCamera.value = "";
+    return;
+  }
+  const folders = await getViewerFolders(props.projectId, "", "mold").catch(
+    () => null
+  );
+  const cameras = folders?.data?.cameras || [];
+  photoCameras.value = cameras;
+  if (!cameras.length) {
+    photoCamera.value = "";
+    return;
+  }
+  if (!cameras.includes(photoCamera.value)) {
+    photoCamera.value = cameras[0];
+  }
+}
+
+async function collectImages(source: PhotoSource) {
+  const machine = photoMachine.value;
+  const cavity = photoCavity.value;
+  if (!cavity) return [];
+  if (source === "appearance") {
+    const camera = photoCamera.value;
+    if (!camera) return [];
+    const dates = await getViewerDates(
+      props.projectId,
+      machine,
+      "appearance",
+      camera,
+      "mold"
+    ).catch(() => null);
+    const day = dates?.data?.default_date || dates?.data?.dates?.[0] || "";
+    if (!day) return [];
+    const res = await getViewerImages({
+      project_id: props.projectId,
+      machine,
+      cavity,
+      date: day,
+      source: "appearance",
+      dim: "mold",
+      camera
+    });
+    return res?.data?.images || [];
+  }
+  const dates = await getViewerDates(props.projectId, machine, "mold");
+  const day = dates?.data?.default_date || dates?.data?.dates?.[0] || "";
+  if (!day) return [];
+  const res = await getViewerImages({
+    project_id: props.projectId,
+    machine,
+    cavity,
+    date: day,
+    status: "OK",
+    source: "mold"
+  });
+  return res?.data?.images || [];
+}
+
+async function loadPhotos(source: PhotoSource) {
+  photoImages.value = [];
+  photoIndex.value = 0;
+  photoHint.value = "";
+  if (!props.projectId) {
+    photoHint.value = "未选择项目";
+    return;
+  }
+  if (!photoMachine.value) {
+    photoHint.value = "请先点选具体机台单元格后再看图片";
+    return;
+  }
+  if (!photoCavity.value) {
+    photoHint.value =
+      source === "appearance"
+        ? "请先点选具体模穴单元格后再看自动外观图片"
+        : "请先点选具体模穴单元格后再看注塑机图片";
+    return;
+  }
+  photoLoading.value = true;
+  try {
+    if (source === "appearance") {
+      await ensurePhotoCameras();
+      if (!photoCamera.value) {
+        photoHint.value = "没有可用视角";
+        return;
+      }
+    }
+    const images = await collectImages(source);
+    photoImages.value = images;
+    if (!images.length) photoHint.value = "这一天没有找到图片";
+  } catch (error) {
+    photoHint.value = backendErrorHint(error);
+  } finally {
+    photoLoading.value = false;
+  }
+}
+
+function shiftPhoto(step: number) {
+  if (!photoImages.value.length) return;
+  const next = photoIndex.value + step;
+  if (next < 0 || next >= photoImages.value.length) return;
+  photoIndex.value = next;
+}
+
+function onPhotoKey(event: KeyboardEvent) {
+  if (pane.value !== "mold" && pane.value !== "appearance") return;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    shiftPhoto(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    shiftPhoto(1);
+  }
+}
+
 function formatQty(value: number) {
   return Number(value || 0).toLocaleString();
 }
@@ -365,22 +510,39 @@ watch(chartEl, el => {
 });
 
 watch(pane, async value => {
-  if (value !== "chart") return;
-  await nextTick();
-  chart?.resize();
+  if (value === "chart") {
+    await nextTick();
+    chart?.resize();
+    return;
+  }
+  if (value === "mold" || value === "appearance") {
+    await loadPhotos(value);
+  }
 });
 
-onMounted(loadSeries);
+async function onPhotoCameraChange() {
+  if (pane.value !== "appearance") return;
+  await loadPhotos("appearance");
+}
+
+onMounted(() => {
+  loadSeries();
+  window.addEventListener("keydown", onPhotoKey);
+});
 onUnmounted(() => {
   seriesAbort?.abort();
   resizeObs?.disconnect();
   chart?.dispose();
   chart = null;
+  window.removeEventListener("keydown", onPhotoKey);
 });
 </script>
 
 <template>
-  <div class="series-panel" v-loading="loading">
+  <div
+    class="series-panel"
+    v-loading="loading || (photoLoading && (pane === 'mold' || pane === 'appearance'))"
+  >
     <PageTabs
       v-model="pane"
       :options="paneOptions"
@@ -388,7 +550,7 @@ onUnmounted(() => {
       aria-label="历史数据"
     />
     <el-alert
-      v-if="hint"
+      v-if="hint && (pane === 'chart' || pane === 'table')"
       class="series-hint"
       type="warning"
       :closable="false"
@@ -448,6 +610,70 @@ onUnmounted(() => {
           </template>
         </el-table-column>
       </el-table>
+    </section>
+
+    <section
+      v-show="pane === 'mold' || pane === 'appearance'"
+      class="query-panel query-panel--photo"
+    >
+      <div class="query-panel__head">
+        <strong>{{ pane === "mold" ? "注塑机图片" : "自动外观图片" }}</strong>
+        <span v-if="photoMachine">
+          {{ photoMachine
+          }}{{ photoCavity ? ` · ${photoCavity}穴` : "" }}
+        </span>
+        <el-select
+          v-if="pane === 'appearance'"
+          v-model="photoCamera"
+          class="photo-camera"
+          size="small"
+          placeholder="视角"
+          @change="onPhotoCameraChange"
+        >
+          <el-option
+            v-for="code in photoCameras"
+            :key="code"
+            :label="code"
+            :value="code"
+          />
+        </el-select>
+        <span v-if="photoCurrent" class="photo-file">{{ photoCurrent.filename }}</span>
+        <span v-if="photoImages.length" class="photo-count">
+          {{ photoIndex + 1 }} / {{ photoImages.length }}
+        </span>
+        <button
+          type="button"
+          class="photo-reload"
+          @click="loadPhotos(pane === 'mold' ? 'mold' : 'appearance')"
+        >
+          刷新
+        </button>
+      </div>
+      <div class="photo-stage">
+        <p v-if="photoHint" class="photo-empty">{{ photoHint }}</p>
+        <template v-else-if="photoCurrent">
+          <button
+            class="photo-nav is-prev"
+            type="button"
+            :disabled="photoIndex <= 0"
+            aria-label="上一张"
+            @click="shiftPhoto(-1)"
+          >
+            <component :is="useRenderIcon('ri/arrow-left-s-line')" />
+          </button>
+          <img :src="photoCurrent.view_url" :alt="photoCurrent.filename" />
+          <button
+            class="photo-nav is-next"
+            type="button"
+            :disabled="photoIndex >= photoImages.length - 1"
+            aria-label="下一张"
+            @click="shiftPhoto(1)"
+          >
+            <component :is="useRenderIcon('ri/arrow-right-s-line')" />
+          </button>
+        </template>
+        <p v-else-if="!photoLoading" class="photo-empty">暂无图片</p>
+      </div>
     </section>
   </div>
 </template>
@@ -603,5 +829,144 @@ onUnmounted(() => {
 .num {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+}
+
+.query-panel--photo {
+  background: #0b0c10;
+  border: 1px solid #1f2430;
+  border-radius: 0;
+}
+
+.query-panel--photo .query-panel__head {
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #12141a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f4f4f5;
+}
+
+.query-panel--photo .query-panel__head strong {
+  color: #f4f4f5;
+}
+
+.query-panel--photo .query-panel__head strong::before {
+  background: #69b889;
+}
+
+.query-panel--photo .query-panel__head span {
+  color: rgba(244, 244, 245, 0.62);
+}
+
+.photo-camera {
+  width: 132px;
+  flex: none;
+}
+
+.photo-camera :deep(.el-select__wrapper) {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) inset;
+}
+
+.photo-camera :deep(.el-select__placeholder),
+.photo-camera :deep(.el-select__selected-item) {
+  color: #f4f4f5;
+}
+
+.photo-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-count {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #f4f4f5;
+  background: rgba(255, 255, 255, 0.1);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.photo-reload {
+  flex: none;
+  margin-left: auto;
+  border: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: transparent;
+  color: #69b889;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.photo-reload:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.photo-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  background: #0b0c10;
+}
+
+.photo-stage img {
+  max-width: calc(100% - 96px);
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.photo-empty {
+  margin: 0;
+  color: rgba(244, 244, 245, 0.72);
+  font-size: 13px;
+}
+
+.photo-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: #f4f4f5;
+  background: rgba(18, 20, 26, 0.72);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.photo-nav.is-prev {
+  left: 12px;
+}
+
+.photo-nav.is-next {
+  right: 12px;
+}
+
+.photo-nav:hover:not(:disabled) {
+  background: rgba(33, 115, 70, 0.92);
+}
+
+.photo-nav:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.photo-nav :deep(svg) {
+  width: 20px;
+  height: 20px;
 }
 </style>

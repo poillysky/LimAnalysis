@@ -40,7 +40,7 @@ const fields: {
     key: "appearance_root_path",
     label: "自动外观",
     placeholder: "请选择自动外观照片根目录",
-    note: "根目录 / 项目 / 测试机 / 相机 / 日期 / 文件（暂定）"
+    note: "根目录 / 项目 / 测试机 / GVIMAGES / LIM外观检测 / YYYY.MM.DD / 截图 / 视角 / 文件"
   }
 ];
 

@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -61,23 +62,59 @@ def _append_log(log_id: int, **fields) -> None:
         db.close()
 
 
-def _create_log(trigger: str) -> int:
+def _create_log(
+    trigger: str,
+    *,
+    project_id: str = "",
+    project_name: str = "",
+    account: str = "",
+    message: str = "采集进行中",
+) -> int:
     init_meta_store()
     db = MetaSession()
     try:
         row = MetaSfcLog(
             started_at=_now(),
-            trigger=trigger,
+            ended_at="",
+            trigger=str(trigger or "manual")[:20],
             status="running",
-            message="采集进行中",
+            message=str(message or "采集进行中")[:500],
+            project_id=str(project_id or "")[:80],
+            project_name=str(project_name or "")[:120],
+            account=str(account or "")[:80],
+            rows_affected=0,
+            duration=0.0,
             detail={"lines": []},
         )
         db.add(row)
         db.commit()
         db.refresh(row)
-        return row.id
+        return int(row.id)
     finally:
         db.close()
+
+
+def _finish_log(
+    log_id: int,
+    *,
+    status: str,
+    message: str,
+    lines: list[dict] | None = None,
+    rows_affected: int = 0,
+    duration: float = 0.0,
+    account: str | None = None,
+) -> None:
+    fields: dict = {
+        "ended_at": _now(),
+        "status": str(status or "failed")[:20],
+        "message": str(message or "")[:500],
+        "rows_affected": int(rows_affected or 0),
+        "duration": float(duration or 0.0),
+        "detail": {"lines": list(lines or [])[-200:]},
+    }
+    if account is not None:
+        fields["account"] = str(account or "")[:80]
+    _append_log(log_id, **fields)
 
 
 def _touch_project(project_id: str, ok: bool, rows: int, message: str) -> None:
@@ -100,11 +137,15 @@ def _touch_project(project_id: str, ok: bool, rows: int, message: str) -> None:
         db.close()
 
 
-def list_recent_logs(limit: int = 20) -> list[dict]:
+def list_recent_logs(limit: int = 50) -> list[dict]:
     init_meta_store()
     db = MetaSession()
     try:
-        rows = db.scalars(select(MetaSfcLog).order_by(MetaSfcLog.id.desc()).limit(limit)).all()
+        rows = db.scalars(
+            select(MetaSfcLog)
+            .order_by(MetaSfcLog.id.desc())
+            .limit(max(1, min(200, int(limit or 50))))
+        ).all()
         return [
             {
                 "id": row.id,
@@ -113,6 +154,11 @@ def list_recent_logs(limit: int = 20) -> list[dict]:
                 "trigger": row.trigger,
                 "status": row.status,
                 "message": row.message,
+                "project_id": getattr(row, "project_id", "") or "",
+                "project_name": getattr(row, "project_name", "") or "",
+                "account": getattr(row, "account", "") or "",
+                "rows_affected": int(getattr(row, "rows_affected", 0) or 0),
+                "duration": float(getattr(row, "duration", 0) or 0),
                 "detail": row.detail or {},
             }
             for row in rows
@@ -180,10 +226,9 @@ def execute_crawl(trigger: str = "manual") -> dict:
     if config.get("is_running"):
         raise RuntimeError("已有采集在运行（is_running）")
     patch_sfc_config({"is_running": True, "last_run_status": "running"})
-    log_id = _create_log(trigger)
     try:
-        _run_job(trigger, log_id)
-        return {"ok": True, "log_id": log_id, "trigger": trigger}
+        result = _run_job(trigger)
+        return {"ok": True, "trigger": trigger, **result}
     except Exception:
         try:
             patch_sfc_config({"is_running": False, "last_run_status": "failed"})
@@ -206,13 +251,7 @@ def clear_stale_running() -> None:
     logger.warning("已清除残留的 is_running 标记")
 
 
-def _finish_job(
-    log_id: int,
-    *,
-    status: str,
-    message: str,
-    lines: list[dict],
-) -> None:
+def _patch_run_status(status: str) -> None:
     try:
         patch_sfc_config(
             {
@@ -222,97 +261,206 @@ def _finish_job(
             }
         )
     except Exception:
-        logger.exception("清除 is_running 失败")
-    try:
-        _append_log(
-            log_id,
-            ended_at=_now(),
-            status=status,
-            message=message,
-            detail={"lines": lines[-200:]},
-        )
-    except Exception:
-        logger.exception("写采集日志失败")
+        logger.exception("更新采集运行状态失败")
 
 
-def _run_job(trigger: str, log_id: int) -> None:
-    lines = []
+def _run_job(trigger: str) -> dict:
+    """按项目落库日志；登录失败写一条无项目记录。"""
     ok_count = 0
     fail_count = 0
-    status = "failed"
-    message = "采集异常退出"
+    log_ids: list[int] = []
+    account_name = ""
+    run_status = "failed"
 
-    def add(level: str, message_text: str):
+    def line(level: str, message_text: str) -> dict:
         item = {"time": _now(), "level": level, "message": message_text}
-        lines.append(item)
         logger.info("%s %s", level, message_text)
+        return item
 
     try:
         config = load_sfc_config()
         retry = int(config.get("retry") or 3)
         accounts = enabled_accounts_with_password()
         session, account, login_logs = login_with_pool(config, accounts, retry=retry)
-        lines.extend(login_logs)
+        account_name = str((account or {}).get("username") or "")
         if session is None:
             if account:
                 mark_account(account["id"], False, "登录失败")
-            raise RuntimeError("SFC 登录失败")
+            lid = _create_log(
+                trigger,
+                account=account_name,
+                message="SFC 登录失败",
+            )
+            log_ids.append(lid)
+            _finish_log(
+                lid,
+                status="failed",
+                message="SFC 登录失败",
+                lines=list(login_logs or []) + [line("error", "SFC 登录失败")],
+                account=account_name,
+            )
+            run_status = "failed"
+            return {"ok_count": 0, "fail_count": 1, "log_ids": log_ids}
+
         mark_account(account["id"], True)
         projects = [item for item in load_projects() if item.get("enabled")]
         if not projects:
-            add("warning", "没有启用的项目")
+            lid = _create_log(
+                trigger,
+                account=account_name,
+                message="没有启用的项目",
+            )
+            log_ids.append(lid)
+            _finish_log(
+                lid,
+                status="failed",
+                message="没有启用的项目",
+                lines=list(login_logs or [])
+                + [line("warning", "没有启用的项目")],
+                account=account_name,
+            )
+            run_status = "failed"
+            return {"ok_count": 0, "fail_count": 1, "log_ids": log_ids}
+
         for project in projects:
-            sfc_code = str(project.get("sfc_code") or project.get("display_name") or "").strip()
+            sfc_code = str(
+                project.get("sfc_code") or project.get("display_name") or ""
+            ).strip()
             btype = str(project.get("btype") or "all").strip() or "all"
-            name = project.get("display_name") or project["project_id"]
+            pid = str(project["project_id"])
+            name = str(project.get("display_name") or pid)
+            plines: list[dict] = list(login_logs or [])
+            login_logs = []  # 登录明细只挂到第一个项目
+            t0 = time.time()
+            lid = _create_log(
+                trigger,
+                project_id=pid,
+                project_name=name,
+                account=account_name,
+                message=f"{name} 采集中",
+            )
+            log_ids.append(lid)
+
             if not sfc_code:
-                add("warning", f"{name} 未配置 sfc_code，跳过")
+                plines.append(line("warning", f"{name} 未配置 sfc_code，跳过"))
+                _finish_log(
+                    lid,
+                    status="failed",
+                    message=f"{name} 未配置 sfc_code",
+                    lines=plines,
+                    rows_affected=0,
+                    duration=round(time.time() - t0, 3),
+                    account=account_name,
+                )
                 fail_count += 1
                 continue
+
             csv_path = None
             try:
-                add("info", f"下载 {name} p={sfc_code} type={btype}")
+                plines.append(
+                    line("info", f"下载 {name} p={sfc_code} type={btype}")
+                )
                 content = download_project_csv(
                     session,
                     config,
                     {"sfc_code": sfc_code, "btype": btype},
                     retry=retry,
                 )
-                csv_path = _write_csv(project["project_id"], content)
+                csv_path = _write_csv(pid, content)
                 text = decode_csv(content)
                 frame = parse_csv(text)
                 result = upsert_dataframe(
-                    frame, str(project.get("prefix") or ""), project["project_id"]
+                    frame, str(project.get("prefix") or ""), pid
                 )
                 csv_path.unlink(missing_ok=True)
                 csv_path = None
                 rows = int(result.get("total") or 0)
-                add("success", f"{name} 入库 {rows} 行 → {result.get('table')}")
-                _touch_project(project["project_id"], True, rows, "ok")
+                plines.append(
+                    line(
+                        "success",
+                        f"{name} 入库 {rows} 行 → {result.get('table')}",
+                    )
+                )
+                _touch_project(pid, True, rows, "ok")
+                _finish_log(
+                    lid,
+                    status="success",
+                    message=f"{name} 入库 {rows} 行",
+                    lines=plines,
+                    rows_affected=rows,
+                    duration=round(time.time() - t0, 3),
+                    account=account_name,
+                )
                 ok_count += 1
             except SessionExpiredError as exc:
-                add("error", f"{name}: {exc}")
-                _touch_project(project["project_id"], False, 0, str(exc))
+                plines.append(line("error", f"{name}: {exc}"))
+                _touch_project(pid, False, 0, str(exc))
+                _finish_log(
+                    lid,
+                    status="failed",
+                    message=str(exc)[:500],
+                    lines=plines,
+                    rows_affected=0,
+                    duration=round(time.time() - t0, 3),
+                    account=account_name,
+                )
                 fail_count += 1
-                session, account, relog = login_with_pool(config, accounts, retry=retry)
-                lines.extend(relog)
+                session, account, relog = login_with_pool(
+                    config, accounts, retry=retry
+                )
+                login_logs = list(relog or [])
+                account_name = str((account or {}).get("username") or account_name)
                 if session is None:
                     raise RuntimeError("重新登录失败") from exc
+                mark_account(account["id"], True)
             except Exception as exc:
-                add("error", f"{name}: {exc}")
-                _touch_project(project["project_id"], False, 0, str(exc))
+                plines.append(line("error", f"{name}: {exc}"))
+                _touch_project(pid, False, 0, str(exc))
+                _finish_log(
+                    lid,
+                    status="failed",
+                    message=str(exc)[:500],
+                    lines=plines,
+                    rows_affected=0,
+                    duration=round(time.time() - t0, 3),
+                    account=account_name,
+                )
                 fail_count += 1
             finally:
                 if csv_path and csv_path.exists():
-                    add("warning", f"保留失败文件 {csv_path.name}")
-        status = "success" if fail_count == 0 else ("partial" if ok_count else "failed")
-        message = f"成功 {ok_count}，失败 {fail_count}"
+                    # 失败文件提示写进已结束日志的下一轮无意义；仅打 logger
+                    logger.warning("保留失败文件 %s", csv_path.name)
+
+        run_status = (
+            "success"
+            if fail_count == 0
+            else ("partial" if ok_count else "failed")
+        )
+        return {
+            "ok_count": ok_count,
+            "fail_count": fail_count,
+            "log_ids": log_ids,
+            "message": f"成功 {ok_count}，失败 {fail_count}",
+        }
     except Exception as exc:
-        add("error", str(exc))
-        status = "failed"
-        message = str(exc)[:500]
+        run_status = "failed"
+        # 会话级失败（如重登失败）：补一条无项目记录
+        lid = _create_log(
+            trigger,
+            account=account_name,
+            message=str(exc)[:500],
+        )
+        log_ids.append(lid)
+        _finish_log(
+            lid,
+            status="failed",
+            message=str(exc)[:500],
+            lines=[line("error", str(exc)[:500])],
+            account=account_name,
+        )
+        raise
     finally:
-        _finish_job(log_id, status=status, message=message, lines=lines)
+        _patch_run_status(run_status)
 
 
 def sync_project_schema(project_id: str, content: bytes) -> dict:
@@ -400,7 +548,13 @@ def _upload_project_csv_unlocked(
         raise ValueError("项目不存在")
     name = project.get("display_name") or project_id
     prefix = str(project.get("prefix") or project_id)
-    log_id = _create_log("upload")
+    t0 = time.time()
+    log_id = _create_log(
+        "upload",
+        project_id=project_id,
+        project_name=name,
+        message=f"{name} 上传入库中",
+    )
     lines = [
         {
             "time": _now(),
@@ -423,13 +577,6 @@ def _upload_project_csv_unlocked(
                 "message": f"{name} 入库 {rows} 行 → {table}",
             }
         )
-        _touch_project(project_id, True, rows, "upload ok")
-        _finish_job(
-            log_id,
-            status="success",
-            message=f"{name} 上传入库 {rows} 行",
-            lines=lines,
-        )
         dropped = result.get("dropped_columns") or []
         if dropped:
             lines.append(
@@ -440,6 +587,15 @@ def _upload_project_csv_unlocked(
                     + ("…" if len(dropped) > 12 else ""),
                 }
             )
+        _touch_project(project_id, True, rows, "upload ok")
+        _finish_log(
+            log_id,
+            status="success",
+            message=f"{name} 上传入库 {rows} 行",
+            lines=lines,
+            rows_affected=rows,
+            duration=round(time.time() - t0, 3),
+        )
         return {
             "project_id": project_id,
             "display_name": name,
@@ -452,10 +608,12 @@ def _upload_project_csv_unlocked(
     except Exception as exc:
         lines.append({"time": _now(), "level": "error", "message": str(exc)})
         _touch_project(project_id, False, 0, str(exc))
-        _finish_job(
+        _finish_log(
             log_id,
             status="failed",
             message=str(exc)[:500],
             lines=lines,
+            rows_affected=0,
+            duration=round(time.time() - t0, 3),
         )
         raise

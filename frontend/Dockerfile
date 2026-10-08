@@ -1,18 +1,20 @@
-FROM node:20-alpine as build-stage
+FROM node:20-alpine AS build-stage
 
 WORKDIR /app
-RUN corepack enable
-RUN corepack prepare pnpm@latest --activate
+RUN corepack enable \
+  && corepack prepare pnpm@9 --activate
 
-RUN npm config set registry https://registry.npmmirror.com
+# CI / 海外构建用默认 registry；国内可在 build-arg 覆盖
+ARG NPM_REGISTRY=https://registry.npmjs.org
+RUN npm config set registry "${NPM_REGISTRY}"
 
-COPY .npmrc package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
 
-FROM nginx:stable-alpine as production-stage
+FROM nginx:stable-alpine AS production-stage
 
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 EXPOSE 80

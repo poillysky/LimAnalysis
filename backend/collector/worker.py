@@ -81,54 +81,121 @@ def _handle(job: dict) -> None:
             )
             return
         if job_type == JOB_ETL_CLEAN:
-            result = execute_etl(
-                project_id=payload.get("project_id"),
-                model_id=payload.get("model_id"),
-                all_enabled=bool(payload.get("all_enabled")),
-                full_refresh=bool(payload.get("full_refresh")),
-            )
-            ok = bool(result.get("ok", True))
-            finish_job(
-                job_id,
-                status=STATUS_SUCCESS if ok else STATUS_FAILED,
-                message="etl clean done",
-                result=result,
-            )
-            if str(payload.get("trigger") or "") == "auto":
-                from datetime import datetime
+            from processor.etl_logs import create_etl_log, finish_etl_log, log_line
 
-                from app.core.etl_config import patch_etl_config
-
-                rows = result.get("total_rows") or result.get("rows") or 0
-                patch_etl_config(
-                    {
-                        "last_run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "last_run_status": "success" if ok else "failed",
-                        "last_run_message": (
-                            f"自动清洗完成，写入 {rows} 行"
-                            if ok
-                            else str(result.get("message") or "自动清洗失败")[:500]
-                        ),
-                    }
+            trigger = str(payload.get("trigger") or "manual")
+            full_refresh = bool(payload.get("full_refresh"))
+            run_mode = "full" if full_refresh else "incremental"
+            log_id = create_etl_log(
+                trigger=trigger,
+                run_mode=run_mode,
+                job_id=job_id,
+                message="清洗进行中",
+            )
+            try:
+                result = execute_etl(
+                    project_id=payload.get("project_id"),
+                    model_id=payload.get("model_id"),
+                    all_enabled=bool(payload.get("all_enabled")),
+                    full_refresh=full_refresh,
                 )
-            logger.info(
-                "job #%s etl_clean ok mode=%s rows=%s full_refresh=%s",
-                job_id,
-                result.get("mode"),
-                result.get("rows") or result.get("total_rows"),
-                payload.get("full_refresh"),
-            )
+                ok = bool(result.get("ok", True))
+                rows = int(result.get("total_rows") or result.get("rows") or 0)
+                msg = str(
+                    result.get("message")
+                    or (
+                        f"清洗完成，写入 {rows} 行"
+                        if ok
+                        else "清洗失败"
+                    )
+                )[:500]
+                lines = list(result.get("execution_logs") or [])
+                projects = list(result.get("projects") or [])
+                finish_etl_log(
+                    log_id,
+                    status="success" if ok else "failed",
+                    message=msg,
+                    rows_affected=rows,
+                    duration=float(result.get("duration") or 0),
+                    lines=lines,
+                    projects=projects,
+                    run_mode=str(result.get("run_mode") or run_mode),
+                )
+                # 明细进 meta_etl_logs；job.result 只留摘要，避免 meta_jobs 膨胀
+                job_result = {
+                    k: v
+                    for k, v in result.items()
+                    if k != "execution_logs"
+                }
+                finish_job(
+                    job_id,
+                    status=STATUS_SUCCESS if ok else STATUS_FAILED,
+                    message=msg,
+                    result=job_result,
+                )
+                if trigger == "auto":
+                    from datetime import datetime
+
+                    from app.core.etl_config import patch_etl_config
+
+                    patch_etl_config(
+                        {
+                            "last_run_time": datetime.now().strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            ),
+                            "last_run_status": "success" if ok else "failed",
+                            "last_run_message": (
+                                f"自动清洗完成，写入 {rows} 行"
+                                if ok
+                                else str(result.get("message") or "自动清洗失败")[
+                                    :500
+                                ]
+                            ),
+                        }
+                    )
+                logger.info(
+                    "job #%s etl_clean ok mode=%s rows=%s full_refresh=%s",
+                    job_id,
+                    result.get("mode") or run_mode,
+                    rows,
+                    full_refresh,
+                )
+            except Exception as exc:
+                finish_etl_log(
+                    log_id,
+                    status="failed",
+                    message=str(exc)[:500],
+                    rows_affected=0,
+                    duration=0,
+                    lines=[log_line("error", str(exc)[:500])],
+                    run_mode=run_mode,
+                )
+                raise
             return
         if job_type == JOB_CRAWL:
             trigger = str(payload.get("trigger") or "manual")
             result = execute_crawl(trigger=trigger)
+            fail_count = int(result.get("fail_count") or 0)
+            ok_count = int(result.get("ok_count") or 0)
+            crawl_ok = fail_count == 0
+            msg = str(
+                result.get("message")
+                or (f"成功 {ok_count}，失败 {fail_count}" if ok_count or fail_count else "crawl done")
+            )[:500]
             finish_job(
                 job_id,
-                status=STATUS_SUCCESS,
-                message="crawl done",
+                status=STATUS_SUCCESS if crawl_ok else STATUS_FAILED,
+                message=msg,
                 result=result,
             )
-            logger.info("job #%s crawl ok log_id=%s", job_id, result.get("log_id"))
+            logger.info(
+                "job #%s crawl ok=%s projects=%s fails=%s logs=%s",
+                job_id,
+                crawl_ok,
+                ok_count,
+                fail_count,
+                len(result.get("log_ids") or []),
+            )
             return
         if job_type == JOB_UPLOAD:
             file_path = str(payload.get("file_path") or "")
@@ -206,8 +273,26 @@ def run_loop(*, poll_seconds: float = 1.0, only: tuple[str, ...] | None = None) 
     if n:
         logger.warning("marked %s stale running jobs as failed", n)
 
+    try:
+        from collector.jobs import prune_meta_history
+
+        pruned = prune_meta_history()
+        if pruned.get("deleted_jobs") or pruned.get("deleted_logs"):
+            logger.info("startup meta prune: %s", pruned)
+    except Exception:
+        logger.exception("startup meta prune failed")
+
     # 调度器只在 Worker 内启动（投递队列，不执行采集）
     start_scheduler()
+    from app.core.worker_heartbeat import touch_worker_heartbeat
+
+    def _beat(*, force: bool = False) -> None:
+        try:
+            touch_worker_heartbeat("collector", force=force)
+        except Exception:
+            logger.exception("collector heartbeat failed")
+
+    _beat(force=True)
     logger.info(
         "worker started (poll=%.1fs, only=%s)",
         poll_seconds,
@@ -215,12 +300,14 @@ def run_loop(*, poll_seconds: float = 1.0, only: tuple[str, ...] | None = None) 
     )
 
     while True:
+        _beat()
         job = claim_next_job(only or WORKER_TYPES)
         if job is None:
             time.sleep(poll_seconds)
             continue
         logger.info("claimed job #%s type=%s", job["id"], job["job_type"])
         _handle(job)
+        _beat(force=True)
 
 
 def main(argv: list[str] | None = None) -> int:

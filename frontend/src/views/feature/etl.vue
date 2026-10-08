@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   clearEtlFields,
+  clearEtlLogs,
   ensureEtlModel,
   etlOverview,
   getEtlFieldTypes,
@@ -10,6 +11,7 @@ import {
   getSourceColumns,
   getSqlPreview,
   importDirectFields,
+  listEtlLogs,
   reanalyzeSourceFields,
   generateEtlFormula,
   previewEtlData,
@@ -24,6 +26,7 @@ import {
   type EtlFieldTypeOption,
   type EtlModel,
   type EtlProjectRow,
+  type EtlRunLog,
   type EtlScheduler,
   type EtlSourceField,
   type SourceColumn
@@ -49,6 +52,9 @@ const schedulerSaving = ref(false);
 const rows = ref<EtlProjectRow[]>([]);
 const hint = ref("");
 const activeJobId = ref<number | null>(null);
+const activeTab = ref("config");
+const logs = ref<EtlRunLog[]>([]);
+const logsLoading = ref(false);
 const scheduler = reactive<EtlScheduler>({
   is_active: false,
   run_interval: 30,
@@ -65,6 +71,17 @@ const configuredCount = computed(
 );
 const totalLastRows = computed(() =>
   rows.value.reduce((sum, r) => sum + (Number(r.last_etl_rows) || 0), 0)
+);
+const latestLog = computed(() => logs.value[0] || null);
+const logsStatus = computed(
+  () => latestLog.value?.status || scheduler.last_run_status || ""
+);
+const logsTime = computed(
+  () =>
+    latestLog.value?.ended_at ||
+    latestLog.value?.started_at ||
+    scheduler.last_run_time ||
+    ""
 );
 
 const editorOpen = ref(false);
@@ -154,15 +171,16 @@ const formulaAssistField = ref("");
 const formulaAssistField2 = ref("");
 const assistEditorEl = ref<HTMLElement | null>(null);
 const assistComposing = ref(false);
-const formulaAssistExamples = ref([
-  { label: "截取前几位", key: "left3" },
-  { label: "截取后几位", key: "right4" },
-  { label: "去空格", key: "trim" },
-  { label: "空值默认", key: "default" },
-  { label: "OK转义", key: "okng" },
-  { label: "0/1转义", key: "bool01" },
-  { label: "拼接两列", key: "concat" }
-]);
+  const formulaAssistExamples = ref([
+    { label: "截取前几位", key: "left3" },
+    { label: "截取后几位", key: "right4" },
+    { label: "去空格", key: "trim" },
+    { label: "空值默认", key: "default" },
+    { label: "OK转义", key: "okng" },
+    { label: "0/1转义", key: "bool01" },
+    { label: "拼接两列", key: "concat" },
+    { label: "有1为1", key: "any01" }
+  ]);
 
 const formulaAssistFieldOptions = computed(() =>
   sourceFields.value.map(f => ({
@@ -310,11 +328,74 @@ async function load(silent = false) {
     rows.value = res?.data?.projects || [];
     activeJobId.value = res?.data?.active_job?.id ?? null;
     applyScheduler(res?.data?.scheduler);
+    if (activeTab.value === "logs") await loadLogs(true);
   } catch (error) {
     if (!silent) hint.value = backendErrorHint(error);
   } finally {
     if (!silent) loading.value = false;
   }
+}
+
+async function loadLogs(silent = false) {
+  if (!silent) logsLoading.value = true;
+  try {
+    const res = await listEtlLogs(50);
+    logs.value = res?.data?.logs || [];
+  } catch (error) {
+    if (!silent) ElMessage.error(backendErrorHint(error));
+  } finally {
+    if (!silent) logsLoading.value = false;
+  }
+}
+
+async function onClearLogs() {
+  if (!logs.value.length) return;
+  try {
+    await ElMessageBox.confirm(
+      "清除全部运行日志？进行中的记录会保留。",
+      "清除日志",
+      { type: "warning" }
+    );
+  } catch {
+    return;
+  }
+  try {
+    const res = await clearEtlLogs();
+    ElMessage.success(`已清除 ${res?.data?.deleted ?? 0} 条`);
+    await loadLogs();
+  } catch (error) {
+    ElMessage.error(backendErrorHint(error));
+  }
+}
+
+function dash(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || "—";
+}
+
+function modeLabel(mode: string) {
+  if (mode === "full") return "全量";
+  if (mode === "incremental") return "增量";
+  return mode || "—";
+}
+
+function triggerLabel(trigger: string) {
+  if (trigger === "auto") return "自动";
+  if (trigger === "manual") return "手动";
+  return trigger || "—";
+}
+
+function formatDuration(sec: number) {
+  const n = Number(sec) || 0;
+  if (n < 1) return `${Math.round(n * 1000)} ms`;
+  if (n < 60) return `${n.toFixed(1)} 秒`;
+  const m = Math.floor(n / 60);
+  const s = Math.round(n % 60);
+  return `${m} 分 ${s} 秒`;
+}
+
+function onTabChange(name: string | number) {
+  if (name === "logs") void loadLogs();
 }
 
 async function onSaveScheduler() {
@@ -714,7 +795,68 @@ function insertAssistField(name?: string) {
   nextTick(() => renderAssistEditor());
 }
 
+function collectAssistFields(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (name: string) => {
+    const col = String(name || "")
+      .trim()
+      .replace(/^\[|\]$/g, "");
+    if (!col || seen.has(col)) return;
+    seen.add(col);
+    out.push(col);
+  };
+  const re = /\[([^\]]+)\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(formulaAssistPrompt.value))) {
+    add(match[1]);
+  }
+  add(formulaAssistField.value);
+  add(formulaAssistField2.value);
+  return out;
+}
+
+/** 全空→空；任一为 1→1；否则 0（支持 2～5 列） */
+function buildAnyOneFormula(cols: string[]): string {
+  const emptyParts = cols.map(
+    c => `(NULLIF(TRIM(CAST([${c}] AS TEXT)), '') IS NULL)`
+  );
+  const oneParts = cols.map(
+    c => `NULLIF(TRIM(CAST([${c}] AS TEXT)), '') = '1'`
+  );
+  return (
+    `CASE WHEN ${emptyParts.join(" AND ")} THEN NULL ` +
+    `WHEN ${oneParts.join(" OR ")} THEN 1 ELSE 0 END`
+  );
+}
+
 function applyAssistExample(key: string) {
+  if (key === "any01") {
+    const cols = collectAssistFields();
+    if (cols.length < 2) {
+      ElMessage.warning(
+        "请先点选并插入 2～5 个原表字段，再点「有1为1」"
+      );
+      return;
+    }
+    if (cols.length > 5) {
+      ElMessage.warning("最多支持 5 个字段，请删掉多余芯片后再试");
+      return;
+    }
+    formulaAssistPrompt.value = `${cols
+      .map(c => `[${c}]`)
+      .join(" ")} 全空为空，有一个为1就是1，其他为0`;
+    formulaAssistResult.value = buildAnyOneFormula(cols);
+    formulaAssistExplain.value = `固定逻辑：${cols.join(
+      "、"
+    )} 全空→空；任一为1→1；否则→0`;
+    formulaAssistSource.value = "fixed";
+    formulaAssistSuggestLevel.value = 1;
+    formulaAssistError.value = "";
+    nextTick(() => renderAssistEditor());
+    return;
+  }
+
   const a = fieldToken(formulaAssistField.value);
   const b = fieldToken(formulaAssistField2.value);
   if (!a && key !== "concat") {
@@ -1142,6 +1284,7 @@ async function onRun(opts?: {
       ElMessage.error(job.message || "清洗失败");
     }
     await load(true);
+    if (activeTab.value === "logs") await loadLogs(true);
     if (model.value && opts?.modelId === model.value.id) {
       const refreshed = await getEtlModel(model.value.id);
       model.value = { ...refreshed.data, fields: fields.value };
@@ -1152,6 +1295,7 @@ async function onRun(opts?: {
   } finally {
     running.value = false;
     await load(true);
+    if (activeTab.value === "logs") await loadLogs(true);
   }
 }
 
@@ -1292,6 +1436,12 @@ onUnmounted(() => {
     />
 
     <template v-if="!editorOpen">
+      <el-tabs
+        v-model="activeTab"
+        class="etl-tabs"
+        @tab-change="onTabChange"
+      >
+        <el-tab-pane label="清洗配置" name="config">
       <section class="etl-stats">
         <div class="etl-stat">
           <span class="etl-stat__label">项目</span>
@@ -1464,6 +1614,224 @@ onUnmounted(() => {
           </el-table-column>
         </el-table>
       </section>
+        </el-tab-pane>
+
+        <el-tab-pane label="运行日志" name="logs">
+          <section class="etl-panel etl-logs-hero">
+            <div class="etl-panel__head">
+              <div>
+                <h2>运行状态</h2>
+                <p>查看最近清洗结果，或立即发起一轮</p>
+              </div>
+              <div class="etl-panel__actions">
+                <el-button
+                  type="primary"
+                  :loading="running"
+                  :disabled="!enabledCount"
+                  @click="onRun()"
+                >
+                  增量清洗全部
+                </el-button>
+                <el-button
+                  :loading="running"
+                  :disabled="!enabledCount"
+                  @click="onRunFull()"
+                >
+                  全量重建全部
+                </el-button>
+                <el-button :loading="logsLoading" @click="loadLogs()">
+                  刷新
+                </el-button>
+              </div>
+            </div>
+            <div class="etl-stats etl-logs-stats">
+              <div
+                class="etl-stat"
+                :class="running || activeJobId ? 'is-busy' : 'is-idle'"
+              >
+                <span class="etl-stat__label">当前状态</span>
+                <strong>{{
+                  running || activeJobId ? "清洗中" : "空闲"
+                }}</strong>
+                <span class="etl-stat__hint">
+                  {{
+                    scheduler.is_active
+                      ? `定时每 ${scheduler.run_interval} 分钟`
+                      : "定时关闭"
+                  }}
+                </span>
+              </div>
+              <div class="etl-stat">
+                <span class="etl-stat__label">上次结果</span>
+                <strong class="etl-stat__tag">
+                  <el-tag
+                    v-if="logsStatus"
+                    size="small"
+                    :type="statusType(logsStatus)"
+                    effect="light"
+                    round
+                  >
+                    {{ statusLabel(logsStatus) }}
+                  </el-tag>
+                  <span v-else class="muted">尚未运行</span>
+                </strong>
+                <span class="etl-stat__hint">最近一轮清洗</span>
+              </div>
+              <div class="etl-stat">
+                <span class="etl-stat__label">上次时间</span>
+                <strong class="etl-stat__time">{{
+                  dash(logsTime)
+                }}</strong>
+                <span class="etl-stat__hint">完成或失败时间</span>
+              </div>
+              <div class="etl-stat">
+                <span class="etl-stat__label">可自动跑</span>
+                <strong>
+                  {{ enabledCount }}
+                  <span class="etl-stat__unit">模型</span>
+                </strong>
+                <span class="etl-stat__hint">已启用且可执行</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="etl-panel" v-loading="logsLoading">
+            <div class="etl-panel__head">
+              <div>
+                <h2>运行日志</h2>
+                <p>展开行可查看逐步明细（触发方式、模式、写入行数与耗时）</p>
+              </div>
+              <div class="etl-panel__actions">
+                <span class="etl-count">{{ logs.length }} 条记录</span>
+                <el-button :disabled="!logs.length" @click="onClearLogs">
+                  清除日志
+                </el-button>
+              </div>
+            </div>
+
+            <div v-if="!logs.length" class="etl-logs-empty">
+              <div class="etl-logs-empty__mark" aria-hidden="true">
+                <span /><span /><span />
+              </div>
+              <div class="etl-logs-empty__title">还没有运行记录</div>
+              <div class="etl-logs-empty__desc">
+                发起一轮清洗，或开启自动清洗后，这里会按时间列出每次结果
+              </div>
+              <div class="etl-logs-empty__actions">
+                <el-button
+                  type="primary"
+                  :loading="running"
+                  :disabled="!enabledCount"
+                  @click="onRun()"
+                >
+                  增量清洗全部
+                </el-button>
+                <el-button
+                  :loading="running"
+                  :disabled="!enabledCount"
+                  @click="onRunFull()"
+                >
+                  全量重建全部
+                </el-button>
+              </div>
+              <p v-if="!enabledCount" class="etl-logs-empty__tip">
+                暂无已启用模型：先到「清洗配置」完成字段映射并启用
+              </p>
+            </div>
+
+            <el-table v-else :data="logs" class="etl-list-table etl-logs-table">
+              <el-table-column type="expand">
+                <template #default="{ row }">
+                  <div
+                    v-if="row.detail?.lines?.length"
+                    class="etl-log-lines"
+                  >
+                    <div
+                      v-for="(line, idx) in row.detail.lines"
+                      :key="idx"
+                      class="etl-log-line"
+                      :class="`is-${line.level || 'info'}`"
+                    >
+                      <span class="etl-log-time">{{ dash(line.time) }}</span>
+                      <span class="etl-log-level">{{
+                        line.level || "info"
+                      }}</span>
+                      <span class="etl-log-msg">{{
+                        dash(line.message)
+                      }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="muted etl-log-empty">无明细</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="开始" min-width="160">
+                <template #default="{ row }">
+                  <span class="etl-time-cell">{{
+                    dash(row.started_at)
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="结束" min-width="160">
+                <template #default="{ row }">
+                  <span class="etl-time-cell">{{
+                    dash(row.ended_at)
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="来源" width="96" align="center">
+                <template #default="{ row }">
+                  <el-tag size="small" effect="plain" round>
+                    {{ triggerLabel(row.trigger) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="模式" width="96" align="center">
+                <template #default="{ row }">
+                  <el-tag
+                    size="small"
+                    :type="row.run_mode === 'full' ? 'warning' : 'primary'"
+                    effect="light"
+                    round
+                  >
+                    {{ modeLabel(row.run_mode) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="100" align="center">
+                <template #default="{ row }">
+                  <el-tag
+                    size="small"
+                    :type="statusType(row.status)"
+                    effect="light"
+                    round
+                  >
+                    {{ statusLabel(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="写入行数" width="110" align="right">
+                <template #default="{ row }">
+                  <span class="etl-num-cell">{{
+                    Number(row.rows_affected || 0).toLocaleString()
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="耗时" width="100" align="right">
+                <template #default="{ row }">
+                  <span class="etl-num-cell">{{
+                    formatDuration(row.duration)
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="说明" min-width="220">
+                <template #default="{ row }">
+                  <span class="msg-cell">{{ dash(row.message) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+        </el-tab-pane>
+      </el-tabs>
     </template>
 
     <section v-else class="etl-panel etl-editor" v-loading="editorLoading">
@@ -1939,7 +2307,8 @@ onUnmounted(() => {
         </div>
       </template>
       <p class="etl-assist-lead">
-        先选原表字段，再点快捷说法或补充中文描述。已配置 AI 时优先由模型生成。
+        先选原表字段写入描述（「有1为1」可插 2～5 列），再点快捷说法。已配置 AI
+        时优先由模型生成。
         <router-link class="etl-assist-link" to="/feature/ai-model">
           去配置 AI 模型
         </router-link>

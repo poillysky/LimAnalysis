@@ -1,0 +1,70 @@
+/* Windows 桌面式 PWA：独立窗口 / 标题栏控件叠加 */
+
+html.is-pwa {
+  /* 安装后去掉浏览器滚动条抢焦点的感觉 */
+  overscroll-behavior: none;
+}
+
+/* Edge / Chromium：标题栏区域与应用顶栏对齐，可拖拽窗口 */
+@media (display-mode: window-controls-overlay) {
+  :root {
+    --pwa-titlebar-height: env(titlebar-area-height, 40px);
+  }
+
+  .fixed-header,
+  .navbar {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .navbar {
+    position: relative;
+    box-sizing: border-box;
+    /* 把内容推进系统标题栏可用区，避开右上角最小化/最大化/关闭 */
+    padding-left: env(titlebar-area-x, 0px);
+    padding-right: max(
+      0px,
+      calc(100% - env(titlebar-area-width, 100%) - env(titlebar-area-x, 0px))
+    );
+    min-height: var(--pwa-titlebar-height);
+    height: max(48px, var(--pwa-titlebar-height));
+  }
+
+  /* 可点击控件必须取消拖拽，否则按钮点不到 */
+  .navbar button,
+  .navbar a,
+  .navbar input,
+  .navbar .el-dropdown,
+  .navbar .el-dropdown-link,
+  .navbar .set-icon,
+  .navbar .hamburger-container,
+  .navbar .vertical-header-right,
+  .navbar .breadcrumb-container,
+  .navbar .navbar-end,
+  .navbar .pwa-install {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
+  .sidebar-logo-container {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .sidebar-logo-container a,
+  .sidebar-logo-container button {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
+@media (display-mode: standalone) {
+  html.is-pwa .navbar {
+    border-bottom-color: color-mix(in srgb, #15233a 12%, transparent);
+  }
+}
+
+.pwa-install-guide .el-message-box__message {
+  white-space: pre-line;
+  line-height: 1.55;
+}

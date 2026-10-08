@@ -30,6 +30,9 @@ type BroadcastItem = {
   kind: "alert" | "manual" | "idle";
   text: string;
   path: string;
+  eyebrow?: string;
+  person?: string;
+  lines?: string[];
 };
 
 type ProjectSummary = {
@@ -59,8 +62,10 @@ const scanWindow = ref("近 12 小时");
 
 let clockTimer: number | null = null;
 let rotateTimer: number | null = null;
-let pollTimer: number | null = null;
+let noticeTimer: number | null = null;
+let summaryTimer: number | null = null;
 let loadAbort: AbortController | null = null;
+let summaryAbort: AbortController | null = null;
 
 const currentBroadcast = computed(() => {
   const list = broadcast.value;
@@ -68,7 +73,10 @@ const currentBroadcast = computed(() => {
     return {
       kind: "idle" as const,
       text: "近 3 小时暂无待播报通知",
-      path: "/defect/analysis"
+      path: "/defect/analysis",
+      eyebrow: "值守空闲",
+      person: "",
+      lines: ["近 3 小时暂无待播报通知"]
     };
   }
   return list[activeIdx.value % list.length];
@@ -157,25 +165,32 @@ function mapYieldBroadcast(
   when: string
 ): BroadcastItem[] {
   const items: BroadcastItem[] = [];
+  // 人员层级：一人一条；机台各占一行
   for (const item of notices) {
-    const machines = item.machines
-      .map(m =>
-        m.project_name ? `${m.project_name} ${m.machine}` : m.machine
-      )
-      .filter(Boolean);
-    const rates = item.machines
-      .map(m => rateText(m.rate_pct))
-      .filter(r => r !== "—");
+    const person = `通知 ${item.name}${item.phone ? ` ${item.phone}` : ""}`;
+    const machineLines: string[] = [];
+    for (const m of item.machines) {
+      const name = m.project_name
+        ? `${m.project_name} ${m.machine}`
+        : m.machine;
+      machineLines.push(
+        `${name} · 不良率 ${rateText(m.rate_pct)}（产量 ${Number(
+          m.qty || 0
+        ).toLocaleString()}）`
+      );
+    }
+    if (!machineLines.length) machineLines.push("暂无机台明细");
+    const eyebrow = `【良率预警】${dutyName || "当前班次"} ${when}`;
     items.push({
       kind: "alert",
-      text: `【良率预警】${dutyName || "当前班次"} ${when} · 通知 ${item.name}${
-        item.phone ? ` ${item.phone}` : ""
-      } · ${machines.join("、") || "机台"}${
-        rates.length ? ` · 不良率 ${rates.join(" / ")}` : ""
-      }`,
+      eyebrow,
+      person,
+      lines: machineLines,
+      text: [eyebrow, person, ...machineLines].join("\n"),
       path: "/defect/analysis"
     });
   }
+  // 未排到人：仍按机台各一条
   const seen = new Set<string>();
   for (const row of alerts) {
     if (row.contacts.length) continue;
@@ -185,11 +200,16 @@ function mapYieldBroadcast(
     const name = row.project_name
       ? `${row.project_name} ${row.machine}`
       : row.machine;
+    const eyebrow = `【未排班】${dutyName || "当前班次"} ${when}`;
+    const machineLine = `${name} · 不良率 ${rateText(
+      row.machine_rate_pct ?? row.rate_pct
+    )}`;
     items.push({
       kind: "alert",
-      text: `【未排班】${dutyName || "当前班次"} ${when} · ${name} 不良率 ${rateText(
-        row.machine_rate_pct ?? row.rate_pct
-      )}，未排到人`,
+      eyebrow,
+      person: "未排到人",
+      lines: [machineLine],
+      text: [eyebrow, machineLine, "未排到人"].join("\n"),
       path: "/defect/analysis"
     });
   }
@@ -202,11 +222,22 @@ function mapManualBroadcast(items: ManualNotice[]): BroadcastItem[] {
       .map(r => r.name || r.department)
       .filter(Boolean)
       .join("、");
+    const eyebrow = `【人工通知】${item.topic || "部门沟通"}`;
+    const person = [
+      item.from_dept ? `来自 ${item.from_dept}` : "",
+      people ? `→ ${people}` : ""
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const body = String(item.body || "").trim();
     return {
       kind: "manual" as const,
+      eyebrow,
+      person,
+      lines: body ? [body] : [],
       text: `【人工通知】${item.topic || "部门沟通"}${
         item.from_dept ? ` · ${item.from_dept}` : ""
-      }${people ? ` → ${people}` : ""}${item.body ? ` · ${item.body}` : ""}`,
+      }${people ? ` → ${people}` : ""}${body ? ` · ${body}` : ""}`,
       path: "/defect/manual"
     };
   });
@@ -312,6 +343,20 @@ async function loadScanSummaries(signal?: AbortSignal) {
   }
 }
 
+async function loadSummaries() {
+  summaryAbort?.abort();
+  summaryAbort = new AbortController();
+  const signal = summaryAbort.signal;
+  try {
+    await Promise.all([
+      loadCavitySummaries(signal),
+      loadScanSummaries(signal)
+    ]);
+  } catch (error) {
+    hint.value = backendErrorHint(error);
+  }
+}
+
 async function load() {
   loadAbort?.abort();
   loadAbort = new AbortController();
@@ -319,11 +364,8 @@ async function load() {
   loading.value = true;
   hint.value = "";
   try {
-    await Promise.all([
-      loadNotices(signal),
-      loadCavitySummaries(signal),
-      loadScanSummaries(signal)
-    ]);
+    await loadNotices(signal);
+    await loadSummaries();
   } catch (error) {
     hint.value = backendErrorHint(error);
   } finally {
@@ -345,22 +387,28 @@ function goScan() {
 
 onMounted(() => {
   tickClock();
-  clockTimer = window.setInterval(tickClock, 1000);
+  // 时钟 30s 即可；通知 60s；交叉表摘要 5 分钟（避免每分钟打满查询）
+  clockTimer = window.setInterval(tickClock, 30_000);
   rotateTimer = window.setInterval(() => {
     if (broadcast.value.length <= 1) return;
     activeIdx.value = (activeIdx.value + 1) % broadcast.value.length;
   }, 5000);
-  pollTimer = window.setInterval(() => {
-    void load();
+  noticeTimer = window.setInterval(() => {
+    void loadNotices();
   }, 60_000);
+  summaryTimer = window.setInterval(() => {
+    void loadSummaries();
+  }, 300_000);
   void load();
 });
 
 onUnmounted(() => {
   if (clockTimer != null) window.clearInterval(clockTimer);
   if (rotateTimer != null) window.clearInterval(rotateTimer);
-  if (pollTimer != null) window.clearInterval(pollTimer);
+  if (noticeTimer != null) window.clearInterval(noticeTimer);
+  if (summaryTimer != null) window.clearInterval(summaryTimer);
   loadAbort?.abort();
+  summaryAbort?.abort();
 });
 </script>
 
@@ -375,20 +423,51 @@ onUnmounted(() => {
       @keydown.enter="openBroadcast"
     >
       <div class="home-board__meta">
-        <strong>通知播报</strong>
-        <span>{{ duty || "—" }} · {{ windowLabel }}</span>
-        <span class="home-board__counts">
-          预警 {{ alertCount }} · 人工 {{ manualCount }}
+        <span class="home-board__label">通知播报</span>
+        <span class="home-board__meta-line">
+          {{ duty || "—" }}
+          <i aria-hidden="true">·</i>
+          {{ windowLabel }}
+          <i aria-hidden="true">·</i>
+          预警 {{ alertCount }}
+          <i aria-hidden="true">·</i>
+          人工 {{ manualCount }}
         </span>
         <time>{{ nowText }}</time>
       </div>
-      <p class="home-board__text">{{ currentBroadcast.text }}</p>
-      <div v-if="broadcast.length > 1" class="home-board__dots">
-        <i
-          v-for="(_, i) in broadcast"
-          :key="i"
-          :class="{ 'is-on': i === activeIdx % broadcast.length }"
-        />
+
+      <div :key="`${currentBroadcast.kind}-${activeIdx}`" class="home-board__body">
+        <p v-if="currentBroadcast.eyebrow" class="home-board__kicker">
+          {{ currentBroadcast.eyebrow }}
+        </p>
+        <p v-if="currentBroadcast.person" class="home-board__person">
+          {{ currentBroadcast.person }}
+        </p>
+        <ul
+          v-if="currentBroadcast.lines?.length"
+          class="home-board__lines"
+        >
+          <li v-for="(line, i) in currentBroadcast.lines" :key="i">
+            {{ line }}
+          </li>
+        </ul>
+        <p
+          v-else-if="!currentBroadcast.eyebrow"
+          class="home-board__fallback"
+        >
+          {{ currentBroadcast.text }}
+        </p>
+      </div>
+
+      <div class="home-board__foot">
+        <div v-if="broadcast.length > 1" class="home-board__dots">
+          <i
+            v-for="(_, i) in broadcast"
+            :key="i"
+            :class="{ 'is-on': i === activeIdx % broadcast.length }"
+          />
+        </div>
+        <span class="home-board__hint">详情</span>
       </div>
     </section>
 
@@ -407,35 +486,31 @@ onUnmounted(() => {
           <p>自动外观 · {{ cavityWindow }}</p>
         </div>
         <button type="button" class="home-more" @click="goCavity">
-          查看交叉表
+          交叉表
         </button>
       </header>
       <div v-if="cavityRows.length" class="home-cards">
         <article v-for="row in cavityRows" :key="row.project_id" class="home-card">
-          <h3>{{ row.display_name }}</h3>
-          <div class="home-metrics">
-            <div class="home-metric is-accent">
-              <strong>{{ formatRate(row.ratePct) || "—" }}</strong>
-              <span>不良率</span>
-            </div>
-            <div class="home-metric">
-              <strong>{{ formatQty(row.qty) }}</strong>
-              <span>产量</span>
-            </div>
-            <div class="home-metric">
-              <strong>{{ formatQty(row.ng) }}</strong>
-              <span>不良</span>
-            </div>
-            <div class="home-metric">
-              <strong>{{ row.machines }}</strong>
-              <span>机台</span>
-            </div>
+          <div class="home-card__head">
+            <h3>{{ row.display_name }}</h3>
+            <strong class="home-card__rate">{{
+              formatRate(row.ratePct) || "—"
+            }}</strong>
           </div>
+          <p class="home-card__stats">
+            产量 {{ formatQty(row.qty) }}
+            <i aria-hidden="true">·</i>
+            不良 {{ formatQty(row.ng) }}
+            <i aria-hidden="true">·</i>
+            机台 {{ row.machines }}
+          </p>
           <p v-if="row.top.length" class="home-top">
-            偏高
+            <span class="home-top__label">偏高</span>
             <template v-for="(item, idx) in row.top" :key="item.name">
-              <span v-if="idx"> · </span>
-              {{ item.name }} {{ formatRate(item.ratePct) || "—" }}
+              <span v-if="idx" class="home-top__sep">·</span>
+              <span class="home-top__item"
+                >{{ item.name }} {{ formatRate(item.ratePct) || "—" }}</span
+              >
             </template>
           </p>
           <p v-else class="home-top is-muted">暂无偏高机台</p>
@@ -451,35 +526,31 @@ onUnmounted(() => {
           <p>全部次品 · {{ scanWindow }}</p>
         </div>
         <button type="button" class="home-more" @click="goScan">
-          查看交叉表
+          交叉表
         </button>
       </header>
       <div v-if="scanRows.length" class="home-cards">
         <article v-for="row in scanRows" :key="row.project_id" class="home-card">
-          <h3>{{ row.display_name }}</h3>
-          <div class="home-metrics">
-            <div class="home-metric is-accent">
-              <strong>{{ formatRate(row.ratePct) || "—" }}</strong>
-              <span>不良率</span>
-            </div>
-            <div class="home-metric">
-              <strong>{{ formatQty(row.qty) }}</strong>
-              <span>产量</span>
-            </div>
-            <div class="home-metric">
-              <strong>{{ formatQty(row.ng) }}</strong>
-              <span>次品</span>
-            </div>
-            <div class="home-metric">
-              <strong>{{ row.machines }}</strong>
-              <span>机台</span>
-            </div>
+          <div class="home-card__head">
+            <h3>{{ row.display_name }}</h3>
+            <strong class="home-card__rate">{{
+              formatRate(row.ratePct) || "—"
+            }}</strong>
           </div>
+          <p class="home-card__stats">
+            产量 {{ formatQty(row.qty) }}
+            <i aria-hidden="true">·</i>
+            次品 {{ formatQty(row.ng) }}
+            <i aria-hidden="true">·</i>
+            机台 {{ row.machines }}
+          </p>
           <p v-if="row.top.length" class="home-top">
-            偏高
+            <span class="home-top__label">偏高</span>
             <template v-for="(item, idx) in row.top" :key="item.name">
-              <span v-if="idx"> · </span>
-              {{ item.name }} {{ formatRate(item.ratePct) || "—" }}
+              <span v-if="idx" class="home-top__sep">·</span>
+              <span class="home-top__item"
+                >{{ item.name }} {{ formatRate(item.ratePct) || "—" }}</span
+              >
             </template>
           </p>
           <p v-else class="home-top is-muted">暂无偏高机台</p>
@@ -492,226 +563,394 @@ onUnmounted(() => {
 
 <style scoped>
 .home {
+  --home-ink: #15233a;
+  --home-mute: #5c6b7a;
+  --home-paper: #f4f6f8;
+  --home-card: #ffffff;
+  --home-rate: #b42318;
   box-sizing: border-box;
   min-height: calc(100vh - 96px);
-  padding: 16px 20px 28px;
-  background: color-mix(
-    in srgb,
-    var(--el-fill-color-light) 55%,
-    var(--el-bg-color)
-  );
+  padding: 28px 32px 40px;
+  color: var(--home-ink);
+  background: var(--home-paper);
 }
 
 .home-board {
-  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 132px;
-  margin-bottom: 16px;
-  padding: 16px 20px 18px;
-  overflow: hidden;
+  gap: 18px;
+  min-height: 168px;
+  margin-bottom: 28px;
+  padding: 28px 32px 22px;
   cursor: pointer;
-  color: #fff;
-  background: #1e4e79;
-  border-radius: var(--la-radius-md, 8px);
-  box-shadow: var(--la-shadow-sm, 0 1px 2px rgb(16 24 40 / 6%));
+  color: #f7f8fa;
+  background: var(--home-ink);
+  border-radius: 4px;
+  transition: background 180ms ease;
+}
+
+.home-board:hover {
+  background: #1a2c46;
 }
 
 .home-board.is-alert {
-  background: linear-gradient(135deg, #7f1d1d 0%, #b91c1c 55%, #9a3412 100%);
+  background: #6b1d1d;
+}
+
+.home-board.is-alert:hover {
+  background: #7a2424;
 }
 
 .home-board.is-manual {
-  background: linear-gradient(135deg, #1e3a5f 0%, #1e4e79 60%, #0f766e 100%);
+  background: #16384f;
+}
+
+.home-board.is-manual:hover {
+  background: #1c4560;
 }
 
 .home-board.is-idle {
-  background: linear-gradient(135deg, #334155 0%, #475569 100%);
+  background: #3a4450;
+}
+
+.home-board.is-idle:hover {
+  background: #45515e;
 }
 
 .home-board__meta {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px 14px;
-  font-size: 12px;
-  opacity: 0.92;
-}
-
-.home-board__meta strong {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.home-board__counts {
-  margin-left: auto;
+  gap: 8px 16px;
+  font-size: 13px;
+  color: rgb(247 248 250 / 72%);
   font-variant-numeric: tabular-nums;
+}
+
+.home-board__label {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(247 248 250 / 88%);
+}
+
+.home-board__meta-line {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.home-board__meta-line i,
+.home-card__stats i {
+  margin: 0 0.35em;
+  font-style: normal;
+  opacity: 0.55;
 }
 
 .home-board__meta time {
+  margin-left: auto;
   font-variant-numeric: tabular-nums;
+  color: rgb(247 248 250 / 58%);
 }
 
-.home-board__text {
+.home-board__body {
+  animation: home-board-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.home-board__kicker {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: rgb(247 248 250 / 68%);
+}
+
+.home-board__person {
+  margin: 0 0 12px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.home-board__lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.home-board__lines li {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  color: rgb(247 248 250 / 94%);
+}
+
+.home-board__fallback {
   margin: 0;
   font-size: 22px;
-  font-weight: 650;
-  line-height: 1.35;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.4;
+}
+
+.home-board__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 4px;
+  border-top: 1px solid rgb(247 248 250 / 12%);
 }
 
 .home-board__dots {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
 .home-board__dots i {
-  width: 6px;
-  height: 6px;
-  background: rgb(255 255 255 / 35%);
-  border-radius: 99px;
+  width: 18px;
+  height: 2px;
+  background: rgb(247 248 250 / 28%);
+  transition: background 160ms ease;
 }
 
 .home-board__dots i.is-on {
-  background: #fff;
+  background: #f7f8fa;
+}
+
+.home-board__hint {
+  margin-left: auto;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: rgb(247 248 250 / 48%);
 }
 
 .home-board:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
+  outline: 2px solid #f7f8fa;
+  outline-offset: 3px;
+}
+
+@keyframes home-board-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .home-hint {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .home-block + .home-block {
-  margin-top: 14px;
+  margin-top: 28px;
 }
 
 .home-block__head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #dde3e8;
 }
 
 .home-block__head h2 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--home-ink);
 }
 
 .home-block__head p {
-  margin: 2px 0 0;
+  margin: 4px 0 0;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--home-mute);
+  font-variant-numeric: tabular-nums;
 }
 
 .home-more {
   padding: 0;
-  font-size: 12px;
-  color: var(--el-color-primary);
-  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--home-ink);
+  background: transparent;
   border: 0;
+  border-bottom: 1px solid transparent;
   cursor: pointer;
+  transition: border-color 160ms ease;
 }
 
 .home-more:hover {
-  text-decoration: underline;
+  border-bottom-color: var(--home-ink);
 }
 
 .home-cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
 .home-card {
-  padding: 14px 16px 12px;
-  background: var(--la-surface-card, var(--el-bg-color));
-  border: 1px solid var(--la-border-default, var(--el-border-color-lighter));
-  border-radius: var(--la-radius-md, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 18px 16px;
+  background: var(--home-card);
+  border: 1px solid #dde3e8;
+  border-radius: 4px;
+  transition: border-color 160ms ease;
+}
+
+.home-card:hover {
+  border-color: #b8c2cc;
+}
+
+.home-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .home-card h3 {
-  margin: 0 0 12px;
-  font-size: 14px;
-  font-weight: 650;
-  color: var(--el-text-color-primary);
-}
-
-.home-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.home-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  margin: 0;
   min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--home-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.home-metric strong {
-  font-size: 20px;
-  font-weight: 700;
+.home-card__rate {
+  flex: none;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-  color: var(--el-text-color-primary);
+  color: var(--home-rate);
 }
 
-.home-metric.is-accent strong {
-  color: var(--el-color-danger);
-}
-
-.home-metric span {
+.home-card__stats {
+  margin: 0;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--home-mute);
+  font-variant-numeric: tabular-nums;
 }
 
 .home-top {
-  margin: 12px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  margin: 0;
   padding-top: 10px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--el-border-color) 50%, transparent);
+  border-top: 1px solid #edf1f4;
   font-size: 12px;
-  line-height: 1.45;
-  color: var(--el-text-color-regular);
+  line-height: 1.4;
+  color: var(--home-ink);
   font-variant-numeric: tabular-nums;
 }
 
+.home-top__label {
+  font-weight: 650;
+  color: var(--home-mute);
+}
+
+.home-top__sep {
+  color: #a8b3bd;
+}
+
+.home-top__item {
+  color: var(--home-ink);
+}
+
 .home-top.is-muted {
-  color: var(--el-text-color-secondary);
+  color: var(--home-mute);
 }
 
 .home-empty {
   margin: 0;
-  padding: 24px 16px;
+  padding: 28px 12px;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  color: var(--home-mute);
   text-align: center;
-  background: var(--la-surface-card, var(--el-bg-color));
-  border: 1px solid var(--la-border-default, var(--el-border-color-lighter));
-  border-radius: var(--la-radius-md, 8px);
+  background: transparent;
+  border: 1px dashed #cfd7de;
+  border-radius: 4px;
+}
+
+@media (max-width: 1400px) {
+  .home-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .home-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
+  .home {
+    padding: 18px 16px 28px;
+  }
+
+  .home-board {
+    padding: 22px 20px 18px;
+  }
+
+  .home-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .home-board__person {
+    font-size: 22px;
+  }
+
+  .home-board__lines li {
+    font-size: 15px;
+  }
+
+  .home-board__meta time {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
   .home-cards {
     grid-template-columns: 1fr;
   }
 
-  .home-board__text {
-    font-size: 18px;
+  .home-card__rate {
+    font-size: 24px;
   }
+}
 
-  .home-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (prefers-reduced-motion: reduce) {
+  .home-board,
+  .home-card,
+  .home-board__body,
+  .home-board__dots i {
+    transition: none;
+    animation: none;
   }
 }
 </style>

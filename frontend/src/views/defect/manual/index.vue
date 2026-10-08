@@ -192,9 +192,6 @@ onUnmounted(() => loadAbort?.abort());
       </div>
       <div class="manual-actions">
         <el-button @click="resetForm">新建</el-button>
-        <el-button type="primary" :loading="sending" :disabled="!canSend" @click="send">
-          发送
-        </el-button>
       </div>
     </header>
 
@@ -296,6 +293,16 @@ onUnmounted(() => loadAbort?.abort());
             />
           </label>
         </div>
+        <div class="compose-actions">
+          <el-button
+            type="primary"
+            :loading="sending"
+            :disabled="!canSend"
+            @click="send"
+          >
+            发送
+          </el-button>
+        </div>
       </div>
     </section>
 
@@ -385,13 +392,6 @@ onUnmounted(() => loadAbort?.abort());
 .manual-actions {
   display: flex;
   gap: 8px;
-}
-
-.manual-actions :deep(.el-button--primary) {
-  --el-button-bg-color: #1e4e79;
-  --el-button-border-color: #1e4e79;
-  --el-button-hover-bg-color: #163c5c;
-  --el-button-hover-border-color: #163c5c;
 }
 
 .manual-banner {
@@ -488,7 +488,20 @@ onUnmounted(() => loadAbort?.abort());
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
   gap: 12px;
+  padding: 12px 16px 0;
+}
+
+.compose-actions {
+  display: flex;
+  justify-content: flex-end;
   padding: 12px 16px 16px;
+}
+
+.compose-actions :deep(.el-button--primary) {
+  --el-button-bg-color: #1e4e79;
+  --el-button-border-color: #1e4e79;
+  --el-button-hover-bg-color: #163c5c;
+  --el-button-hover-border-color: #163c5c;
 }
 
 .field {

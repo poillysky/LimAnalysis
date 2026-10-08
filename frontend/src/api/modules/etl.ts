@@ -109,6 +109,44 @@ export type EtlScheduler = {
   last_run_message: string;
 };
 
+export type EtlLogLine = {
+  time?: string;
+  level?: string;
+  message?: string;
+};
+
+export type EtlRunLog = {
+  id: number;
+  started_at: string;
+  ended_at: string;
+  trigger: string;
+  run_mode: string;
+  status: string;
+  message: string;
+  rows_affected: number;
+  duration: number;
+  job_id: number;
+  detail?: {
+    lines?: EtlLogLine[];
+    projects?: Record<string, unknown>[];
+  };
+};
+
+export const listEtlLogs = (limit = 50) => {
+  return http.request<{ success: boolean; data: { logs: EtlRunLog[] } }>(
+    "get",
+    `${API_PREFIX}/etl/logs`,
+    { params: { limit } }
+  );
+};
+
+export const clearEtlLogs = () => {
+  return http.request<{ success: boolean; data: { deleted: number } }>(
+    "delete",
+    `${API_PREFIX}/etl/logs`
+  );
+};
+
 export const etlOverview = () => {
   return http.request<{
     success: boolean;

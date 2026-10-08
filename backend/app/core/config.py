@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     dwh_database_url: str = "postgresql+psycopg://lim:lim@127.0.0.1:5433/lim_dwh"
     defect_database_url: str = "postgresql+psycopg://lim:lim@127.0.0.1:5434/lim_defect"
 
+    # 车间离线值守：true 时强制停 SFC 定时采集、限制 AI（见 app.core.workshop）
+    workshop_offline: bool = False
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]

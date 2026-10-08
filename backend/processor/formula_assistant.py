@@ -16,6 +16,10 @@ PROMPT_EXAMPLES: list[dict[str, str]] = [
     {"label": "拼接两列", "prompt": "拼接 线体 和 工站，中间用横杠"},
     {"label": "OK/NG 转义", "prompt": "结果 为 OK 显示 合格，否则 不合格"},
     {"label": "0/1 转义", "prompt": "B2凹坑气泡 为 1 显示 不良，为 0 显示 良"},
+    {
+        "label": "有1为1",
+        "prompt": "[A] [B] [C] 全空为空，有一个为1就是1，其他为0",
+    },
 ]
 
 
@@ -249,7 +253,56 @@ def generate_formula_from_prompt(
             explain = f"直接拼接「{a}」与「{b}」"
         return _ok(formula, explain, fields)
 
-    # 8) 多条件：A 为 x 显示 p，为 y 显示 q
+    # 8) 多列固定：全空→空；任一为 1→1；否则 0（2～5 列）
+    if (
+        ("全空" in compact and "为空" in compact)
+        or "有一个为1" in compact
+        or "有1为1" in compact
+        or "任一为1" in compact
+    ):
+        cols: list[str] = []
+        for name in re.findall(r"\[([^\]]+)\]", text):
+            resolved = _resolve_field(name, fields) if fields else name.strip()
+            if resolved and resolved not in cols:
+                cols.append(resolved)
+        if len(cols) < 2:
+            for c in sorted(fields, key=len, reverse=True):
+                if c and c in text and c not in cols:
+                    cols.append(c)
+        if len(cols) < 2:
+            return {
+                "ok": False,
+                "formula": "",
+                "explanation": "",
+                "error": "请先写入 2～5 个字段，例如：[A] [B] [C] 全空为空，有一个为1就是1，其他为0",
+                "examples": PROMPT_EXAMPLES,
+            }
+        if len(cols) > 5:
+            return {
+                "ok": False,
+                "formula": "",
+                "explanation": "",
+                "error": "最多支持 5 个字段",
+                "examples": PROMPT_EXAMPLES,
+            }
+
+        def _empty_expr(col: str) -> str:
+            return f"(NULLIF(TRIM(CAST({_quote_field(col)} AS TEXT)), '') IS NULL)"
+
+        def _one_expr(col: str) -> str:
+            return f"NULLIF(TRIM(CAST({_quote_field(col)} AS TEXT)), '') = '1'"
+
+        formula = (
+            f"CASE WHEN {' AND '.join(_empty_expr(c) for c in cols)} THEN NULL "
+            f"WHEN {' OR '.join(_one_expr(c) for c in cols)} THEN 1 ELSE 0 END"
+        )
+        return _ok(
+            formula,
+            f"「{'、'.join(cols)}」全空→空；任一为1→1；否则→0",
+            fields,
+        )
+
+    # 9) 多条件：A 为 x 显示 p，为 y 显示 q
     multi = list(
         re.finditer(
             r"为\s*[「『\"']?([^「」『』\"'，,\s]+)[」』\"']?\s*(?:时)?\s*"
@@ -300,7 +353,7 @@ def generate_formula_from_prompt(
         )
         return _ok(formula, explain, fields)
 
-    # 9) 直接像公式：已含 LEFT( / [字段]
+    # 10) 直接像公式：已含 LEFT( / [字段]
     if re.search(r"\b(LEFT|RIGHT|TRIM|UPPER|LOWER|SUBSTRING|CASE|COALESCE)\b", text, re.I) or (
         "[" in text and "]" in text
     ):

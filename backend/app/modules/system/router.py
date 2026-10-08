@@ -61,6 +61,7 @@ from app.core.projects import (
     update_project,
 )
 from app.core.response import fail, ok
+from app.core.runtime_status import build_runtime_status
 from app.core.users import (
     create_user,
     delete_user,
@@ -68,6 +69,7 @@ from app.core.users import (
     list_users,
     update_user,
 )
+from app.core.workshop import load_workshop_config, save_workshop_config
 from app.core.yield_alerts import list_yield_alerts, load_alert_rules, save_alert_rules
 from app.modules.system.schemas import (
     CavityAlertRulesIn,
@@ -78,6 +80,7 @@ from app.modules.system.schemas import (
     DiskCleanupUpdate,
     DutyRosterCreate,
     DutyRosterUpdate,
+    WorkshopUpdate,
     ManualNoticeCreate,
     MetabaseTest,
     PersonCreate,
@@ -303,6 +306,27 @@ def alert_rules_get():
 @router.put("/alert-rules")
 def alert_rules_put(body: CavityAlertRulesIn):
     return ok(save_alert_rules(body.model_dump()))
+
+
+@router.get("/runtime-status")
+def runtime_status_get():
+    try:
+        return ok(build_runtime_status())
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
+
+
+@router.get("/workshop")
+def workshop_get():
+    return ok(load_workshop_config())
+
+
+@router.put("/workshop")
+def workshop_put(body: WorkshopUpdate):
+    try:
+        return ok(save_workshop_config(body.model_dump(exclude_unset=True)))
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
 
 
 @router.get("/disk-cleanup")

@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, Integer, String
+from sqlalchemy import JSON, Boolean, Float, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -49,7 +49,7 @@ class MetaSfcAccount(MetaBase):
 
 
 class MetaSfcLog(MetaBase):
-    """采集摘要日志。"""
+    """采集运行日志（对齐参考：按项目一条，含账号/行数/耗时）。"""
 
     __tablename__ = "meta_sfc_logs"
 
@@ -59,6 +59,29 @@ class MetaSfcLog(MetaBase):
     trigger: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="running", nullable=False)
     message: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    project_id: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    project_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    account: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    rows_affected: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duration: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class MetaEtlLog(MetaBase):
+    """数据清洗运行日志（对齐参考 etl-app / SFC 运行日志）。"""
+
+    __tablename__ = "meta_etl_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    ended_at: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    trigger: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
+    run_mode: Mapped[str] = mapped_column(String(20), default="incremental", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="running", nullable=False)
+    message: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    rows_affected: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duration: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    job_id: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     detail: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
 

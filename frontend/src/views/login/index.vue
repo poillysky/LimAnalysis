@@ -3,8 +3,8 @@ import Motion from "./utils/motion";
 import { useRouter } from "vue-router";
 import { message } from "@/utils/message";
 import { loginRules } from "./utils/rule";
-import { ref, reactive, toRaw } from "vue";
-import { debounce } from "@pureadmin/utils";
+import { ref, reactive, toRaw, watch } from "vue";
+import { debounce, storageLocal } from "@pureadmin/utils";
 import { useNav } from "@/layout/hooks/useNav";
 import { useEventListener } from "@vueuse/core";
 import type { FormInstance } from "element-plus";
@@ -24,10 +24,19 @@ defineOptions({
   name: "Login"
 });
 
+type RememberPayload = {
+  username: string;
+  password: string;
+};
+
+const REMEMBER_KEY = "login-remember";
+
 const router = useRouter();
 const loading = ref(false);
 const disabled = ref(false);
+const remember = ref(false);
 const ruleFormRef = ref<FormInstance>();
+const userStore = useUserStoreHook();
 
 const { initStorage } = useLayout();
 initStorage();
@@ -37,8 +46,37 @@ dataThemeChange(overallStyle.value);
 const { title } = useNav();
 
 const ruleForm = reactive({
-  username: "admin",
-  password: "admin123"
+  username: "",
+  password: ""
+});
+
+function loadRemembered() {
+  const saved = storageLocal().getItem<RememberPayload>(REMEMBER_KEY);
+  if (!saved?.username) return;
+  ruleForm.username = saved.username;
+  ruleForm.password = saved.password || "";
+  remember.value = true;
+  userStore.SET_ISREMEMBERED(true);
+}
+
+function persistRemember() {
+  if (remember.value) {
+    storageLocal().setItem(REMEMBER_KEY, {
+      username: ruleForm.username.trim(),
+      password: ruleForm.password
+    } satisfies RememberPayload);
+    userStore.SET_ISREMEMBERED(true);
+    return;
+  }
+  storageLocal().removeItem(REMEMBER_KEY);
+  userStore.SET_ISREMEMBERED(false);
+}
+
+loadRemembered();
+
+watch(remember, value => {
+  userStore.SET_ISREMEMBERED(value);
+  if (!value) storageLocal().removeItem(REMEMBER_KEY);
 });
 
 const onLogin = async (formEl: FormInstance | undefined) => {
@@ -46,13 +84,15 @@ const onLogin = async (formEl: FormInstance | undefined) => {
   await formEl.validate(valid => {
     if (valid) {
       loading.value = true;
-      useUserStoreHook()
+      userStore.SET_ISREMEMBERED(remember.value);
+      userStore
         .loginByUsername({
           username: ruleForm.username,
           password: ruleForm.password
         })
         .then(res => {
           if (res.success) {
+            persistRemember();
             return initRouter().then(() => {
               disabled.value = true;
               const homePath = getTopMenu(true)?.path || "/welcome";
@@ -161,6 +201,12 @@ useEventListener(document, "keydown", ({ code }) => {
             </el-form-item>
           </Motion>
 
+          <Motion :delay="120">
+            <div class="login-remember">
+              <el-checkbox v-model="remember">记住</el-checkbox>
+            </div>
+          </Motion>
+
           <Motion :delay="140">
             <el-button
               class="login-submit"
@@ -211,6 +257,17 @@ useEventListener(document, "keydown", ({ code }) => {
 .login-form :deep(.el-input__inner) {
   height: 42px;
   color: var(--login-ink);
+}
+
+.login-remember {
+  display: flex;
+  align-items: center;
+  margin: -4px 0 4px;
+}
+
+.login-remember :deep(.el-checkbox__label) {
+  color: var(--login-ink);
+  font-size: 13px;
 }
 
 .login-form :deep(.login-submit.el-button) {

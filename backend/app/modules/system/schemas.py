@@ -10,6 +10,7 @@ class ProjectCreate(BaseModel):
     sfc_code: str = ""
     btype: str = ""
     prefix: str = ""
+    appearance_folder: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
     machines: list[str] = Field(default_factory=list)
     owners: dict[str, Any] = Field(default_factory=dict)
@@ -21,6 +22,7 @@ class ProjectUpdate(BaseModel):
     sfc_code: str | None = None
     btype: str | None = None
     prefix: str | None = None
+    appearance_folder: str | None = None
     config: dict[str, Any] | None = None
     machines: list[str] | None = None
     owners: dict[str, Any] | None = None
@@ -152,3 +154,7 @@ class DiskCleanupUpdate(BaseModel):
     db_retention_days: int | None = Field(default=None, ge=1, le=3650)
     image_retention_days: int | None = Field(default=None, ge=1, le=3650)
     run_hour: int | None = Field(default=None, ge=0, le=23)
+
+
+class WorkshopUpdate(BaseModel):
+    offline: bool | None = None

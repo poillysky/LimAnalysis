@@ -25,6 +25,7 @@ data/meta/*
 !.env.example
 !*.env.example
 !.env.dbweb.example
+!.env.workshop.example
 
 # 参考用的历史项目自带的生产数据导出（单文件 50MB 级），只留源码不留数据。
 # 它们和 data/raw/* 同性质：是采集落地的业务数据，不该进版本库。
@@ -35,6 +36,9 @@ refence/**/*.csv
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 车间启停运行时 PID / 日志
+deploy/workshop/.run/
 
 # 工具缓存 / 下载暂存
 .ruff_cache/
@@ -48,3 +52,9 @@ backend/.tmpdl/
 *.log
 
 frontend/.tmpdl/
+frontend/dev-dist/
+
+# 本地样例图 / 外观截图树（体积大，不进库）
+photos/
+zdwg/
+zsj/

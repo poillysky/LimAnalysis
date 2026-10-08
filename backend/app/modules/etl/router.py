@@ -111,6 +111,20 @@ def overview():
     )
 
 
+@router.get("/logs")
+def get_logs(limit: int = 50):
+    from processor.etl_logs import list_etl_logs
+
+    return ok({"logs": list_etl_logs(limit=limit)})
+
+
+@router.delete("/logs")
+def remove_logs():
+    from processor.etl_logs import clear_etl_logs
+
+    return ok(clear_etl_logs())
+
+
 @router.get("/scheduler")
 def get_scheduler():
     from app.core.etl_config import load_etl_config

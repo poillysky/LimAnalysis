@@ -3,6 +3,7 @@ from app.core.meta_models import (  # noqa: F401
     MetaAggModel,
     MetaAggModelField,
     MetaBase,
+    MetaEtlLog,
     MetaEtlModel,
     MetaEtlModelField,
     MetaJob,
@@ -27,6 +28,7 @@ CAVITY_ALERT_RULES_KEY = "cavity_alert_rules"
 DEFECT_ANALYSIS_ALERT_KEY = "defect_analysis_alert"
 INSPECTION_KEY = "inspection"
 DISK_CLEANUP_KEY = "disk_cleanup"
+WORKSHOP_KEY = "workshop"
 
 DEFAULT_INSPECTION = {
     "mold_root_path": "",
@@ -42,6 +44,11 @@ DEFAULT_DISK_CLEANUP = {
     "last_run_status": "",
     "last_run_message": "",
     "last_run_result": {},
+}
+
+# 车间离线值守：停 SFC 定时采集、限制 AI 外网调用（.env WORKSHOP_OFFLINE 可强制）
+DEFAULT_WORKSHOP = {
+    "offline": False,
 }
 
 # 代码只放默认值，不含任何项目名单
@@ -118,8 +125,30 @@ DEFAULT_MACHINE_CATALOG = {
 }
 
 
+def _ensure_meta_sfc_log_columns() -> None:
+    """已有 SQLite 表补齐项目级日志列（create_all 不会 ALTER）。"""
+    from sqlalchemy import text
+
+    needed = {
+        "project_id": "VARCHAR(80) DEFAULT '' NOT NULL",
+        "project_name": "VARCHAR(120) DEFAULT '' NOT NULL",
+        "account": "VARCHAR(80) DEFAULT '' NOT NULL",
+        "rows_affected": "INTEGER DEFAULT 0 NOT NULL",
+        "duration": "FLOAT DEFAULT 0 NOT NULL",
+    }
+    with meta_engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(meta_sfc_logs)")).fetchall()
+        if not rows:
+            return
+        existing = {str(r[1]) for r in rows}
+        for name, decl in needed.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE meta_sfc_logs ADD COLUMN {name} {decl}"))
+
+
 def init_meta_store() -> None:
     MetaBase.metadata.create_all(meta_engine)
+    _ensure_meta_sfc_log_columns()
     db = MetaSession()
     try:
         if db.get(MetaSetting, SYSTEM_DEFAULTS_KEY) is None:
@@ -150,6 +179,8 @@ def init_meta_store() -> None:
             db.add(MetaSetting(key=AGG_SCHEDULER_KEY, value=DEFAULT_AGG_SCHEDULER))
         if db.get(MetaSetting, DISK_CLEANUP_KEY) is None:
             db.add(MetaSetting(key=DISK_CLEANUP_KEY, value=DEFAULT_DISK_CLEANUP))
+        if db.get(MetaSetting, WORKSHOP_KEY) is None:
+            db.add(MetaSetting(key=WORKSHOP_KEY, value=DEFAULT_WORKSHOP))
         db.commit()
     except Exception:
         db.rollback()

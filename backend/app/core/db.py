@@ -21,26 +21,35 @@ _PG_ENGINE_TTL = 30.0
 _pg_engine_key: tuple[str, str, str] | None = None
 _pg_engine_at: float = 0.0
 
+# 车间单机：池偏小，避免 API+2 worker 各开满默认 5+10 连接把 Postgres/内存顶满
+_PG_POOL = {"pool_size": 3, "max_overflow": 2, "pool_recycle": 1800, "pool_timeout": 30}
+
 meta_engine = create_engine(
     settings.meta_database_url,
     connect_args={"check_same_thread": False},
     pool_pre_ping=True,
+    pool_size=2,
+    max_overflow=1,
+    pool_recycle=1800,
 )
 
 raw_engine = create_engine(
     settings.raw_database_url,
     pool_pre_ping=True,
     connect_args={"connect_timeout": 3},
+    **_PG_POOL,
 )
 dwh_engine = create_engine(
     settings.dwh_database_url,
     pool_pre_ping=True,
     connect_args={"connect_timeout": 3},
+    **_PG_POOL,
 )
 defect_engine = create_engine(
     settings.defect_database_url,
     pool_pre_ping=True,
     connect_args={"connect_timeout": 3},
+    **_PG_POOL,
 )
 
 
@@ -103,16 +112,19 @@ def refresh_pg_engines(force: bool = False) -> bool:
             urls[0],
             pool_pre_ping=True,
             connect_args={"connect_timeout": 8},
+            **_PG_POOL,
         )
         next_dwh = create_engine(
             urls[1],
             pool_pre_ping=True,
             connect_args={"connect_timeout": 8},
+            **_PG_POOL,
         )
         next_defect = create_engine(
             urls[2],
             pool_pre_ping=True,
             connect_args={"connect_timeout": 8},
+            **_PG_POOL,
         )
         raw_engine = next_raw
         dwh_engine = next_dwh

@@ -31,6 +31,11 @@ type LogRow = {
   trigger: string;
   status: string;
   message: string;
+  project_id?: string;
+  project_name?: string;
+  account?: string;
+  rows_affected?: number;
+  duration?: number;
   detail?: {
     lines?: { time: string; level: string; message: string }[];
   };
@@ -128,10 +133,42 @@ function statusType(status: string) {
   const value = (status || "").toLowerCase();
   if (!value) return "info";
   if (["ok", "success", "succeeded", "done"].includes(value)) return "success";
+  if (["partial"].includes(value)) return "warning";
   if (["running", "pending", "start"].some(k => value.includes(k)))
     return "warning";
   if (["fail", "error", "timeout"].some(k => value.includes(k))) return "danger";
   return "info";
+}
+
+function statusLabel(status: string) {
+  const map: Record<string, string> = {
+    success: "成功",
+    failed: "失败",
+    partial: "部分成功",
+    running: "进行中",
+    fail: "失败",
+    error: "失败"
+  };
+  return map[(status || "").toLowerCase()] || status || "—";
+}
+
+function triggerLabel(trigger: string) {
+  const map: Record<string, string> = {
+    manual: "手动",
+    auto: "自动",
+    upload: "上传"
+  };
+  return map[(trigger || "").toLowerCase()] || trigger || "—";
+}
+
+function formatDuration(sec: number) {
+  const n = Number(sec) || 0;
+  if (n <= 0) return "—";
+  if (n < 1) return `${Math.round(n * 1000)} ms`;
+  if (n < 60) return `${n.toFixed(1)} 秒`;
+  const m = Math.floor(n / 60);
+  const s = Math.round(n % 60);
+  return `${m} 分 ${s} 秒`;
 }
 
 function dash(value: string | number | null | undefined) {
@@ -706,7 +743,7 @@ onUnmounted(() => {
                   effect="light"
                   round
                 >
-                  {{ lastRunStatus }}
+                  {{ statusLabel(lastRunStatus) }}
                 </el-tag>
                 <span v-else class="cell-muted">尚未运行</span>
               </div>
@@ -734,6 +771,7 @@ onUnmounted(() => {
           <header class="sfc-panel__head">
             <div>
               <h2>运行日志</h2>
+              <p>按项目记录：账号、行数、耗时与逐步明细</p>
             </div>
             <div class="sfc-panel__actions">
               <span class="panel-count">{{ logs.length }} 条记录</span>
@@ -771,24 +809,29 @@ onUnmounted(() => {
                 <div v-else class="cell-muted log-empty">无明细</div>
               </template>
             </el-table-column>
-            <el-table-column label="开始" min-width="160" align="left">
+            <el-table-column label="开始" min-width="150" align="left">
               <template #default="{ row }">
                 <span class="time-cell">{{ dash(row.started_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="结束" min-width="160" align="left">
+            <el-table-column label="项目" min-width="110" align="left">
               <template #default="{ row }">
-                <span class="time-cell">{{ dash(row.ended_at) }}</span>
+                {{ dash(row.project_name || row.project_id) }}
               </template>
             </el-table-column>
-            <el-table-column label="来源" min-width="90" align="left">
+            <el-table-column label="账号" min-width="100" align="left">
+              <template #default="{ row }">
+                {{ dash(row.account) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="来源" width="88" align="center">
               <template #default="{ row }">
                 <el-tag size="small" effect="plain" round>
-                  {{ dash(row.trigger) }}
+                  {{ triggerLabel(row.trigger) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="状态" min-width="100" align="left">
+            <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
                 <el-tag
                   size="small"
@@ -796,11 +839,25 @@ onUnmounted(() => {
                   effect="light"
                   round
                 >
-                  {{ dash(row.status) }}
+                  {{ statusLabel(row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="说明" min-width="220" align="left">
+            <el-table-column label="行数" width="96" align="right">
+              <template #default="{ row }">
+                <span class="time-cell">{{
+                  Number(row.rows_affected || 0).toLocaleString()
+                }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="耗时" width="96" align="right">
+              <template #default="{ row }">
+                <span class="time-cell">{{
+                  formatDuration(Number(row.duration || 0))
+                }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="说明" min-width="200" align="left">
               <template #default="{ row }">
                 <span class="msg-cell">{{ dash(row.message) }}</span>
               </template>
@@ -861,7 +918,7 @@ onUnmounted(() => {
                   effect="light"
                   round
                 >
-                  {{ lastRunStatus }}
+                  {{ statusLabel(lastRunStatus) }}
                 </el-tag>
                 <span v-else class="cell-muted">尚未运行</span>
               </div>

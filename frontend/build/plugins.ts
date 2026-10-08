@@ -6,6 +6,7 @@ import Icons from "unplugin-icons/vite";
 import type { PluginOption } from "vite";
 import vueJsx from "@vitejs/plugin-vue-jsx";
 import tailwindcss from "@tailwindcss/vite";
+import { VitePWA } from "vite-plugin-pwa";
 import { configCompressPlugin } from "./compress";
 import removeNoMatch from "vite-plugin-router-warn";
 import { visualizer } from "rollup-plugin-visualizer";
@@ -50,6 +51,68 @@ export function getPluginsList(
     configCompressPlugin(VITE_COMPRESSION),
     // 线上环境删除console
     removeConsole({ external: ["src/assets/iconfont/iconfont.js"] }),
+    // Windows 桌面式 PWA：独立窗口 + 标题栏叠加（Edge / Chrome）
+    VitePWA({
+      registerType: "autoUpdate",
+      injectRegister: "auto",
+      includeAssets: [
+        "favicon.ico",
+        "favicon-32.png",
+        "logo.svg",
+        "pwa-192.png",
+        "pwa-512.png",
+        "platform-config.json"
+      ],
+      manifest: {
+        id: "/",
+        name: "LimAnalysis",
+        short_name: "LimAnalysis",
+        description: "LIM 数据分析 · 车间值守",
+        lang: "zh-CN",
+        dir: "ltr",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        display_override: ["window-controls-overlay", "standalone"],
+        background_color: "#f4f6f8",
+        theme_color: "#15233a",
+        orientation: "any",
+        categories: ["business", "productivity"],
+        icons: [
+          {
+            src: "pwa-192.png",
+            sizes: "192x192",
+            type: "image/png"
+          },
+          {
+            src: "pwa-512.png",
+            sizes: "512x512",
+            type: "image/png"
+          },
+          {
+            src: "pwa-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable"
+          }
+        ]
+      },
+      workbox: {
+        navigateFallback: "/index.html",
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2,json,webp}"],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith("/api/"),
+            handler: "NetworkOnly"
+          }
+        ]
+      },
+      // 本地 pnpm dev 也可测安装（需 https 或 localhost）
+      devOptions: {
+        enabled: true,
+        type: "module"
+      }
+    }),
     // 打包分析
     lifecycle === "report"
       ? visualizer({ open: true, brotliSize: true, filename: "report.html" })

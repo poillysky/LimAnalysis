@@ -8,6 +8,7 @@ import {
   getViewerFolders,
   getViewerImages,
   searchViewerImages,
+  type AppearanceDim,
   type InspectionImage,
   type InspectionProject,
   type PhotoSource
@@ -29,6 +30,11 @@ const pageIcon = computed(() =>
   photoSource.value === "appearance" ? "ri/eye-line" : "ri/image-line"
 );
 const isAppearance = computed(() => photoSource.value === "appearance");
+/** 仅外观页：tester=外观测试机维度，mold=注塑机维度 */
+const queryDim = ref<AppearanceDim>("tester");
+const isMoldDim = computed(
+  () => isAppearance.value && queryDim.value === "mold"
+);
 const loading = ref(false);
 const hint = ref("");
 const ready = ref(false);
@@ -42,6 +48,7 @@ const status = ref("OK");
 const dates = ref<string[]>([]);
 const cavities = ref<string[]>([]);
 const testers = ref<string[]>([]);
+const moldMachines = ref<string[]>([]);
 const cameras = ref<string[]>([]);
 const statuses = ref<string[]>(["OK"]);
 const images = ref<InspectionImage[]>([]);
@@ -50,21 +57,43 @@ const started = ref(false);
 const locating = ref(false);
 const qrQuery = ref("");
 const filmRef = ref<HTMLElement | null>(null);
+/** 扫码定位时检出但不在项目机台清单里的机台，临时并入下拉 */
+const machineExtras = ref<string[]>([]);
 
 const currentProject = computed(
   () => projects.value.find(item => item.project_id === projectId.value) || null
 );
-const machineChoices = computed(() =>
-  isAppearance.value ? testers.value : currentProject.value?.machines || []
+const machineChoices = computed(() => {
+  let base: string[] = [];
+  if (isAppearance.value) {
+    base = isMoldDim.value ? moldMachines.value : testers.value;
+  } else {
+    base = currentProject.value?.machines || [];
+  }
+  const extras = machineExtras.value.filter(
+    code => code && !base.some(b => b.toLowerCase() === code.toLowerCase())
+  );
+  return extras.length ? [...base, ...extras] : base;
+});
+const machineFieldLabel = computed(() => {
+  if (!isAppearance.value) return "机台";
+  return isMoldDim.value ? "注塑机台" : "测试机";
+});
+const dateFieldLabel = computed(() =>
+  isAppearance.value && isMoldDim.value ? "生产日" : "日期"
 );
 const current = computed(() => images.value[index.value] || null);
 const canQuery = computed(() => {
   if (!ready.value || !projectId.value || !machine.value || !dateStr.value) {
     return false;
   }
-  return isAppearance.value ? Boolean(camera.value) : Boolean(cavity.value);
+  if (isAppearance.value) {
+    if (!camera.value) return false;
+    if (isMoldDim.value && !cavity.value) return false;
+    return true;
+  }
+  return Boolean(cavity.value);
 });
-const dateLabel = computed(() => formatDate(dateStr.value));
 const counter = computed(() =>
   images.value.length
     ? `${index.value + 1} / ${images.value.length}`
@@ -72,10 +101,13 @@ const counter = computed(() =>
 );
 
 function formatDate(value: string) {
-  if (/^\d{8}$/.test(value)) {
-    return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  const raw = String(value || "").trim();
+  if (/^\d{8}$/.test(raw)) {
+    return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
   }
-  return value || "—";
+  const dotted = raw.match(/^(\d{4})[.\-](\d{2})[.\-](\d{2})$/);
+  if (dotted) return `${dotted[1]}-${dotted[2]}-${dotted[3]}`;
+  return raw || "—";
 }
 
 function errMessage(error: unknown, fallback: string) {
@@ -98,7 +130,7 @@ async function bootstrap() {
     }
     if (isAppearance.value) {
       camera.value = camera.value || "";
-      await loadTesters();
+      await loadAppearanceMeta();
     } else {
       syncMachine();
       if (cavities.value.length && !cavities.value.includes(cavity.value)) {
@@ -106,7 +138,7 @@ async function bootstrap() {
       }
     }
     if (!ready.value) hint.value = "还没有配置照片目录。";
-    else if (isAppearance.value) await loadCameras();
+    else if (isAppearance.value) await loadAppearanceViews();
     else await loadDates();
   } catch (error) {
     hint.value = backendErrorHint(error);
@@ -120,12 +152,29 @@ function syncChoice(list: string[], current: string) {
   return list.includes(current) ? current : list[0];
 }
 
+function matchChoice(list: string[], want: string): string {
+  const raw = String(want || "").trim();
+  if (!raw) return "";
+  if (list.includes(raw)) return raw;
+  const lower = raw.toLowerCase();
+  const hit = list.find(item => item.toLowerCase() === lower);
+  return hit || raw;
+}
+
+function ensureChoice(list: string[], want: string): string[] {
+  const raw = String(want || "").trim();
+  if (!raw) return list;
+  if (list.some(item => item.toLowerCase() === raw.toLowerCase())) return list;
+  return [...list, raw];
+}
+
 function syncMachine() {
   machine.value = syncChoice(machineChoices.value, machine.value);
 }
 
-async function loadTesters() {
+async function loadAppearanceMeta() {
   testers.value = [];
+  moldMachines.value = [];
   cameras.value = [];
   camera.value = "";
   dates.value = [];
@@ -135,26 +184,76 @@ async function loadTesters() {
     return;
   }
   try {
-    const res = await getViewerFolders(projectId.value);
+    const res = await getViewerFolders(
+      projectId.value,
+      "",
+      queryDim.value
+    );
     testers.value = res?.data?.testers || [];
+    moldMachines.value =
+      res?.data?.machines?.length
+        ? res.data.machines
+        : currentProject.value?.machines || [];
+    if (res?.data?.cavities?.length) cavities.value = res.data.cavities;
+    if (isMoldDim.value) {
+      cameras.value = res?.data?.cameras || [];
+      camera.value = syncChoice(cameras.value, camera.value);
+      if (cavities.value.length && !cavities.value.includes(cavity.value)) {
+        cavity.value = cavities.value[0];
+      }
+    }
     syncMachine();
   } catch (error) {
     testers.value = [];
+    moldMachines.value = [];
     machine.value = "";
     hint.value = backendErrorHint(error);
   }
 }
 
-async function loadCameras() {
+async function loadAppearanceViews() {
   cameras.value = [];
-  if (!ready.value || !projectId.value || !machine.value) {
+  if (!ready.value || !projectId.value) {
+    camera.value = "";
+    dates.value = [];
+    dateStr.value = "";
+    return;
+  }
+  if (isMoldDim.value) {
+    if (!machine.value) {
+      camera.value = "";
+      dates.value = [];
+      dateStr.value = "";
+      return;
+    }
+    try {
+      const res = await getViewerFolders(
+        projectId.value,
+        "",
+        "mold"
+      );
+      cameras.value = res?.data?.cameras || [];
+      camera.value = syncChoice(cameras.value, camera.value);
+      if (res?.data?.cavities?.length) cavities.value = res.data.cavities;
+      await loadDates();
+    } catch (error) {
+      camera.value = "";
+      hint.value = backendErrorHint(error);
+    }
+    return;
+  }
+  if (!machine.value) {
     camera.value = "";
     dates.value = [];
     dateStr.value = "";
     return;
   }
   try {
-    const res = await getViewerFolders(projectId.value, machine.value);
+    const res = await getViewerFolders(
+      projectId.value,
+      machine.value,
+      "tester"
+    );
     cameras.value = res?.data?.cameras || [];
     camera.value = syncChoice(cameras.value, camera.value);
     await loadDates();
@@ -166,7 +265,14 @@ async function loadCameras() {
 
 async function loadDates(keepDate = "") {
   const needCamera = isAppearance.value ? camera.value : true;
-  if (!ready.value || !projectId.value || !machine.value || !needCamera) {
+  const needCavity = isMoldDim.value ? cavity.value : true;
+  if (
+    !ready.value ||
+    !projectId.value ||
+    !machine.value ||
+    !needCamera ||
+    !needCavity
+  ) {
     dates.value = [];
     if (!keepDate) dateStr.value = "";
     return;
@@ -176,7 +282,8 @@ async function loadDates(keepDate = "") {
       projectId.value,
       machine.value,
       photoSource.value,
-      isAppearance.value ? camera.value : ""
+      isAppearance.value ? camera.value : "",
+      isAppearance.value ? queryDim.value : "tester"
     );
     const listed = res?.data?.dates || [];
     dates.value = listed;
@@ -189,6 +296,7 @@ async function loadDates(keepDate = "") {
     if (res?.data?.cavities?.length) cavities.value = res.data.cavities;
     if (res?.data?.statuses?.length) statuses.value = res.data.statuses;
     if (res?.data?.testers?.length) testers.value = res.data.testers;
+    if (res?.data?.machines?.length) moldMachines.value = res.data.machines;
     if (res?.data?.cameras?.length) cameras.value = res.data.cameras;
   } catch (error) {
     hint.value = backendErrorHint(error);
@@ -197,8 +305,20 @@ async function loadDates(keepDate = "") {
 
 watch(projectId, () => {
   if (locating.value) return;
-  if (isAppearance.value) void loadTesters().then(() => loadCameras());
-  else syncMachine();
+  machineExtras.value = [];
+  if (isAppearance.value) {
+    void loadAppearanceMeta().then(() => loadAppearanceViews());
+  } else syncMachine();
+});
+
+watch(queryDim, () => {
+  if (!isAppearance.value || locating.value) return;
+  images.value = [];
+  index.value = 0;
+  started.value = false;
+  machine.value = "";
+  camera.value = "";
+  void loadAppearanceMeta().then(() => loadAppearanceViews());
 });
 
 watch(machine, () => {
@@ -206,12 +326,20 @@ watch(machine, () => {
   images.value = [];
   index.value = 0;
   started.value = false;
-  if (isAppearance.value) void loadCameras();
+  if (isAppearance.value) void loadAppearanceViews();
   else void loadDates();
 });
 
 watch(camera, () => {
   if (locating.value || !isAppearance.value) return;
+  images.value = [];
+  index.value = 0;
+  started.value = false;
+  void loadDates();
+});
+
+watch(cavity, () => {
+  if (locating.value || !isMoldDim.value) return;
   images.value = [];
   index.value = 0;
   started.value = false;
@@ -248,9 +376,11 @@ async function startCheck() {
   }
   if (!canQuery.value) {
     ElMessage.warning(
-      isAppearance.value
-        ? "请选择项目、测试机、相机和日期"
-        : "请选择项目、机台、穴位和日期"
+      isMoldDim.value
+        ? "请选择项目、注塑机台、穴位、视角和生产日"
+        : isAppearance.value
+          ? "请选择项目、测试机、视角和日期"
+          : "请选择项目、机台、穴位和日期"
     );
     return;
   }
@@ -261,15 +391,21 @@ async function startCheck() {
     const res = await getViewerImages({
       project_id: projectId.value,
       machine: machine.value,
-      cavity: isAppearance.value ? camera.value : cavity.value,
+      cavity: isAppearance.value
+        ? isMoldDim.value
+          ? cavity.value
+          : camera.value
+        : cavity.value,
       date: dateStr.value,
       status: status.value,
-      source: photoSource.value
+      source: photoSource.value,
+      dim: isAppearance.value ? queryDim.value : undefined,
+      camera: isMoldDim.value ? camera.value : undefined
     });
     images.value = res?.data?.images || [];
     index.value = 0;
     if (!images.value.length) {
-      hint.value = "这个筛选下没有照片。";
+      hint.value = res?.data?.hint || "这个筛选下没有照片。";
     }
     await nextTick();
     scrollFilm();
@@ -283,37 +419,56 @@ async function startCheck() {
 
 function locateFromImage(item: InspectionImage | null) {
   if (!item) return;
-  if (item.machine) {
-    if (isAppearance.value && !testers.value.includes(item.machine)) {
-      testers.value = [...testers.value, item.machine];
+  const foundMachine = String(item.machine || "").trim();
+  if (foundMachine) {
+    if (isAppearance.value && !isMoldDim.value) {
+      testers.value = ensureChoice(testers.value, foundMachine);
+    } else {
+      const inProject = (currentProject.value?.machines || []).some(
+        code => code.toLowerCase() === foundMachine.toLowerCase()
+      );
+      if (!inProject) {
+        machineExtras.value = ensureChoice(machineExtras.value, foundMachine);
+      }
+      if (isMoldDim.value) {
+        moldMachines.value = ensureChoice(moldMachines.value, foundMachine);
+      }
     }
-    if (machineChoices.value.includes(item.machine)) {
-      machine.value = item.machine;
-    }
+    machine.value = matchChoice(machineChoices.value, foundMachine);
   }
-  const cameraName = item.camera || item.cavity;
-  if (isAppearance.value && cameraName) {
-    if (!cameras.value.includes(cameraName)) {
-      cameras.value = [...cameras.value, cameraName];
+
+  if (isAppearance.value) {
+    const cameraName = String(item.camera || "").trim();
+    if (cameraName) {
+      cameras.value = ensureChoice(cameras.value, cameraName);
+      camera.value = matchChoice(cameras.value, cameraName);
     }
-    camera.value = cameraName;
+    if (isMoldDim.value && item.cavity) {
+      const letter = String(item.cavity).trim().toUpperCase();
+      cavities.value = ensureChoice(cavities.value, letter);
+      cavity.value = matchChoice(cavities.value, letter);
+    }
   } else if (item.cavity) {
-    if (!cavities.value.includes(item.cavity)) {
-      cavities.value = [...cavities.value, item.cavity];
-    }
-    cavity.value = item.cavity;
+    const letter = String(item.cavity).trim().toUpperCase();
+    cavities.value = ensureChoice(cavities.value, letter);
+    cavity.value = matchChoice(cavities.value, letter);
   }
+
   if (item.date_str) {
-    if (!dates.value.includes(item.date_str)) {
-      dates.value = [item.date_str, ...dates.value];
+    const day = String(item.date_str).trim();
+    if (day) {
+      dates.value = ensureChoice(dates.value, day);
+      // 日期保持后端给的原值（通常 YYYYMMDD）
+      dateStr.value = dates.value.includes(day)
+        ? day
+        : matchChoice(dates.value, day) || day;
     }
-    dateStr.value = item.date_str;
   }
-  if (item.status) {
-    if (!statuses.value.includes(item.status)) {
-      statuses.value = [...statuses.value, item.status];
-    }
-    status.value = item.status;
+
+  if (item.status && !isAppearance.value) {
+    const st = String(item.status).trim();
+    statuses.value = ensureChoice(statuses.value, st);
+    status.value = matchChoice(statuses.value, st);
   }
 }
 
@@ -346,8 +501,27 @@ async function searchByName() {
       hint.value = "没有匹配该文件名的照片。";
     } else {
       locating.value = true;
-      locateFromImage(images.value[0]);
-      await loadDates(images.value[0].date_str || "");
+      const hit = images.value[0];
+      // 先按命中结果校正机台/穴位/相机，再拉日期列表，最后再校正一次防覆盖
+      locateFromImage(hit);
+      if (isAppearance.value) await loadAppearanceViews();
+      await loadDates(hit.date_str || "");
+      locateFromImage(hit);
+      ElMessage.success(
+        `已定位 ${hit.machine || "—"}${
+          isAppearance.value
+            ? [
+                isMoldDim.value && hit.cavity ? `${hit.cavity}穴` : "",
+                hit.camera || (!isMoldDim.value ? hit.cavity : "")
+              ]
+                .filter(Boolean)
+                .map(part => ` / ${part}`)
+                .join("")
+            : hit.cavity
+              ? ` / ${hit.cavity}穴`
+              : ""
+        }`
+      );
     }
     await nextTick();
     locating.value = false;
@@ -395,6 +569,7 @@ watch(photoSource, () => {
   images.value = [];
   index.value = 0;
   started.value = false;
+  queryDim.value = "tester";
   void bootstrap();
 });
 onUnmounted(() => window.removeEventListener("keydown", onKey));
@@ -408,19 +583,28 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <component :is="useRenderIcon(pageIcon)" />
         </span>
         <h2>{{ pageTitle }}</h2>
-        <div class="viewer-chips">
-          <span>{{ currentProject?.display_name || "未选项目" }}</span>
-          <span>{{ machine || "—" }}</span>
-          <span v-if="isAppearance">{{ camera || "—" }}</span>
-          <span v-else>{{ cavity }}穴</span>
-          <span>{{ dateLabel }}</span>
-          <span v-if="!isAppearance" :class="{ ok: status === 'OK' }">{{
-            status
-          }}</span>
-        </div>
       </header>
 
       <div class="viewer-fields">
+        <div v-if="isAppearance" class="viewer-dim">
+          <button
+            type="button"
+            class="viewer-dim__btn"
+            :class="{ 'is-on': queryDim === 'tester' }"
+            @click="queryDim = 'tester'"
+          >
+            外观测试机
+          </button>
+          <button
+            type="button"
+            class="viewer-dim__btn"
+            :class="{ 'is-on': queryDim === 'mold' }"
+            @click="queryDim = 'mold'"
+          >
+            注塑机
+          </button>
+        </div>
+
         <label class="viewer-field">
           <span>项目</span>
           <el-select
@@ -442,10 +626,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </label>
 
         <label class="viewer-field">
-          <span>{{ isAppearance ? "测试机" : "机台" }}</span>
+          <span>{{ machineFieldLabel }}</span>
           <el-select
             v-model="machine"
-            :placeholder="isAppearance ? '测试机' : '机台'"
+            :placeholder="machineFieldLabel"
             style="width: 120px"
           >
             <el-option
@@ -457,19 +641,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </el-select>
         </label>
 
-        <label v-if="isAppearance" class="viewer-field">
-          <span>相机</span>
-          <el-select v-model="camera" placeholder="相机" style="width: 132px">
-            <el-option
-              v-for="code in cameras"
-              :key="code"
-              :label="code"
-              :value="code"
-            />
-          </el-select>
-        </label>
-
-        <label v-else class="viewer-field">
+        <label v-if="!isAppearance || isMoldDim" class="viewer-field">
           <span>穴位</span>
           <el-select v-model="cavity" placeholder="穴位" style="width: 96px">
             <el-option
@@ -481,9 +653,25 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </el-select>
         </label>
 
+        <label v-if="isAppearance" class="viewer-field">
+          <span>视角</span>
+          <el-select v-model="camera" placeholder="视角" style="width: 132px">
+            <el-option
+              v-for="code in cameras"
+              :key="code"
+              :label="code"
+              :value="code"
+            />
+          </el-select>
+        </label>
+
         <label class="viewer-field">
-          <span>日期</span>
-          <el-select v-model="dateStr" placeholder="日期" style="width: 140px">
+          <span>{{ dateFieldLabel }}</span>
+          <el-select
+            v-model="dateStr"
+            :placeholder="dateFieldLabel"
+            style="width: 140px"
+          >
             <el-option
               v-for="day in dates"
               :key="day"
@@ -520,10 +708,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </label>
 
         <div class="viewer-actions">
-          <el-button
-            :disabled="!ready || !projectId"
-            @click="searchByName"
-          >
+          <el-button :disabled="!ready || !projectId" @click="searchByName">
             搜索
           </el-button>
           <el-button
@@ -537,23 +722,17 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
       </div>
     </section>
 
-    <p v-if="hint" class="viewer-banner" :class="{ warn: !ready }">
-      {{ hint }}
-      <el-button
-        v-if="!ready"
-        link
-        type="primary"
-        @click="router.push('/feature/inspection')"
-      >
-        打开图片目录
-      </el-button>
-    </p>
-
     <div v-if="current" class="viewer-stage">
       <div class="viewer-frame">
         <div class="viewer-chrome">
           <strong v-if="isAppearance">
-            {{ current.machine }} · {{ current.camera || current.cavity }}
+            <template v-if="isMoldDim">
+              {{ current.machine }} · {{ current.cavity }}穴 ·
+              {{ current.camera || "—" }}
+            </template>
+            <template v-else>
+              {{ current.machine }} · {{ current.camera || current.cavity }}
+            </template>
           </strong>
           <strong v-else>{{ current.machine }} · {{ current.cavity }}穴</strong>
           <span>{{ counter }}</span>
@@ -691,37 +870,45 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   color: #1f2a37;
 }
 
-.viewer-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.viewer-chips span {
-  padding: 3px 9px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 18px;
-  color: #1f2937;
-  background: #f3f4f6;
-  border-radius: 999px;
-}
-
-.viewer-chips span.ok {
-  color: #166534;
-  background: #dcfce7;
-}
-
 .viewer-fields {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-end;
-  gap: 10px 12px;
+  gap: 8px 10px;
   margin-top: 14px;
-  padding: 12px 14px;
+  padding: 10px 12px;
+  overflow-x: auto;
   background: #f8fafc;
   border-radius: 10px;
+}
+
+.viewer-dim {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.viewer-dim__btn {
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.viewer-dim__btn + .viewer-dim__btn {
+  border-left: 1px solid #d0d7de;
+}
+
+.viewer-dim__btn.is-on {
+  color: #fff;
+  background: #1e4e79;
 }
 
 .viewer-field {
@@ -737,8 +924,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 }
 
 .viewer-field--qr {
-  flex: 1 1 220px;
-  min-width: 200px;
+  flex: 1 1 180px;
+  min-width: 140px;
+  max-width: 280px;
 }
 
 .viewer-muted {
@@ -748,28 +936,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 
 .viewer-actions {
   display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.viewer-banner {
-  display: flex;
-  flex-wrap: wrap;
+  flex: none;
   align-items: center;
   gap: 8px;
-  margin: 12px 0 0;
-  padding: 10px 12px;
-  font-size: 13px;
-  color: #374151;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  padding-bottom: 1px;
 }
 
-.viewer-banner.warn {
-  color: #92400e;
-  background: #fffbeb;
-  border-color: #fde68a;
+.viewer-fields :deep(.el-select),
+.viewer-fields :deep(.el-input) {
+  min-width: 0;
 }
 
 .viewer-stage {
@@ -996,11 +1171,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 @media (max-width: 900px) {
   .viewer-page {
     padding: 12px;
-  }
-
-  .viewer-chips,
-  .viewer-actions {
-    margin-left: 0;
   }
 
   .viewer-frame {

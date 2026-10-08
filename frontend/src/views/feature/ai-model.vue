@@ -29,10 +29,12 @@ const form = reactive({
 });
 const apiKeySet = ref(false);
 const ready = ref(false);
+const workshopOffline = ref(false);
 const lastTest = ref("");
 const modelOptions = ref<string[]>([]);
 
 const statusText = computed(() => {
+  if (workshopOffline.value) return "车间离线模式：已禁止 AI 外网调用";
   if (ready.value) return "已就绪，数据清洗公式将优先用 AI 辅助生成";
   if (form.enabled) return "已启用但未就绪（检查地址 / 模型 / API Key）";
   return "未启用：公式仍用规则生成";
@@ -52,6 +54,8 @@ function applyConfig(data: AiConfig) {
   form.api_key = "";
   apiKeySet.value = !!data.api_key_set;
   ready.value = !!data.ready;
+  workshopOffline.value = !!data.workshop_offline;
+  if (workshopOffline.value) form.enabled = false;
 }
 
 async function load() {
@@ -178,15 +182,33 @@ onMounted(load);
         <h2>AI 模型配置</h2>
         <p>连接 OpenAI 兼容接口，供数据清洗「描述生成」公式辅助使用。</p>
       </div>
-      <el-tag :type="ready ? 'success' : form.enabled ? 'warning' : 'info'">
+      <el-tag
+        :type="
+          workshopOffline
+            ? 'info'
+            : ready
+              ? 'success'
+              : form.enabled
+                ? 'warning'
+                : 'info'
+        "
+      >
         {{ statusText }}
       </el-tag>
     </div>
 
+    <el-alert
+      v-if="workshopOffline"
+      class="ai-workshop"
+      type="info"
+      :closable="false"
+      title="车间离线模式已开启：AI 外网调用已禁用（WORKSHOP_OFFLINE 或系统车间配置）"
+    />
+
     <section class="ai-panel">
       <el-form label-width="120px" class="ai-form">
         <el-form-item label="启用 AI">
-          <el-switch v-model="form.enabled" />
+          <el-switch v-model="form.enabled" :disabled="workshopOffline" />
         </el-form-item>
         <el-form-item label="快捷预设">
           <el-button size="small" @click="fillPreset('openai')">OpenAI</el-button>
@@ -294,6 +316,10 @@ onMounted(load);
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.ai-workshop {
+  margin-bottom: 12px;
 }
 
 .ai-head h2 {

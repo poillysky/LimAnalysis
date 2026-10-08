@@ -7,6 +7,9 @@ import { MotionPlugin } from "@vueuse/motion";
 import { createApp, type Directive } from "vue";
 import { useElementPlus } from "@/plugins/elementPlus";
 import { injectResponsiveStorage } from "@/utils/responsive";
+import { registerPwa } from "@/utils/pwa";
+
+registerPwa();
 
 import Table from "@pureadmin/table";
 // import PureDescriptions from "@pureadmin/descriptions";

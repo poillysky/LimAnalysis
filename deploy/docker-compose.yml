@@ -5,36 +5,57 @@ services:
   postgres-raw:
     image: postgres:16-alpine
     container_name: lim-raw
+    mem_limit: 1g
     ports:
       - "5432:5432"
     environment:
       POSTGRES_USER: lim
       POSTGRES_PASSWORD: lim
       POSTGRES_DB: lim_raw
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=80
     volumes:
       - lim_raw:/var/lib/postgresql/data
 
   postgres-dwh:
     image: postgres:16-alpine
     container_name: lim-dwh
+    mem_limit: 1g
     ports:
       - "5433:5432"
     environment:
       POSTGRES_USER: lim
       POSTGRES_PASSWORD: lim
       POSTGRES_DB: lim_dwh
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=80
     volumes:
       - lim_dwh:/var/lib/postgresql/data
 
   postgres-defect:
     image: postgres:16-alpine
     container_name: lim-defect
+    mem_limit: 512m
     ports:
       - "5434:5432"
     environment:
       POSTGRES_USER: lim
       POSTGRES_PASSWORD: lim
       POSTGRES_DB: lim_defect
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=40
     volumes:
       - lim_defect:/var/lib/postgresql/data
 

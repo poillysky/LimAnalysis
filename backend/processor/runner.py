@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from collector.jobs import JOB_ETL_CLEAN, enqueue_job, find_active_job
+from processor.etl_logs import log_line
 from processor.executor import execute_all_enabled, execute_model, execute_project
 from processor.models_store import assert_model_runnable, get_model, get_model_by_project
 
@@ -73,11 +75,81 @@ def execute_etl(
     all_enabled: bool = False,
     full_refresh: bool = False,
 ) -> dict:
-    if model_id:
-        result = execute_model(int(model_id), full_refresh=full_refresh)
-        return {"ok": True, "run_scope": "one", **result}
-    if all_enabled or not project_id:
-        result = execute_all_enabled(full_refresh=full_refresh)
-        return {"ok": bool(result.get("ok")), "run_scope": "all", **result}
-    result = execute_project(str(project_id), full_refresh=full_refresh)
-    return {"ok": True, "run_scope": "one", **result}
+    from processor.etl_logs import log_line
+
+    kind = "full" if full_refresh else "incremental"
+    t0 = time.time()
+    lines: list[dict] = [
+        log_line("info", f"开始清洗（模式={'全量' if full_refresh else '增量'}）")
+    ]
+    try:
+        if model_id:
+            lines.append(log_line("info", f"执行模型 #{int(model_id)}"))
+            result = execute_model(int(model_id), full_refresh=full_refresh)
+            lines.append(
+                log_line(
+                    "success" if result.get("ok", True) else "error",
+                    str(result.get("message") or "完成"),
+                )
+            )
+            return {
+                "ok": True,
+                "run_scope": "one",
+                "run_mode": result.get("mode") or kind,
+                "duration": round(time.time() - t0, 3),
+                **result,
+                "execution_logs": lines,
+            }
+        if all_enabled or not project_id:
+            lines.append(log_line("info", "执行全部已启用模型"))
+            result = execute_all_enabled(full_refresh=full_refresh)
+            for item in result.get("projects") or []:
+                lines.append(
+                    log_line(
+                        "success",
+                        f"{item.get('project_id')}: {item.get('message') or item.get('rows')} 行",
+                    )
+                )
+            for err in result.get("errors") or []:
+                lines.append(
+                    log_line(
+                        "error",
+                        f"{err.get('project_id') or err.get('model_id')}: {err.get('error')}",
+                    )
+                )
+            ok = bool(result.get("ok"))
+            lines.append(
+                log_line(
+                    "success" if ok else "error",
+                    f"合计写入 {result.get('total_rows') or 0} 行"
+                    if ok
+                    else f"部分失败（{len(result.get('errors') or [])}）",
+                )
+            )
+            return {
+                "ok": ok,
+                "run_scope": "all",
+                "run_mode": kind,
+                "duration": round(time.time() - t0, 3),
+                **result,
+                "execution_logs": lines,
+            }
+        lines.append(log_line("info", f"执行项目 {project_id}"))
+        result = execute_project(str(project_id), full_refresh=full_refresh)
+        lines.append(
+            log_line(
+                "success" if result.get("ok", True) else "error",
+                str(result.get("message") or "完成"),
+            )
+        )
+        return {
+            "ok": True,
+            "run_scope": "one",
+            "run_mode": result.get("mode") or kind,
+            "duration": round(time.time() - t0, 3),
+            **result,
+            "execution_logs": lines,
+        }
+    except Exception as exc:
+        lines.append(log_line("error", str(exc)[:400]))
+        raise

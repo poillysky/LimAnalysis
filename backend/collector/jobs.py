@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import json
+import logging
+from datetime import datetime, timedelta
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 
 from app.core.db import MetaSession
 from app.core.meta_init import init_meta_store
-from app.core.meta_models import MetaJob
+from app.core.meta_models import MetaEtlLog, MetaJob, MetaSfcLog
+
+logger = logging.getLogger(__name__)
+
+# 已结束任务 / 采集日志保留：防 SQLite 与页面查询无限胀
+JOB_KEEP_DAYS = 14
+JOB_KEEP_MAX = 800
+SFC_LOG_KEEP_DAYS = 30
+SFC_LOG_KEEP_MAX = 200
+RESULT_MAX_BYTES = 8_192
 
 JOB_CRAWL = "sfc_crawl"
 JOB_UPLOAD = "sfc_upload"
@@ -146,6 +157,21 @@ def claim_next_job(allowed_types: tuple[str, ...] | None = None) -> dict | None:
         db.close()
 
 
+def _compact_result(result: dict | None) -> dict:
+    payload = dict(result or {})
+    try:
+        raw = json.dumps(payload, ensure_ascii=False, default=str)
+    except TypeError:
+        return {"_truncated": True, "keys": list(payload.keys())[:40]}
+    if len(raw.encode("utf-8")) <= RESULT_MAX_BYTES:
+        return payload
+    return {
+        "_truncated": True,
+        "keys": list(payload.keys())[:40],
+        "message": str(payload.get("message") or payload.get("error") or "")[:300],
+    }
+
+
 def finish_job(
     job_id: int,
     *,
@@ -161,11 +187,130 @@ def finish_job(
             return None
         row.status = status
         row.message = str(message or "")[:500]
-        row.result = dict(result or {})
+        row.result = _compact_result(result)
         row.ended_at = _now()
         db.commit()
         db.refresh(row)
         return job_to_dict(row)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def prune_meta_history(
+    *,
+    job_keep_days: int = JOB_KEEP_DAYS,
+    job_keep_max: int = JOB_KEEP_MAX,
+    log_keep_days: int = SFC_LOG_KEEP_DAYS,
+    log_keep_max: int = SFC_LOG_KEEP_MAX,
+) -> dict:
+    """清理已结束的 meta_jobs / sfc·etl 运行日志，防止 SQLite 与查询持续膨胀。"""
+    init_meta_store()
+    job_cutoff = (datetime.now() - timedelta(days=max(1, job_keep_days))).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    log_cutoff = (datetime.now() - timedelta(days=max(1, log_keep_days))).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    done = (STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELLED)
+    db = MetaSession()
+    deleted_jobs = 0
+    deleted_logs = 0
+    deleted_etl_logs = 0
+    try:
+        r1 = db.execute(
+            delete(MetaJob).where(
+                MetaJob.status.in_(done),
+                MetaJob.created_at != "",
+                MetaJob.created_at < job_cutoff,
+            )
+        )
+        deleted_jobs += int(r1.rowcount or 0)
+
+        # 再按条数封顶：保留最新 job_keep_max 条已结束任务
+        keep_ids = list(
+            db.scalars(
+                select(MetaJob.id)
+                .where(MetaJob.status.in_(done))
+                .order_by(MetaJob.id.desc())
+                .limit(max(50, job_keep_max))
+            ).all()
+        )
+        if keep_ids:
+            r2 = db.execute(
+                delete(MetaJob).where(
+                    MetaJob.status.in_(done),
+                    MetaJob.id.not_in(keep_ids),
+                )
+            )
+            deleted_jobs += int(r2.rowcount or 0)
+
+        r3 = db.execute(
+            delete(MetaSfcLog).where(
+                MetaSfcLog.status != "running",
+                MetaSfcLog.started_at != "",
+                MetaSfcLog.started_at < log_cutoff,
+            )
+        )
+        deleted_logs += int(r3.rowcount or 0)
+
+        keep_log_ids = list(
+            db.scalars(
+                select(MetaSfcLog.id)
+                .where(MetaSfcLog.status != "running")
+                .order_by(MetaSfcLog.id.desc())
+                .limit(max(20, log_keep_max))
+            ).all()
+        )
+        if keep_log_ids:
+            r4 = db.execute(
+                delete(MetaSfcLog).where(
+                    MetaSfcLog.status != "running",
+                    MetaSfcLog.id.not_in(keep_log_ids),
+                )
+            )
+            deleted_logs += int(r4.rowcount or 0)
+
+        r5 = db.execute(
+            delete(MetaEtlLog).where(
+                MetaEtlLog.status != "running",
+                MetaEtlLog.started_at != "",
+                MetaEtlLog.started_at < log_cutoff,
+            )
+        )
+        deleted_etl_logs += int(r5.rowcount or 0)
+        keep_etl_ids = list(
+            db.scalars(
+                select(MetaEtlLog.id)
+                .where(MetaEtlLog.status != "running")
+                .order_by(MetaEtlLog.id.desc())
+                .limit(max(20, log_keep_max))
+            ).all()
+        )
+        if keep_etl_ids:
+            r6 = db.execute(
+                delete(MetaEtlLog).where(
+                    MetaEtlLog.status != "running",
+                    MetaEtlLog.id.not_in(keep_etl_ids),
+                )
+            )
+            deleted_etl_logs += int(r6.rowcount or 0)
+
+        db.commit()
+        if deleted_jobs or deleted_logs or deleted_etl_logs:
+            logger.info(
+                "pruned meta history: jobs=%s sfc_logs=%s etl_logs=%s",
+                deleted_jobs,
+                deleted_logs,
+                deleted_etl_logs,
+            )
+        return {
+            "deleted_jobs": deleted_jobs,
+            "deleted_logs": deleted_logs,
+            "deleted_etl_logs": deleted_etl_logs,
+        }
     except Exception:
         db.rollback()
         raise

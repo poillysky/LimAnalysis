@@ -10,7 +10,6 @@ frontend/      Vue
 backend/       FastAPI + collector + processor
 data/meta/     SQLite（项目元数据）
 data/raw/      CSV 落地
-data/raw/      CSV 落地
 deploy/        Postgres / 数据浏览（Adminer）容器
 ```
 
@@ -66,7 +65,17 @@ pnpm install
 pnpm dev
 ```
 
-探测：`http://127.0.0.1:8000/api/health`  
+### 车间离线值守（生产）
+
+开发机用上面命令即可。**车间单机长期跑**请用：
+
+- 一键启停：[`deploy/workshop/start.ps1`](deploy/workshop/start.ps1) / [`stop.ps1`](deploy/workshop/stop.ps1)
+- Windows 服务：[`deploy/workshop/install-nssm.ps1`](deploy/workshop/install-nssm.ps1)
+- 环境模板：[`deploy/workshop/.env.workshop.example`](deploy/workshop/.env.workshop.example)（`WORKSHOP_OFFLINE=true`）
+- 前端：有网机构建 `pnpm build`，nginx 托管 `dist`（示例 [`deploy/workshop/nginx.conf.example`](deploy/workshop/nginx.conf.example)）
+- 完整说明与备份检查表：[deploy/workshop/README.md](deploy/workshop/README.md)
+
+探测：`http://127.0.0.1:8000/api/health`（含三库与调度摘要）  
 任务状态：`GET /api/v1/sfc/jobs/{id}`  
 
 项目配置在 SQLite。新项目用接口添加，不改代码、不写 YAML：

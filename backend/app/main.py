@@ -7,6 +7,7 @@ from app.api.router import api_router
 from app.core import db as stores
 from app.core.config import settings
 from app.core.meta_init import init_meta_store
+from app.core.runtime_status import build_runtime_status
 
 
 @asynccontextmanager
@@ -30,16 +31,17 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        # 只探 meta，避免健康检查去打外部 PG 把接口拖慢
-        meta = stores.ping_engine(stores.meta_engine)
-        return {
-            "success": True,
-            "data": {
-                "status": "ok" if meta["ok"] else "degraded",
+        """值守探测：meta + 三库 + 调度/任务摘要。"""
+        try:
+            data = build_runtime_status()
+        except Exception as exc:
+            meta = stores.ping_engine(stores.meta_engine)
+            data = {
+                "status": "degraded",
                 "stores": {"meta": meta},
-            },
-            "message": "",
-        }
+                "error": str(exc)[:300],
+            }
+        return {"success": True, "data": data, "message": ""}
 
     return app
 

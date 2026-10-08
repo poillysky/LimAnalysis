@@ -60,7 +60,7 @@ const redCavityCount = computed(() => alerts.value.length);
 const summaryMetrics = computed(() => [
   {
     value: redCavityCount.value,
-    label: "红模穴",
+    label: "异常模穴",
     alert: redCavityCount.value > 0
   },
   { value: notices.value.length, label: "待通知" }
@@ -182,24 +182,29 @@ async function collectImages(
 ) {
   const images: InspectionImage[] = [];
   if (source === "appearance") {
-    const folders = await getViewerFolders(projectId, machine).catch(() => null);
+    if (!cavity) return [];
+    const folders = await getViewerFolders(projectId, "", "mold").catch(
+      () => null
+    );
     const cameras = folders?.data?.cameras || [];
-    const names = cameras.length ? cameras : [cavity];
-    for (const camera of names) {
+    for (const camera of cameras) {
       const dates = await getViewerDates(
         projectId,
         machine,
         "appearance",
-        camera
+        camera,
+        "mold"
       ).catch(() => null);
       const day = dates?.data?.default_date || dates?.data?.dates?.[0] || "";
       if (!day) continue;
       const res = await getViewerImages({
         project_id: projectId,
         machine,
-        cavity: camera,
+        cavity,
         date: day,
-        source: "appearance"
+        source: "appearance",
+        dim: "mold",
+        camera
       }).catch(() => null);
       images.push(...(res?.data?.images || []));
     }
@@ -221,7 +226,7 @@ async function collectImages(
 
 async function openPhotos(row: YieldAlertRow, source: PhotoSource) {
   const cavity = row.cavity || "";
-  if (!row.project_id || !row.machine || (source === "mold" && !cavity)) {
+  if (!row.project_id || !row.machine || !cavity) {
     ElMessage.warning("缺少机台或穴位，无法打开图片");
     return;
   }
@@ -371,11 +376,6 @@ onUnmounted(() => {
           {{ duty || "—" }}
         </strong>
         <span class="alert-chip">{{ windowLabel }}</span>
-        <span class="alert-chip">近 3 小时</span>
-        <span class="alert-chip">
-          LIM 模穴 ≥ {{ rules.limCavityRateAbovePct }}%
-          · 产量 &lt; {{ rules.limCavityMinQty }} 不预警
-        </span>
       </template>
       <template #end>
         <el-button size="small" @click="load()">刷新</el-button>
@@ -392,13 +392,12 @@ onUnmounted(() => {
     <section class="alert-panel">
       <div class="alert-panel__head">
         <strong>待通知人员</strong>
-        <span>点击姓名筛选下方红模穴；再点一次取消筛选</span>
       </div>
       <p v-if="!notices.length && !loading" class="alert-empty">
         {{
           alerts.length
-            ? "有红模穴但排班表没有当班负责人"
-            : "近 3 小时没有 LIM 红线模穴"
+            ? "有异常模穴但排班表没有当班负责人"
+            : "近 3 小时没有 LIM 异常模穴"
         }}
       </p>
       <div v-else class="notice-grid">
@@ -420,16 +419,13 @@ onUnmounted(() => {
 
     <section class="alert-panel">
       <div class="alert-panel__head">
-        <strong>红模穴明细</strong>
+        <strong>异常模穴明细</strong>
         <span v-if="selectedNotice">
           {{ selectedNotice.name }}
           {{ selectedNotice.phone }} · {{ tableAlerts.length }} 穴
         </span>
-        <span v-else>
-          一个穴位一行，含溢胶 / 缺胶等不良项
-          <template v-if="unassigned.length">
-            · {{ unassigned.length }} 台未排到当前班次
-          </template>
+        <span v-else-if="unassigned.length">
+          {{ unassigned.length }} 台未排到当前班次
         </span>
         <el-button
           v-if="selectedNotice"
@@ -446,7 +442,7 @@ onUnmounted(() => {
         :data="tableAlerts"
         border
         :header-cell-style="headerCellStyle"
-        empty-text="没有 LIM 红线模穴"
+        empty-text="没有 LIM 异常模穴"
       >
         <el-table-column
           prop="project_name"
@@ -466,7 +462,7 @@ onUnmounted(() => {
         <el-table-column
           label="不良率"
           width="76"
-          align="right"
+          align="center"
           header-align="center"
         >
           <template #default="{ row }">
@@ -476,7 +472,7 @@ onUnmounted(() => {
         <el-table-column
           label="产量"
           width="64"
-          align="right"
+          align="center"
           header-align="center"
         >
           <template #default="{ row }">
@@ -836,6 +832,7 @@ onUnmounted(() => {
 .num {
   display: inline-block;
   min-width: 100%;
+  text-align: center;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }

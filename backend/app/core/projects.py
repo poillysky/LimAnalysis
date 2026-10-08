@@ -162,6 +162,8 @@ def _merge_project_config(data: dict, existing: dict | None = None) -> dict:
     incoming = data.get("config")
     if isinstance(incoming, dict):
         config.update(incoming)
+    if "appearance_folder" in data and data["appearance_folder"] is not None:
+        config["appearance_folder"] = str(data["appearance_folder"]).strip()
     if "machines" in data and data["machines"] is not None:
         config["machines"] = _normalize_machines(data["machines"])
     else:
@@ -273,6 +275,7 @@ def update_project(project_id: str, data: dict) -> dict | None:
             ("config" in data and data["config"] is not None)
             or ("machines" in data and data["machines"] is not None)
             or ("owners" in data and data["owners"] is not None)
+            or ("appearance_folder" in data and data["appearance_folder"] is not None)
         ):
             row.config = _merge_project_config(data, row.config)
         db.commit()

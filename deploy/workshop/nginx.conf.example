@@ -1,0 +1,47 @@
+# 车间前端静态 + API 反代示例（nginx）
+# 1) 有网机构建: cd frontend && pnpm install && pnpm build（保持 VITE_CDN=false）
+# 2) 把 frontend/dist 拷到车间机，例如 C:/LimAnalysis/frontend/dist
+# 3) 改下面 root / proxy_pass 后纳入 nginx
+
+server {
+    listen 80;
+    server_name _;
+
+    root C:/LimAnalysis/frontend/dist;
+    index index.html;
+
+    # PWA：Service Worker / manifest 勿被长期错缓存
+    location = /sw.js {
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
+    location = /manifest.webmanifest {
+        add_header Cache-Control "no-cache";
+        default_type application/manifest+json;
+        try_files $uri =404;
+    }
+
+    # SPA
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        client_max_body_size 100m;
+    }
+}
+
+# 可选：HTTPS（PWA「安装到桌面」在局域网 HTTP 下通常不可用，建议内网证书）
+# server {
+#     listen 443 ssl;
+#     server_name lim.local;
+#     ssl_certificate     C:/LimAnalysis/certs/lim.crt;
+#     ssl_certificate_key C:/LimAnalysis/certs/lim.key;
+#     ... 同上 root / location ...
+# }

@@ -607,23 +607,36 @@ def run_cleanup() -> dict:
         if not block.get("ok") and block.get("error") and not block.get("skipped"):
             errors.append(f"images.{key}: {block['error']}")
 
+    from collector.jobs import prune_meta_history
+
+    try:
+        meta_prune = prune_meta_history()
+    except Exception as exc:
+        meta_prune = {"deleted_jobs": 0, "deleted_logs": 0, "error": str(exc)[:200]}
+
     ok = not errors
     message = (
         f"删除库行 {deleted_rows}，图片文件 {deleted_files}"
+        f"，任务记录 {meta_prune.get('deleted_jobs', 0)}"
         if ok
         else f"部分失败：{errors[0]}"
     )[:500]
+    # 只留摘要，避免 last_run_result 把 meta_settings 撑爆
     result = {
         "started_at": started,
         "db_retention_days": db_days,
         "image_retention_days": img_days,
-        "raw": raw,
-        "dwh": dwh,
-        "defect": defect,
-        "images": images,
         "deleted_rows": deleted_rows,
         "deleted_files": deleted_files,
-        "errors": errors[:20],
+        "meta_prune": meta_prune,
+        "errors": errors[:10],
+        "raw_ok": bool(raw.get("ok", True)),
+        "dwh_ok": bool(dwh.get("ok", True)),
+        "defect_ok": bool(defect.get("ok", True)),
+        "images_mold_files": int(images["mold"].get("deleted_files") or 0),
+        "images_appearance_files": int(
+            images["appearance"].get("deleted_files") or 0
+        ),
     }
     patch_disk_cleanup_config(
         {
@@ -633,7 +646,15 @@ def run_cleanup() -> dict:
             "last_run_result": result,
         }
     )
-    return {"ok": ok, "message": message, **result}
+    return {
+        "ok": ok,
+        "message": message,
+        "raw": raw,
+        "dwh": dwh,
+        "defect": defect,
+        "images": images,
+        **result,
+    }
 
 
 def status_payload() -> dict:

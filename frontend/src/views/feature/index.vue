@@ -355,7 +355,7 @@ onMounted(load);
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="640px">
       <el-form label-width="72px">
         <el-form-item label="名称" required>
-          <el-input v-model="form.display_name" placeholder="例如 EagleRcvr" />
+          <el-input v-model="form.display_name" placeholder="例如 Eelspkr" />
         </el-form-item>
         <el-form-item label="机台">
           <div class="machine-board">

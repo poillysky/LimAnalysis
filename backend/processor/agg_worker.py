@@ -183,17 +183,28 @@ def run_loop(*, poll_seconds: float = 1.0) -> None:
         logger.warning("marked %s stale running jobs as failed", n)
 
     start_agg_scheduler()
+    from app.core.worker_heartbeat import touch_worker_heartbeat
+
+    def _beat(*, force: bool = False) -> None:
+        try:
+            touch_worker_heartbeat("agg", force=force)
+        except Exception:
+            logger.exception("agg heartbeat failed")
+
+    _beat(force=True)
     logger.info(
         "agg worker started (poll=%.1fs, types=%s)", poll_seconds, ",".join(AGG_WORKER_TYPES)
     )
 
     while True:
+        _beat()
         job = claim_next_job(AGG_WORKER_TYPES)
         if job is None:
             time.sleep(poll_seconds)
             continue
         logger.info("claimed job #%s type=%s", job["id"], job["job_type"])
         _handle(job)
+        _beat(force=True)
 
 
 def main(argv: list[str] | None = None) -> int:

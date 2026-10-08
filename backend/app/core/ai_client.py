@@ -50,6 +50,10 @@ def chat_completion(
     timeout: int | None = None,
 ) -> dict[str, Any]:
     """调用已配置的 AI；返回 {ok, content|error, raw?}。"""
+    from app.core.workshop import is_workshop_offline
+
+    if is_workshop_offline():
+        return {"ok": False, "error": "车间离线模式已开启，已禁止 AI 外网调用"}
     public = load_ai_config_public()
     if not public.get("ready"):
         return {

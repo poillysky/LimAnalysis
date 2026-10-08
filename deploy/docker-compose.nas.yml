@@ -20,11 +20,13 @@
 #   3) python -m processor.agg_worker            # 数据聚合 Worker
 # Worker 需与 API 共用同一 meta SQLite，并能访问 raw PG（15432）。
 
+# 内存：Metabase 最吃 RAM；三库各限 1G；NAS 内存紧可再下调
 services:
   postgres-raw:
     image: postgres:16-alpine
     container_name: lim-raw
     restart: unless-stopped
+    mem_limit: 1g
     ports:
       - "15432:5432"
     environment:
@@ -32,6 +34,20 @@ services:
       POSTGRES_PASSWORD: lim
       POSTGRES_DB: lim_raw
       TZ: Asia/Shanghai
+      # 小实例：降低 shared_buffers，避免三库各抢一大块缓存
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - effective_cache_size=384MB
+      - -c
+      - max_connections=80
     volumes:
       - /vol1/1000/Docker/LimAnalysis/lim-raw:/var/lib/postgresql/data
     healthcheck:
@@ -44,6 +60,7 @@ services:
     image: postgres:16-alpine
     container_name: lim-dwh
     restart: unless-stopped
+    mem_limit: 1g
     ports:
       - "15433:5432"
     environment:
@@ -51,6 +68,18 @@ services:
       POSTGRES_PASSWORD: lim
       POSTGRES_DB: lim_dwh
       TZ: Asia/Shanghai
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - effective_cache_size=384MB
+      - -c
+      - max_connections=80
     volumes:
       - /vol1/1000/Docker/LimAnalysis/lim-dwh:/var/lib/postgresql/data
     healthcheck:
@@ -63,6 +92,7 @@ services:
     image: postgres:16-alpine
     container_name: lim-defect
     restart: unless-stopped
+    mem_limit: 512m
     ports:
       - "15434:5432"
     environment:
@@ -70,6 +100,18 @@ services:
       POSTGRES_PASSWORD: lim
       POSTGRES_DB: lim_defect
       TZ: Asia/Shanghai
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - effective_cache_size=192MB
+      - -c
+      - max_connections=40
     volumes:
       - /vol1/1000/Docker/LimAnalysis/lim-defect:/var/lib/postgresql/data
     healthcheck:
@@ -82,6 +124,7 @@ services:
     image: adminer:4
     container_name: lim-adminer
     restart: unless-stopped
+    mem_limit: 256m
     depends_on:
       postgres-raw:
         condition: service_healthy
@@ -102,6 +145,7 @@ services:
     image: nginx:alpine
     container_name: lim-adminer-proxy
     restart: unless-stopped
+    mem_limit: 64m
     depends_on:
       - adminer
     ports:
@@ -113,6 +157,7 @@ services:
     image: metabase/metabase:v0.55.24.x
     container_name: lim-metabase
     restart: unless-stopped
+    mem_limit: 1536m
     depends_on:
       postgres-dwh:
         condition: service_healthy
@@ -122,6 +167,8 @@ services:
       TZ: Asia/Shanghai
       JAVA_TIMEZONE: Asia/Shanghai
       MB_DB_FILE: /metabase-data/metabase.db
+      # 防止 JVM 默认吃光 NAS 内存导致整机卡死
+      JAVA_OPTS: "-Xms256m -Xmx1024m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
     volumes:
       - /vol1/1000/Docker/LimAnalysis/metabase:/metabase-data
     healthcheck:

@@ -2,6 +2,7 @@ import { http } from "@/utils/http";
 import { API_PREFIX } from "@/api/http";
 
 export type PhotoSource = "mold" | "appearance";
+export type AppearanceDim = "tester" | "mold";
 
 export type InspectionProject = {
   project_id: string;
@@ -71,19 +72,27 @@ export const getInspectionDirs = (parent = "") => {
   });
 };
 
-export const getViewerFolders = (projectId: string, tester = "") => {
+export const getViewerFolders = (
+  projectId: string,
+  tester = "",
+  dim: AppearanceDim = "tester"
+) => {
   return http.request<{
     success: boolean;
     data: {
+      dim?: AppearanceDim;
       testers: string[];
       cameras: string[];
+      machines?: string[];
+      cavities?: string[];
       project_folder?: string;
     };
   }>("get", `${API_PREFIX}/inspection/viewer/folders`, {
     params: {
       project_id: projectId,
       tester: tester || undefined,
-      source: "appearance"
+      source: "appearance",
+      dim
     }
   });
 };
@@ -92,7 +101,8 @@ export const getViewerDates = (
   projectId: string,
   machine: string,
   source: PhotoSource = "mold",
-  camera = ""
+  camera = "",
+  dim: AppearanceDim = "tester"
 ) => {
   return http.request<{
     success: boolean;
@@ -101,17 +111,20 @@ export const getViewerDates = (
       today: string;
       default_date: string;
       layout: string;
+      dim?: AppearanceDim;
       cavities: string[];
       statuses: string[];
       testers?: string[];
       cameras?: string[];
+      machines?: string[];
     };
   }>("get", `${API_PREFIX}/inspection/viewer/dates`, {
     params: {
       project_id: projectId,
       machine,
       source,
-      camera: camera || undefined
+      camera: camera || undefined,
+      dim: source === "appearance" ? dim : undefined
     }
   });
 };
@@ -123,6 +136,8 @@ export const getViewerImages = (params: {
   date: string;
   status?: string;
   source?: PhotoSource;
+  dim?: AppearanceDim;
+  camera?: string;
 }) => {
   return http.request<{
     success: boolean;
@@ -132,7 +147,11 @@ export const getViewerImages = (params: {
       machine: string;
       cavity: string;
       date_str: string;
-      status: string;
+      status?: string;
+      camera?: string;
+      dim?: AppearanceDim;
+      hint?: string;
+      sn_count?: number;
     };
   }>("get", `${API_PREFIX}/inspection/viewer/images`, {
     params: {
@@ -141,7 +160,9 @@ export const getViewerImages = (params: {
       cavity: params.cavity,
       date: params.date,
       status: params.status || "OK",
-      source: params.source || "mold"
+      source: params.source || "mold",
+      dim: params.dim || undefined,
+      camera: params.camera || undefined
     },
     timeout: 120000
   });

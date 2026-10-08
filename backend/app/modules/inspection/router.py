@@ -46,11 +46,12 @@ def inspection_viewer_folders(
     project_id: str,
     tester: str = "",
     source: str = "appearance",
+    dim: str = "tester",
 ):
     try:
         if source != "appearance":
             raise ValueError("该接口仅用于自动外观")
-        return ok(list_appearance_folders(project_id, tester))
+        return ok(list_appearance_folders(project_id, tester, dim=dim))
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
 
@@ -61,9 +62,10 @@ def inspection_viewer_dates(
     machine: str,
     source: str = "mold",
     camera: str = "",
+    dim: str = "tester",
 ):
     try:
-        return ok(list_viewer_dates(project_id, machine, source, camera))
+        return ok(list_viewer_dates(project_id, machine, source, camera, dim=dim))
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
 
@@ -76,9 +78,22 @@ def inspection_viewer_images(
     date: str,
     status: str = "OK",
     source: str = "mold",
+    dim: str = "tester",
+    camera: str = "",
 ):
     try:
-        return ok(list_viewer_images(project_id, machine, cavity, date, status, source))
+        return ok(
+            list_viewer_images(
+                project_id,
+                machine,
+                cavity,
+                date,
+                status,
+                source,
+                dim=dim,
+                camera=camera,
+            )
+        )
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
 
