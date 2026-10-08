@@ -42,9 +42,9 @@
 
 ## Docker Hub 镜像（GitHub Actions）
 
-推送标签 `V*` / `v*`（如 `V1.0.2`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送一体镜像：
+推送标签 `V*` / `v*`（如 `V1.0.3`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送一体镜像：
 
-- `{用户名}/limanalysis:V1.0.2`（及 `:latest`）
+- `{用户名}/limanalysis:V1.0.3`（及 `:latest`）
 - 同一镜像角色：`app`（nginx+API）/ `api` / `collector` / `agg`
 
 仓库 Secrets：

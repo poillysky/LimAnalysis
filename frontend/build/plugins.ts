@@ -59,6 +59,7 @@ export function getPluginsList(
         "favicon.ico",
         "favicon-32.png",
         "logo.svg",
+        "logo-app.svg",
         "pwa-192.png",
         "pwa-512.png",
         "platform-config.json"
@@ -74,20 +75,28 @@ export function getPluginsList(
         scope: "/",
         display: "standalone",
         display_override: ["window-controls-overlay", "standalone"],
-        background_color: "#f4f6f8",
+        background_color: "#15233a",
         theme_color: "#15233a",
         orientation: "any",
         categories: ["business", "productivity"],
         icons: [
           {
+            src: "logo-app.svg",
+            sizes: "any",
+            type: "image/svg+xml",
+            purpose: "any"
+          },
+          {
             src: "pwa-192.png",
             sizes: "192x192",
-            type: "image/png"
+            type: "image/png",
+            purpose: "any"
           },
           {
             src: "pwa-512.png",
             sizes: "512x512",
-            type: "image/png"
+            type: "image/png",
+            purpose: "any"
           },
           {
             src: "pwa-512.png",

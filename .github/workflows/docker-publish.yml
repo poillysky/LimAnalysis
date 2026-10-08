@@ -13,9 +13,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "镜像标签（如 V1.0.2）"
+        description: "镜像标签（如 V1.0.3）"
         required: true
-        default: "V1.0.2"
+        default: "V1.0.3"
 
 permissions:
   contents: read
