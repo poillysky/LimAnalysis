@@ -25,5 +25,5 @@ docker compose -f docker-compose.limana.yml pull
 docker compose -f docker-compose.limana.yml up -d
 ```
 
-访问：`http://<NAS>:8080`  
+访问：`http://<NAS>:18088`  
 功能管理图片目录：注塑机 `/data/photos/zsj`，自动外观 `/data/photos/zdwg`。

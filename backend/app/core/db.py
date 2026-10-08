@@ -147,6 +147,6 @@ try:
     refresh_pg_engines(force=True)
 except Exception:
     logger.warning(
-        "启动时刷新 PG 连接失败，先用 .env 默认值；稍后由 /system/connections 或 TTL 重建",
+        "启动时刷新 PG 连接失败，先用环境变量/内置默认值；稍后由 /system/connections 或 TTL 重建",
         exc_info=True,
     )

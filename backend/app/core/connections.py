@@ -77,18 +77,17 @@ def load_connections() -> dict:
         if row is None or not isinstance(row.value, dict):
             db.add(MetaSetting(key=CONNECTIONS_KEY, value=defaults))
             db.commit()
-            stored = defaults
-        else:
-            stored = {
-                "raw": _clean_parts(row.value.get("raw"), defaults["raw"]),
-                "dwh": _clean_parts(row.value.get("dwh"), defaults["dwh"]),
-                "defect": _clean_parts(row.value.get("defect"), defaults["defect"]),
-            }
-            if "defect" not in row.value:
-                row.value = stored
-                flag_modified(row, "value")
-                db.commit()
-            return stored
+            return defaults
+        stored = {
+            "raw": _clean_parts(row.value.get("raw"), defaults["raw"]),
+            "dwh": _clean_parts(row.value.get("dwh"), defaults["dwh"]),
+            "defect": _clean_parts(row.value.get("defect"), defaults["defect"]),
+        }
+        if "defect" not in row.value:
+            row.value = stored
+            flag_modified(row, "value")
+            db.commit()
+        return stored
     except Exception:
         db.rollback()
         raise
