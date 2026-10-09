@@ -111,7 +111,7 @@ def build_runtime_status() -> dict:
         "schedulers": {
             "sfc": {
                 "is_active": bool(sfc.get("is_active")),
-                "blocked_by_workshop": bool(workshop.get("offline")),
+                "blocked_by_workshop": False,
                 "last_run_time": sfc.get("last_run_time") or "",
                 "last_run_status": sfc.get("last_run_status") or "",
                 "job": crawl_job,

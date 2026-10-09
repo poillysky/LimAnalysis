@@ -15,6 +15,12 @@ async def lifespan(_app: FastAPI):
     # API 只服务请求；重任务调度与执行在独立 Worker（python -m collector.worker）
     init_meta_store()
     stores.refresh_pg_engines()
+    try:
+        from app.core.defect_store import ensure_defect_tables
+
+        ensure_defect_tables()
+    except Exception:
+        pass
     yield
 
 

@@ -27,7 +27,7 @@ html.is-pwa {
       calc(100% - env(titlebar-area-width, 100%) - env(titlebar-area-x, 0px))
     );
     min-height: var(--pwa-titlebar-height);
-    height: max(48px, var(--pwa-titlebar-height));
+    height: max(var(--la-chrome-nav), var(--pwa-titlebar-height));
   }
 
   /* 可点击控件必须取消拖拽，否则按钮点不到 */

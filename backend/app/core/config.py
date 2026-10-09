@@ -14,12 +14,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:8848,http://127.0.0.1:8848"
 
     meta_sqlite_path: str = ""
+    # 空：默认 backend/processor/sql_models；NAS：/data/sql_models（需挂卷）
+    sql_models_dir: str = ""
     raw_database_url: str = "postgresql+psycopg://lim:lim@127.0.0.1:5432/lim_raw"
     dwh_database_url: str = "postgresql+psycopg://lim:lim@127.0.0.1:5433/lim_dwh"
     defect_database_url: str = "postgresql+psycopg://lim:lim@127.0.0.1:5434/lim_defect"
-
-    # 车间离线值守：true 时强制停 SFC 定时采集、限制 AI（见 app.core.workshop）
-    workshop_offline: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -41,6 +40,15 @@ class Settings(BaseSettings):
         path = REPO_ROOT / "data" / "raw"
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @property
+    def sql_models_path(self) -> Path:
+        if self.sql_models_dir:
+            path = Path(self.sql_models_dir)
+        else:
+            path = BACKEND_DIR / "processor" / "sql_models"
+        path.mkdir(parents=True, exist_ok=True)
+        return path.resolve()
 
 
 settings = Settings()

@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 import time
 from datetime import timedelta
-from pathlib import Path
-
 from sqlalchemy import text
 
 from app.core import db as stores
@@ -26,16 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 def _read_sql_file(sql_path: str) -> str:
-    path = Path(sql_path)
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parent / sql_path
-    if not path.exists():
-        alt = Path(__file__).resolve().parent / "sql_models" / "layer2" / path.name
-        if alt.exists():
-            path = alt
-        else:
-            raise FileNotFoundError(f"SQL 文件不存在: {sql_path}")
-    return path.read_text(encoding="utf-8")
+    from processor.sql_generator import resolve_sql_path
+
+    return resolve_sql_path(sql_path, layer="layer2").read_text(encoding="utf-8")
 
 
 def _analysis_sql(model: dict) -> str:
@@ -43,12 +34,39 @@ def _analysis_sql(model: dict) -> str:
         try:
             return _strip_sql_comments(_read_sql_file(model["sql_path"]))
         except FileNotFoundError:
-            pass
-    from processor.sql_generator import generate_analysis_select_sql
+            logger.warning(
+                "聚合 SQL 文件缺失，改从字段配置生成: model_id=%s path=%s",
+                model.get("id"),
+                model.get("sql_path"),
+            )
+    from processor.sql_generator import (
+        generate_analysis_select_sql,
+        write_analysis_sql_file,
+    )
 
     fields = model.get("fields") or []
     if not fields:
         raise ValueError("请先配置维度和度量")
+    try:
+        sql_text, new_path = write_analysis_sql_file(
+            model_name=model["name"],
+            source_table=model["source_table"],
+            target_table=model["target_table"],
+            time_field=model["time_field"],
+            granularity=model.get("granularity") or "hour",
+            time_field_name=model.get("time_field_name") or "时间",
+            fields=fields,
+            description=f"project={model.get('project_id') or ''}",
+        )
+        try:
+            from processor.agg_store import patch_agg_sql_path
+
+            patch_agg_sql_path(int(model["id"]), new_path)
+        except Exception:
+            logger.debug("回写聚合 sql_path 失败（可忽略）", exc_info=True)
+        return _strip_sql_comments(sql_text)
+    except Exception:
+        pass
     return _strip_sql_comments(
         generate_analysis_select_sql(
             model_name=model["name"],

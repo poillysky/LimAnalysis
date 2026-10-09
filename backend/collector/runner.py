@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.db import MetaSession
 from app.core.meta_init import init_meta_store
 from app.core.meta_models import MetaProject, MetaSfcLog
-from app.core.projects import load_projects
+from app.core.projects import load_projects, resolve_btype, resolve_sfc_code
 from app.core.sfc_accounts import enabled_accounts_with_password, mark_account
 from app.core.sfc_config import load_sfc_config, patch_sfc_config
 from collector.raw_loader import (
@@ -323,10 +323,13 @@ def _run_job(trigger: str) -> dict:
             return {"ok_count": 0, "fail_count": 1, "log_ids": log_ids}
 
         for project in projects:
-            sfc_code = str(
-                project.get("sfc_code") or project.get("display_name") or ""
-            ).strip()
-            btype = str(project.get("btype") or "all").strip() or "all"
+            sfc_code = resolve_sfc_code(
+                display_name=str(project.get("display_name") or ""),
+                prefix=str(project.get("prefix") or ""),
+                project_id=str(project.get("project_id") or ""),
+                current=str(project.get("sfc_code") or ""),
+            )
+            btype = resolve_btype(project.get("btype"))
             pid = str(project["project_id"])
             name = str(project.get("display_name") or pid)
             plines: list[dict] = list(login_logs or [])

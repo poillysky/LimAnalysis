@@ -25,7 +25,8 @@ const TITLE = getConfig("Title");
   align-items: center;
   justify-content: center;
   width: 100%;
-  padding: 0 0 8px;
-  font-size: 14px;
+  padding: 0 0 4px;
+  font-size: var(--la-text-2xs);
+  line-height: 1.2;
 }
 </style>

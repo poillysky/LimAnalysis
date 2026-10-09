@@ -5,7 +5,7 @@
 .etl-page {
   display: flex;
   flex-direction: column;
-  padding: 20px 24px 28px;
+  padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -71,19 +71,19 @@
 
 /* 配置态铺满主内容区到底，表格吃掉剩余高度 */
 .etl-page.is-editing.main-content {
-  height: calc(100vh - 132px);
-  max-height: calc(100vh - 132px);
+  height: calc(100vh - var(--la-chrome-total) - var(--la-content-inset) * 2);
+  max-height: calc(100vh - var(--la-chrome-total) - var(--la-content-inset) * 2);
   margin-bottom: 0;
-  padding: 12px 0 8px;
+  padding: var(--la-space-md) 0 var(--la-space-sm);
   overflow: hidden;
 }
 
 .etl-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: var(--la-space-md);
+  margin-bottom: var(--la-space-lg);
 }
 
 .etl-head__actions {
@@ -96,19 +96,19 @@
 .etl-head h2,
 .etl-panel__head h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: var(--la-page-title);
+  font-weight: 650;
 }
 
 .etl-panel__head h2 {
-  font-size: 16px;
+  font-size: var(--la-text-md);
 }
 
 .etl-head p,
 .etl-panel__head p {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   color: var(--el-text-color-secondary);
-  font-size: 13px;
+  font-size: var(--la-page-desc);
 }
 
 .etl-alert {
@@ -138,8 +138,8 @@
 
 .etl-stat strong {
   display: block;
-  font-size: 22px;
-  font-weight: 700;
+  font-size: var(--la-text-xl);
+  font-weight: 650;
   letter-spacing: -0.02em;
   line-height: 1.25;
 }
@@ -439,27 +439,92 @@
 }
 
 .etl-config-bar {
-  margin-bottom: 10px;
-  padding: 10px 12px 2px;
-  border-radius: 10px;
-  background: var(--el-fill-color-lighter);
+  margin-bottom: var(--la-space-md);
+  padding: var(--la-space-sm) var(--la-space-md) 0;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--la-radius-md);
+  background: var(--el-bg-color);
 }
 
 .etl-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px 16px;
+  grid-template-columns:
+    minmax(120px, 1fr)
+    minmax(180px, 1.15fr)
+    minmax(120px, 1fr)
+    minmax(120px, 1fr)
+    minmax(140px, 0.9fr);
+  gap: 0 var(--la-space-md);
+  align-items: start;
 }
 
 .etl-meta-form :deep(.el-form-item) {
-  margin-bottom: 10px;
+  margin-bottom: var(--la-space-md);
+}
+
+.etl-meta-form :deep(.el-form-item__label) {
+  margin-bottom: var(--la-space-xs);
+  padding: 0;
+  color: var(--el-text-color-secondary);
+  font-size: var(--la-text-xs);
+  font-weight: 500;
+  line-height: var(--la-leading-tight);
+}
+
+.etl-meta-form :deep(.el-input),
+.etl-meta-form :deep(.el-select) {
+  width: 100%;
+}
+
+.etl-meta-form :deep(.el-form-item__content) {
+  min-height: 32px;
+  align-items: center;
+}
+
+/* 与旁边 el-input 同款外壳（只读展示） */
+.etl-meta-path__flow {
+  display: flex;
+  align-items: center;
+  gap: var(--la-space-sm);
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 1px 11px;
+  border-radius: var(--el-border-radius-base);
+  background-color: var(--el-fill-color-blank);
+  background-image: none;
+  box-shadow: 0 0 0 1px var(--el-border-color) inset;
+  box-sizing: border-box;
+  cursor: default;
+}
+
+.etl-meta-path__table {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--el-text-color-regular);
+  font-size: var(--el-font-size-base);
+  font-weight: 400;
+  line-height: 1;
+}
+
+.etl-meta-path__arrow {
+  flex-shrink: 0;
+  color: var(--el-text-color-placeholder);
+  font-size: var(--el-font-size-base);
 }
 
 .etl-enable {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--la-space-md);
   min-height: 32px;
+}
+
+.etl-enable .muted {
+  font-size: var(--la-text-xs);
+  line-height: var(--la-leading-tight);
 }
 
 .etl-toolbar {
@@ -561,6 +626,16 @@
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-bottom: 10px;
+  /* 避免 el-select 聚焦/下拉时左边框被 tabs overflow 裁切 */
+  padding: 2px;
+}
+
+.etl-assist-field--full {
+  grid-column: 1 / -1;
+}
+
+.etl-assist-chips {
+  margin-bottom: 10px;
 }
 
 .etl-assist-label {
@@ -570,15 +645,83 @@
   color: var(--el-text-color-secondary);
 }
 
-.etl-assist-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.etl-assist-tabs {
+  margin-top: -4px;
+
+  :deep(.el-tabs__content) {
+    overflow: visible;
+  }
+
+  :deep(.el-tab-pane) {
+    overflow: visible;
+  }
+}
+
+.etl-assist-templates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
   margin-bottom: 10px;
+  padding: 1px;
+}
+
+.etl-assist-template {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.etl-assist-template__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.etl-assist-template:hover {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+
+.etl-assist-template__need {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--el-fill-color);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--el-text-color-secondary);
+}
+
+.etl-assist-result {
+  margin-top: 2px;
+}
+
+.etl-assist-result .etl-assist-label {
+  margin-bottom: 6px;
 }
 
 .etl-assist-editor {
-  min-height: 76px;
+  min-height: 120px;
   padding: 8px 11px;
   border: 1px solid var(--el-border-color);
   border-radius: 4px;
@@ -634,9 +777,54 @@
   flex-shrink: 0;
 }
 
+/* 模板「已选字段」：复用 editor 边框/占位，高度约为描述框的 30% */
+.etl-assist-editor.etl-assist-chips__box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 2px;
+  min-height: 36px;
+  padding: 4px 8px;
+  line-height: 1.4;
+}
+
+.etl-assist-chips__box .etl-assist-token--chip {
+  margin: 2px;
+  padding-right: 4px;
+  cursor: default;
+  pointer-events: auto;
+}
+
+.etl-assist-token__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #ecfdf5;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.etl-assist-token__x:hover {
+  background: rgb(255 255 255 / 22%);
+  color: #fff;
+}
+
 @media (max-width: 700px) {
   .etl-assist-fields {
     grid-template-columns: 1fr;
+  }
+
+  .etl-assist-templates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -849,7 +1037,10 @@
 }
 
 @media (max-width: 1100px) {
-  .etl-grid,
+  .etl-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .etl-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -857,7 +1048,7 @@
 
 @media (max-width: 900px) {
   .etl-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   .etl-stats {

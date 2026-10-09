@@ -29,12 +29,10 @@ const form = reactive({
 });
 const apiKeySet = ref(false);
 const ready = ref(false);
-const workshopOffline = ref(false);
 const lastTest = ref("");
 const modelOptions = ref<string[]>([]);
 
 const statusText = computed(() => {
-  if (workshopOffline.value) return "车间离线模式：已禁止 AI 外网调用";
   if (ready.value) return "已就绪，数据清洗公式将优先用 AI 辅助生成";
   if (form.enabled) return "已启用但未就绪（检查地址 / 模型 / API Key）";
   return "未启用：公式仍用规则生成";
@@ -54,8 +52,6 @@ function applyConfig(data: AiConfig) {
   form.api_key = "";
   apiKeySet.value = !!data.api_key_set;
   ready.value = !!data.ready;
-  workshopOffline.value = !!data.workshop_offline;
-  if (workshopOffline.value) form.enabled = false;
 }
 
 async function load() {
@@ -183,32 +179,16 @@ onMounted(load);
         <p>连接 OpenAI 兼容接口，供数据清洗「描述生成」公式辅助使用。</p>
       </div>
       <el-tag
-        :type="
-          workshopOffline
-            ? 'info'
-            : ready
-              ? 'success'
-              : form.enabled
-                ? 'warning'
-                : 'info'
-        "
+        :type="ready ? 'success' : form.enabled ? 'warning' : 'info'"
       >
         {{ statusText }}
       </el-tag>
     </div>
 
-    <el-alert
-      v-if="workshopOffline"
-      class="ai-workshop"
-      type="info"
-      :closable="false"
-      title="车间离线模式已开启：AI 外网调用已禁用（WORKSHOP_OFFLINE 或系统车间配置）"
-    />
-
     <section class="ai-panel">
       <el-form label-width="120px" class="ai-form">
         <el-form-item label="启用 AI">
-          <el-switch v-model="form.enabled" :disabled="workshopOffline" />
+          <el-switch v-model="form.enabled" />
         </el-form-item>
         <el-form-item label="快捷预设">
           <el-button size="small" @click="fillPreset('openai')">OpenAI</el-button>
@@ -297,7 +277,7 @@ onMounted(load);
         <ul>
           <li>兼容 OpenAI Chat Completions 协议的服务均可。</li>
           <li>模型名必须是该接口真实提供的 id（区分大小写）。</li>
-          <li>保存后，数据清洗「AI描述生成」优先调用此模型。</li>
+          <li>保存后，数据清洗「公式生成 → AI 描述」优先调用此模型。</li>
           <li>AI 失败或未启用时，自动回退规则生成。</li>
         </ul>
       </aside>
@@ -307,31 +287,27 @@ onMounted(load);
 
 <style scoped>
 .ai-page {
-  padding: 20px 24px 28px;
+  padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
 }
 
 .ai-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.ai-workshop {
-  margin-bottom: 12px;
+  gap: var(--la-space-md);
+  margin-bottom: var(--la-space-lg);
 }
 
 .ai-head h2 {
-  margin: 0 0 6px;
-  font-size: 22px;
-  font-weight: 700;
+  margin: 0 0 2px;
+  font-size: var(--la-page-title);
+  font-weight: 650;
 }
 
 .ai-head p {
   margin: 0;
   color: var(--el-text-color-secondary);
-  font-size: 13px;
+  font-size: var(--la-page-desc);
 }
 
 .ai-panel {

@@ -104,7 +104,7 @@ watch(
 </script>
 
 <template>
-  <el-breadcrumb class="leading-[50px]! select-none" separator="/">
+  <el-breadcrumb class="la-breadcrumb select-none" separator="/">
     <transition-group name="breadcrumb">
       <el-breadcrumb-item
         v-for="item in levelList"
@@ -118,3 +118,13 @@ watch(
     </transition-group>
   </el-breadcrumb>
 </template>
+
+<style scoped>
+.la-breadcrumb {
+  display: flex;
+  align-items: center;
+  height: var(--la-chrome-nav);
+  line-height: var(--la-chrome-nav);
+  font-size: var(--la-text-xs);
+}
+</style>

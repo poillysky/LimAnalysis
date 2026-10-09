@@ -4,7 +4,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.projects import load_projects
+from app.core.projects import load_projects, resolve_btype, resolve_sfc_code
 from app.core.response import fail, ok
 from app.core.sfc_accounts import (
     create_account,
@@ -43,8 +43,13 @@ def overview():
                 "project_id": cfg.get("project_id"),
                 "display_name": cfg.get("display_name"),
                 "enabled": cfg.get("enabled"),
-                "sfc_code": cfg.get("sfc_code") or cfg.get("display_name"),
-                "btype": cfg.get("btype") or "all",
+                "sfc_code": resolve_sfc_code(
+                    display_name=str(cfg.get("display_name") or ""),
+                    prefix=str(cfg.get("prefix") or ""),
+                    project_id=str(cfg.get("project_id") or ""),
+                    current=str(cfg.get("sfc_code") or ""),
+                ),
+                "btype": resolve_btype(cfg.get("btype")),
                 "prefix": cfg.get("prefix"),
                 "last_crawl_time": (cfg.get("last_crawl_time") or ""),
                 "last_crawl_status": (cfg.get("last_crawl_status") or ""),

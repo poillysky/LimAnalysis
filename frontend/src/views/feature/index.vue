@@ -197,10 +197,14 @@ async function load() {
   backendHint.value = "";
   try {
     const projectRes = await listProjects();
-    rows.value = (projectRes?.data?.projects ?? []).map(item => ({
-      ...item,
-      sfc_code: item.sfc_code || item.display_name || ""
-    }));
+    rows.value = (projectRes?.data?.projects ?? []).map(item => {
+      const name = item.display_name || item.project_id || "";
+      const code = (item.sfc_code || "").trim();
+      const sfc_code =
+        code ||
+        (name.toUpperCase().startsWith("SFC") ? name : name ? `SFC${name}` : "");
+      return { ...item, sfc_code, btype: item.btype || "0" };
+    });
     const groups = projectRes?.data?.machine_catalog?.groups;
     machineGroups.value = groups?.length ? groups : DEFAULT_MACHINE_GROUPS;
   } catch (error) {

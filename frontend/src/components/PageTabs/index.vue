@@ -6,6 +6,10 @@ export type PageTabOption = {
   label: string;
   hint?: string;
   disabled?: boolean;
+  status?: {
+    ok: boolean;
+    label: string;
+  };
 };
 
 const props = withDefaults(
@@ -31,7 +35,9 @@ const emit = defineEmits<{
   change: [value: string];
 }>();
 
-const rich = computed(() => props.options.some(item => Boolean(item.hint)));
+const rich = computed(() =>
+  props.options.some(item => Boolean(item.hint) || Boolean(item.status))
+);
 
 function select(item: PageTabOption) {
   if (item.disabled || item.value === props.modelValue) return;
@@ -64,7 +70,16 @@ function select(item: PageTabOption) {
       :disabled="item.disabled"
       @click="select(item)"
     >
-      <span class="page-tabs__label">{{ item.label }}</span>
+      <span class="page-tabs__row">
+        <span class="page-tabs__label">{{ item.label }}</span>
+        <span
+          v-if="item.status"
+          class="page-tabs__status"
+          :class="item.status.ok ? 'is-ok' : 'is-bad'"
+        >
+          {{ item.status.label }}
+        </span>
+      </span>
       <span v-if="item.hint" class="page-tabs__hint">{{ item.hint }}</span>
     </button>
   </div>
@@ -72,14 +87,14 @@ function select(item: PageTabOption) {
 
 <style scoped>
 .page-tabs {
-  --page-tabs-pad-y: 3px;
-  --page-tabs-pad-x: 3px;
-  --page-tabs-gap: 2px;
-  --page-tabs-radius: 10px;
-  --page-tabs-item-radius: 8px;
-  --page-tabs-item-pad-y: 6px;
-  --page-tabs-item-pad-x: 14px;
-  --page-tabs-font: 13px;
+  --page-tabs-pad-y: var(--la-space-xs);
+  --page-tabs-pad-x: var(--la-space-xs);
+  --page-tabs-gap: var(--la-space-2xs);
+  --page-tabs-radius: var(--la-radius-md);
+  --page-tabs-item-radius: var(--la-radius-sm);
+  --page-tabs-item-pad-y: var(--la-space-sm);
+  --page-tabs-item-pad-x: var(--la-space-lg);
+  --page-tabs-font: var(--la-text-sm);
 
   display: inline-flex;
   flex-wrap: wrap;
@@ -87,26 +102,19 @@ function select(item: PageTabOption) {
   gap: var(--page-tabs-gap);
   max-width: 100%;
   padding: var(--page-tabs-pad-y) var(--page-tabs-pad-x);
-  background: color-mix(
-    in srgb,
-    var(--el-fill-color-light) 88%,
-    var(--el-bg-color)
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--el-border-color-lighter) 85%, transparent);
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-extra-light);
   border-radius: var(--page-tabs-radius);
-  box-shadow: inset 0 1px 0
-    color-mix(in srgb, var(--el-bg-color) 55%, transparent);
 }
 
 .page-tabs--small {
-  --page-tabs-pad-y: 2px;
-  --page-tabs-pad-x: 2px;
-  --page-tabs-radius: 8px;
-  --page-tabs-item-radius: 6px;
-  --page-tabs-item-pad-y: 4px;
-  --page-tabs-item-pad-x: 11px;
-  --page-tabs-font: 12px;
+  --page-tabs-pad-y: var(--la-space-2xs);
+  --page-tabs-pad-x: var(--la-space-2xs);
+  --page-tabs-radius: var(--la-radius-sm);
+  --page-tabs-item-radius: var(--la-radius-xs);
+  --page-tabs-item-pad-y: var(--la-space-xs);
+  --page-tabs-item-pad-x: 10px;
+  --page-tabs-font: var(--la-text-xs);
 }
 
 .page-tabs--stretch {
@@ -116,9 +124,9 @@ function select(item: PageTabOption) {
 }
 
 .page-tabs--rich {
-  --page-tabs-item-pad-y: 10px;
-  --page-tabs-item-pad-x: 14px;
-  --page-tabs-gap: 4px;
+  --page-tabs-item-pad-y: var(--la-space-md);
+  --page-tabs-item-pad-x: var(--la-space-lg);
+  --page-tabs-gap: var(--la-space-xs);
 }
 
 .page-tabs__item {
@@ -128,7 +136,7 @@ function select(item: PageTabOption) {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 2px;
+  gap: var(--la-space-2xs);
   min-width: 0;
   margin: 0;
   padding: var(--page-tabs-item-pad-y) var(--page-tabs-item-pad-x);
@@ -136,21 +144,19 @@ function select(item: PageTabOption) {
   font: inherit;
   font-size: var(--page-tabs-font);
   font-weight: 500;
-  letter-spacing: -0.015em;
-  line-height: 1.25;
+  letter-spacing: -0.02em;
+  line-height: var(--la-leading-tight);
   text-align: left;
-  white-space: nowrap;
   cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--page-tabs-item-radius);
   outline: none;
   transition:
-    color 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    background 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    color 180ms ease-out,
+    background 180ms ease-out,
+    border-color 180ms ease-out,
+    box-shadow 180ms ease-out;
 }
 
 .page-tabs:not(.page-tabs--rich) .page-tabs__item {
@@ -159,27 +165,24 @@ function select(item: PageTabOption) {
 
 .page-tabs__item:hover:not(:disabled):not(.is-active) {
   color: var(--el-text-color-primary);
-  background: color-mix(in srgb, var(--el-bg-color) 70%, transparent);
+  background: var(--el-bg-color);
 }
 
 .page-tabs__item:focus-visible {
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--el-color-primary) 35%, transparent);
+  box-shadow: var(--la-ring-focus);
 }
 
 .page-tabs__item.is-active {
   z-index: 1;
-  color: var(--el-color-primary);
-  font-weight: 650;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
   background: var(--el-bg-color);
-  border-color: color-mix(
-    in srgb,
-    var(--el-color-primary) 22%,
-    var(--el-border-color-extra-light)
-  );
-  box-shadow:
-    0 1px 2px color-mix(in srgb, var(--el-text-color-primary) 8%, transparent),
-    0 1px 3px color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+  border-color: var(--el-border-color-lighter);
+  box-shadow: var(--la-shadow-sm);
+}
+
+.page-tabs__item.is-active .page-tabs__label {
+  color: var(--el-color-primary);
 }
 
 .page-tabs__item:disabled {
@@ -187,29 +190,65 @@ function select(item: PageTabOption) {
   cursor: not-allowed;
 }
 
-.page-tabs__label {
+.page-tabs__row {
+  display: flex;
+  align-items: center;
+  gap: var(--la-space-sm);
+  min-width: 0;
   max-width: 100%;
+  height: 18px;
+}
+
+.page-tabs__label {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: 18px;
   overflow: hidden;
+  line-height: 18px;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-tabs__status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--la-radius-pill);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.page-tabs__status.is-ok {
+  color: var(--el-color-success);
+  background: var(--el-color-success-light-9);
+}
+
+.page-tabs__status.is-bad {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
 }
 
 .page-tabs__hint {
   max-width: 100%;
   overflow: hidden;
   color: var(--el-text-color-placeholder);
-  font-size: 11px;
+  font-size: var(--la-text-2xs);
   font-weight: 450;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .page-tabs__item.is-active .page-tabs__hint {
-  color: color-mix(
-    in srgb,
-    var(--el-color-primary) 55%,
-    var(--el-text-color-secondary)
-  );
+  color: var(--el-text-color-secondary);
 }
 
 @media (prefers-reduced-motion: reduce) {

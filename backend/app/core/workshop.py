@@ -1,55 +1,33 @@
-"""车间模式：离线值守时停外网调度、限制 AI。"""
+"""车间配置（兼容旧 API；不再因 offline 限制任何功能）。"""
 
 from __future__ import annotations
 
-from app.core.config import settings
 from app.core.db import MetaSession
-from app.core.meta_init import DEFAULT_WORKSHOP, WORKSHOP_KEY, init_meta_store
+from app.core.meta_init import WORKSHOP_KEY, init_meta_store
 from app.core.meta_models import MetaSetting
 
 
-def _merge(stored: dict | None) -> dict:
-    base = dict(DEFAULT_WORKSHOP)
-    if isinstance(stored, dict):
-        for key in DEFAULT_WORKSHOP:
-            if key in stored and stored[key] is not None:
-                base[key] = stored[key]
-    return base
-
-
-def _load_meta_workshop() -> dict:
-    init_meta_store()
-    db = MetaSession()
-    try:
-        row = db.get(MetaSetting, WORKSHOP_KEY)
-        stored = dict(row.value) if row and isinstance(row.value, dict) else {}
-        return _merge(stored)
-    finally:
-        db.close()
-
-
 def load_workshop_config() -> dict:
-    cfg = _load_meta_workshop()
-    # .env 可强制开启（车间部署脚本默认），meta 里也可改
-    if settings.workshop_offline:
-        cfg["offline"] = True
-    cfg["env_forced"] = bool(settings.workshop_offline)
-    return cfg
+    """始终返回 offline=false，不再读取/强制 WORKSHOP_OFFLINE。"""
+    return {"offline": False, "env_forced": False}
 
 
 def is_workshop_offline() -> bool:
-    return bool(load_workshop_config().get("offline"))
+    return False
 
 
 def save_workshop_config(data: dict) -> dict:
-    current = _load_meta_workshop()
-    if "offline" in data and data["offline"] is not None:
-        current["offline"] = bool(data["offline"])
+    """兼容 PUT /system/workshop：写入 meta，但运行时不再据此停功能。"""
+    offline = (
+        bool(data.get("offline"))
+        if "offline" in data and data["offline"] is not None
+        else False
+    )
     init_meta_store()
     db = MetaSession()
     try:
         row = db.get(MetaSetting, WORKSHOP_KEY)
-        payload = {"offline": bool(current["offline"])}
+        payload = {"offline": offline}
         if row is None:
             db.add(MetaSetting(key=WORKSHOP_KEY, value=payload))
         else:

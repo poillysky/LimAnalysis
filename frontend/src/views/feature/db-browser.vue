@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { listConnections } from "@/api/modules/connections";
 import {
+  clearDbTable,
+  downloadDbTable,
   getDbTableRows,
   getDbTables,
   type DbTableItem,
@@ -38,12 +41,6 @@ const TARGETS: { key: DbTarget; label: string; hint: string }[] = [
   }
 ];
 
-const targetTabs = TARGETS.map(item => ({
-  value: item.key,
-  label: item.label,
-  hint: item.hint
-}));
-
 const active = ref<DbTarget>("meta");
 const loadingTables = ref(false);
 const loadingRows = ref(false);
@@ -58,8 +55,33 @@ const page = ref(1);
 const pageSize = ref(50);
 const adminerUrl = ref("");
 const errorHint = ref("");
+const clearing = ref(false);
+const downloading = ref(false);
+/** 日期控件上的起止时间（未点查询前不生效） */
+const timeFrom = ref("");
+const timeTo = ref("");
+/** 已应用到列表查询的范围 */
+const appliedTimeFrom = ref("");
+const appliedTimeTo = ref("");
 let tablesAbort: AbortController | null = null;
 let rowsAbort: AbortController | null = null;
+
+const targetTabs = computed(() =>
+  TARGETS.map(item => {
+    const live = item.key === active.value && info.value;
+    return {
+      value: item.key,
+      label: item.label,
+      hint: live ? info.value.endpoint : item.hint,
+      status: live
+        ? {
+            ok: Boolean(info.value.ok),
+            label: info.value.ok ? "已连通" : "不可用"
+          }
+        : undefined
+    };
+  })
+);
 
 function isAbortError(error: unknown) {
   return (
@@ -74,6 +96,36 @@ const filteredTables = computed(() => {
   if (!q) return tables.value;
   return tables.value.filter(t => t.name.toLowerCase().includes(q));
 });
+
+const selectedTableMeta = computed(
+  () => tables.value.find(t => t.name === selectedTable.value) || null
+);
+
+/** 表含 ServerTime 时显示时间范围（原始库等） */
+const showTimeFilter = computed(() => {
+  if (!selectedTable.value) return false;
+  if (selectedTableMeta.value?.time_column) return true;
+  return columns.value.some(
+    c => c === "ServerTime" || c.toLowerCase() === "servertime"
+  );
+});
+
+function rangeParams(
+  from: string,
+  to: string
+): { time_from?: string; time_to?: string } {
+  const a = from.trim();
+  const b = to.trim();
+  if (!a && !b) return {};
+  const out: { time_from?: string; time_to?: string } = {};
+  if (a) out.time_from = a;
+  if (b) out.time_to = b;
+  return out;
+}
+
+function timeParams(): { time_from?: string; time_to?: string } {
+  return rangeParams(appliedTimeFrom.value, appliedTimeTo.value);
+}
 
 /** 按字符估算显示宽度（中文约 2 倍宽），用于列宽贴合内容 */
 function estimateTextWidth(text: string): number {
@@ -93,8 +145,26 @@ type ColMeta = {
   flex?: boolean;
 };
 
+/** ServerTime 提到 machine / 机台 之前，便于对照时间与机台 */
+function orderColumns(cols: string[]): string[] {
+  const timeIdx = cols.findIndex(
+    c => c === "ServerTime" || c.toLowerCase() === "servertime"
+  );
+  if (timeIdx < 0) return cols;
+  const machineIdx = cols.findIndex(
+    c => c === "machine" || c === "机台"
+  );
+  if (machineIdx < 0 || timeIdx === machineIdx - 1) return cols;
+  const next = cols.slice();
+  const [timeCol] = next.splice(timeIdx, 1);
+  const insertAt = next.findIndex(c => c === "machine" || c === "机台");
+  if (insertAt < 0) return cols;
+  next.splice(insertAt, 0, timeCol);
+  return next;
+}
+
 const columnMetas = computed<ColMeta[]>(() => {
-  const cols = columns.value;
+  const cols = orderColumns(columns.value);
   if (!cols.length) return [];
   const sample = rows.value.slice(0, 50);
   const scored = cols.map(name => {
@@ -165,6 +235,10 @@ async function loadTables() {
 async function selectTable(name: string) {
   selectedTable.value = name;
   page.value = 1;
+  timeFrom.value = "";
+  timeTo.value = "";
+  appliedTimeFrom.value = "";
+  appliedTimeTo.value = "";
   await loadRows();
 }
 
@@ -182,7 +256,8 @@ async function loadRows() {
       selectedTable.value,
       {
         limit: pageSize.value,
-        offset
+        offset,
+        ...timeParams()
       },
       signal
     );
@@ -201,11 +276,32 @@ async function loadRows() {
   }
 }
 
+function onQueryByTime() {
+  if (!selectedTable.value) {
+    ElMessage.warning("请先选择数据表");
+    return;
+  }
+  const from = timeFrom.value.trim();
+  const to = timeTo.value.trim();
+  if ((from && !to) || (!from && to)) {
+    ElMessage.warning("请选择完整的 ServerTime 起止时间");
+    return;
+  }
+  appliedTimeFrom.value = from;
+  appliedTimeTo.value = to;
+  page.value = 1;
+  loadRows();
+}
+
 function switchTarget(key: string) {
   const next = key as DbTarget;
   if (active.value === next) return;
   active.value = next;
   tableFilter.value = "";
+  timeFrom.value = "";
+  timeTo.value = "";
+  appliedTimeFrom.value = "";
+  appliedTimeTo.value = "";
   loadTables();
 }
 
@@ -215,6 +311,84 @@ function openAdminer() {
     String(import.meta.env.VITE_DBWEB_URL || "").replace(/\/$/, "") ||
     `${window.location.protocol}//${window.location.hostname}:18080`;
   window.open(base, "_blank", "noopener");
+}
+
+async function onDownloadTable() {
+  if (active.value === "dwh") {
+    ElMessage.warning("ETL 库禁止下载表");
+    return;
+  }
+  if (!selectedTable.value) {
+    ElMessage.warning("请先选择数据表");
+    return;
+  }
+  if (!info.value?.ok) {
+    ElMessage.warning("当前库不可用，无法下载");
+    return;
+  }
+  const range = rangeParams(timeFrom.value, timeTo.value);
+  if (showTimeFilter.value && (!range.time_from || !range.time_to)) {
+    ElMessage.warning("请先选择 ServerTime 起止时间");
+    return;
+  }
+  downloading.value = true;
+  try {
+    await downloadDbTable(
+      active.value,
+      selectedTable.value,
+      showTimeFilter.value ? range : undefined
+    );
+    ElMessage.success(
+      showTimeFilter.value
+        ? `已按时间范围下载「${selectedTable.value}」`
+        : `已开始下载「${selectedTable.value}」`
+    );
+  } catch (error) {
+    ElMessage.error(
+      error instanceof Error ? error.message : backendErrorHint(error)
+    );
+  } finally {
+    downloading.value = false;
+  }
+}
+
+async function onClearTable() {
+  if (active.value === "meta") {
+    ElMessage.warning("元数据库禁止清空表");
+    return;
+  }
+  if (!selectedTable.value) {
+    ElMessage.warning("请先选择数据表");
+    return;
+  }
+  if (!info.value?.ok) {
+    ElMessage.warning("当前库不可用，无法清空");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将清空表「${selectedTable.value}」全部数据（保留表结构）。此操作不可撤销。`,
+      "清空当前表",
+      {
+        type: "warning",
+        confirmButtonText: "确认清空",
+        cancelButtonText: "取消",
+        confirmButtonClass: "el-button--danger"
+      }
+    );
+  } catch {
+    return;
+  }
+  clearing.value = true;
+  try {
+    await clearDbTable(active.value, selectedTable.value);
+    ElMessage.success(`已清空「${selectedTable.value}」`);
+    await loadRows();
+  } catch (error) {
+    ElMessage.error(backendErrorHint(error));
+  } finally {
+    clearing.value = false;
+  }
 }
 
 function onPageChange(next: number) {
@@ -272,14 +446,6 @@ onUnmounted(() => {
       show-icon
     />
 
-    <div v-if="info" class="db-status" :class="{ 'is-ok': info.ok }">
-      <span>{{ info.label }}</span>
-      <code>{{ info.endpoint }}</code>
-      <el-tag size="small" :type="info.ok ? 'success' : 'danger'" effect="light">
-        {{ info.ok ? "已连通" : "不可用" }}
-      </el-tag>
-    </div>
-
     <div class="db-body" v-loading="loadingTables">
       <aside class="db-side">
         <el-input
@@ -306,20 +472,65 @@ onUnmounted(() => {
 
       <section class="db-main" v-loading="loadingRows">
         <div class="db-main__bar">
-          <div>
+          <div class="db-main__meta">
             <strong>{{ selectedTable || "未选择表" }}</strong>
             <span v-if="selectedTable">共 {{ total.toLocaleString() }} 行</span>
           </div>
-          <el-pagination
-            v-if="selectedTable && total > 0"
-            :current-page="page"
-            :page-size="pageSize"
-            :total="total"
-            layout="prev, pager, next"
-            small
-            background
-            @current-change="onPageChange"
-          />
+          <div v-if="selectedTable" class="db-main__actions">
+            <el-date-picker
+              v-if="showTimeFilter"
+              v-model="timeFrom"
+              type="datetime"
+              size="small"
+              clearable
+              placeholder="起"
+              format="YYYY-MM-DD HH:mm:ss"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              class="db-main__time"
+            />
+            <el-date-picker
+              v-if="showTimeFilter"
+              v-model="timeTo"
+              type="datetime"
+              size="small"
+              clearable
+              placeholder="止"
+              format="YYYY-MM-DD HH:mm:ss"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              class="db-main__time"
+            />
+            <el-button
+              v-if="showTimeFilter"
+              size="small"
+              type="primary"
+              plain
+              :loading="loadingRows"
+              :disabled="!info?.ok"
+              @click="onQueryByTime"
+            >
+              查询
+            </el-button>
+            <el-button
+              v-if="active !== 'dwh'"
+              size="small"
+              :loading="downloading"
+              :disabled="!info?.ok"
+              @click="onDownloadTable"
+            >
+              {{ showTimeFilter ? "下载" : "下载本表" }}
+            </el-button>
+            <el-button
+              v-if="active !== 'meta'"
+              size="small"
+              type="danger"
+              plain
+              :loading="clearing"
+              :disabled="!info?.ok"
+              @click="onClearTable"
+            >
+              清空本表
+            </el-button>
+          </div>
         </div>
 
         <el-table
@@ -344,6 +555,21 @@ onUnmounted(() => {
           />
         </el-table>
         <div v-else class="db-empty db-empty--main">从左侧选择一张表查看数据</div>
+
+        <div
+          v-if="selectedTable && total > 0"
+          class="db-main__pager"
+        >
+          <el-pagination
+            :current-page="page"
+            :page-size="pageSize"
+            :total="total"
+            layout="prev, pager, next"
+            small
+            background
+            @current-change="onPageChange"
+          />
+        </div>
       </section>
     </div>
   </div>
@@ -354,56 +580,34 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: calc(100vh - 96px);
-  min-height: 560px;
-  padding: 20px 24px 24px;
+  height: calc(100vh - var(--la-chrome-total) - var(--la-content-inset) * 2);
+  min-height: 480px;
+  padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
 }
 
 .db-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--la-space-md);
 }
 
 .db-head h2 {
   margin: 0;
   color: var(--el-text-color-primary);
-  font-size: 18px;
-  font-weight: 700;
+  font-size: var(--la-page-title);
+  font-weight: 650;
 }
 
 .db-head p {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   color: var(--el-text-color-secondary);
-  font-size: 13px;
+  font-size: var(--la-page-desc);
 }
 
 .db-head__actions {
   display: flex;
   gap: 8px;
-}
-
-.db-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: var(--el-fill-color-lighter);
-  font-size: 12px;
-  color: var(--el-text-color-regular);
-}
-
-.db-status.is-ok {
-  background: color-mix(in srgb, var(--el-color-success) 8%, var(--el-bg-color));
-}
-
-.db-status code {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--el-bg-color);
 }
 
 .db-body {
@@ -489,14 +693,44 @@ onUnmounted(() => {
   margin-bottom: 10px;
 }
 
+.db-main__meta {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
 .db-main__bar strong {
-  margin-right: 10px;
   font-size: 14px;
 }
 
 .db-main__bar span {
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.db-main__time.el-date-editor {
+  --el-date-editor-width: 178px;
+  box-sizing: border-box;
+  width: 178px;
+  flex: none;
+}
+
+.db-main__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.db-main__pager {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 .db-table {
@@ -507,12 +741,15 @@ onUnmounted(() => {
 
 .db-table :deep(.el-table__cell) {
   padding: 5px 6px;
+  text-align: center;
+  vertical-align: middle;
 }
 
 .db-table :deep(.cell) {
   padding: 0 2px;
   line-height: 1.35;
   font-size: 12px;
+  text-align: center;
 }
 
 .db-table :deep(th.el-table__cell .cell) {

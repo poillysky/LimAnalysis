@@ -13,12 +13,9 @@ _scheduler: BackgroundScheduler | None = None
 
 def _tick_sfc() -> None:
     """只投递采集任务，不在本进程执行爬虫。"""
-    from app.core.workshop import is_workshop_offline
     from collector.jobs import JOB_CRAWL, find_active_job
     from collector.runner import request_crawl
 
-    if is_workshop_offline():
-        return
     config = load_sfc_config()
     if not config.get("is_active"):
         return

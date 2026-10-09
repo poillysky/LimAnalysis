@@ -61,25 +61,19 @@ const contentWidth = computed(() => {
 });
 
 const getSectionStyle = computed(() => {
+  const navOnly = "padding-top: var(--la-chrome-nav);";
+  const withTags = "padding-top: var(--la-chrome-total);";
   return [
-    hideTabs.value && layout ? "padding-top: 48px;" : "",
-    !hideTabs.value && layout
-      ? showModel.value == "chrome"
-        ? "padding-top: 85px;"
-        : "padding-top: 81px;"
-      : "",
-    hideTabs.value && !layout.value ? "padding-top: 48px;" : "",
-    !hideTabs.value && !layout.value
-      ? showModel.value == "chrome"
-        ? "padding-top: 85px;"
-        : "padding-top: 81px;"
-      : "",
+    hideTabs.value && layout ? navOnly : "",
+    !hideTabs.value && layout ? withTags : "",
+    hideTabs.value && !layout.value ? navOnly : "",
+    !hideTabs.value && !layout.value ? withTags : "",
     props.fixedHeader
       ? ""
       : `padding-top: 0;${
           hideTabs.value
-            ? "min-height: calc(100vh - 48px);"
-            : "min-height: calc(100vh - 86px);"
+            ? "min-height: calc(100vh - var(--la-chrome-nav));"
+            : "min-height: calc(100vh - var(--la-chrome-total));"
         }`
   ];
 });
@@ -216,6 +210,6 @@ const transitionMain = defineComponent({
 }
 
 .main-content {
-  margin: 24px;
+  margin: var(--la-content-inset);
 }
 </style>

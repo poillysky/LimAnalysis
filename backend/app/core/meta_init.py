@@ -46,7 +46,7 @@ DEFAULT_DISK_CLEANUP = {
     "last_run_result": {},
 }
 
-# 车间离线值守：停 SFC 定时采集、限制 AI 外网调用（.env WORKSHOP_OFFLINE 可强制）
+# 兼容旧 meta key；运行时不再据此限制功能
 DEFAULT_WORKSHOP = {
     "offline": False,
 }

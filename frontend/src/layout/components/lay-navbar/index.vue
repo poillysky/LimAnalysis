@@ -142,21 +142,16 @@ async function installDesktop() {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 48px;
+  height: var(--la-chrome-nav);
   overflow: hidden;
-  // 顶栏原本是透明的，与下方白色内容区糊在一起、看不出这是一块独立区域。
-  // 加一层极浅冷灰底 + 1px 分隔线：既能立刻分清「顶栏 / 内容」，
-  // 又和左侧深色 logo 块形成「深-浅」对比而不至于头重脚轻。
-  // 用 token 而非写死色值 —— 暗色主题下会自动取对应的深色档。
   background: var(--la-surface-sunken);
   border-bottom: 1px solid var(--la-border-subtle);
-  // 顶栏内容贴到分隔线时会显得压线，留 1px 让开
   box-sizing: border-box;
 
   .hamburger-container {
     flex: none;
     height: 100%;
-    line-height: 48px;
+    line-height: var(--la-chrome-nav);
     cursor: pointer;
   }
 
@@ -165,9 +160,9 @@ async function installDesktop() {
     flex: 1 1 auto;
     align-items: center;
     justify-content: flex-end;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
-    height: 48px;
+    height: var(--la-chrome-nav);
     margin-left: auto;
   }
 
@@ -175,14 +170,14 @@ async function installDesktop() {
     display: inline-flex;
     flex: none;
     align-items: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 10px;
+    gap: 4px;
+    height: 28px;
+    padding: 0 8px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--la-radius-sm);
     background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
     color: var(--el-color-primary);
-    font-size: 13px;
+    font-size: var(--la-text-xs);
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
@@ -197,25 +192,25 @@ async function installDesktop() {
     align-items: center;
     justify-content: flex-end;
     min-width: 0;
-    height: 48px;
+    height: var(--la-chrome-nav);
     color: #000000d9;
 
     .el-dropdown-link {
       display: flex;
       align-items: center;
       justify-content: space-around;
-      height: 48px;
-      padding: 10px;
+      height: var(--la-chrome-nav);
+      padding: 6px 8px;
       color: #000000d9;
       cursor: pointer;
 
       p {
-        font-size: 14px;
+        font-size: var(--la-text-xs);
       }
 
       img {
-        width: 22px;
-        height: 22px;
+        width: 20px;
+        height: 20px;
         border-radius: 50%;
       }
     }
@@ -223,7 +218,7 @@ async function installDesktop() {
 
   .breadcrumb-container {
     flex: none;
-    margin-left: 16px;
+    margin-left: 12px;
   }
 }
 

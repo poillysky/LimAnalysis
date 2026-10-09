@@ -1,7 +1,9 @@
-"""次品库：Postgres lim_defect。SN 事实在写入时从 lim_raw 补全机台/模穴/本体。"""
+"""次品库：Postgres lim_defect。SN 事实在写入时从 lim_raw 补全机台/模穴/本体/ServerTime。"""
 
 from __future__ import annotations
 
+import contextlib
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -15,14 +17,16 @@ from sqlalchemy import (
     inspect,
     select,
     text,
+    update,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core import db as stores
-from app.core.projects import load_system_defaults
+from app.core.projects import get_project, load_system_defaults
 from app.core.sql_ident import ident, q, table_name
 
+logger = logging.getLogger(__name__)
 TZ = ZoneInfo("Asia/Shanghai")
 
 
@@ -65,13 +69,133 @@ class DefectScanRow(DefectBase):
     cavity: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     body: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     matched: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    server_time: Mapped[datetime | None] = mapped_column(
+        "ServerTime", DateTime(timezone=True), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
 
 
+def _coerce_server_time(value) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=TZ)
+        return value
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    # 原始库常见：2026/7/2 16:08:50
+    for fmt in (
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y/%m/%d",
+        "%Y-%m-%d",
+    ):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=TZ)
+        except ValueError:
+            pass
+    iso = raw.replace(" ", "T", 1) if " " in raw and "T" not in raw else raw
+    try:
+        stamp = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        return stamp.replace(tzinfo=TZ)
+    return stamp
+
+
+def _ensure_defect_scan_server_time_column() -> None:
+    """已有 defect_scans 补齐 ServerTime（create_all 不会 ALTER）。"""
+    engine = stores.defect_engine
+    inspector = inspect(engine)
+    if not inspector.has_table("defect_scans"):
+        return
+    cols = {str(c["name"]) for c in inspector.get_columns("defect_scans")}
+    if "ServerTime" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text('ALTER TABLE defect_scans ADD COLUMN "ServerTime" TIMESTAMPTZ')
+        )
+        conn.execute(
+            text(
+                'CREATE INDEX IF NOT EXISTS ix_defect_scans_ServerTime '
+                'ON defect_scans ("ServerTime")'
+            )
+        )
+
+
+def _backfill_defect_server_times() -> int:
+    """按 SN 从 lim_raw 回填缺失的 ServerTime。"""
+    db = stores.DefectSession()
+    updated = 0
+    try:
+        rows = db.execute(
+            select(
+                DefectScanRow.id,
+                DefectScanRow.project_id,
+                DefectScanRow.sn,
+            ).where(DefectScanRow.server_time.is_(None))
+        ).all()
+        if not rows:
+            return 0
+        by_project: dict[str, list[tuple[int, str]]] = {}
+        for row_id, project_id, sn in rows:
+            pid = str(project_id or "").strip()
+            code = str(sn or "").strip()
+            if not pid or not code:
+                continue
+            by_project.setdefault(pid, []).append((int(row_id), code))
+        for pid, items in by_project.items():
+            project = get_project(pid)
+            if not project:
+                continue
+            codes = list({code for _, code in items})
+            # 分批查 raw，避免 IN 列表过大
+            profiles: dict[str, dict] = {}
+            chunk = 400
+            for i in range(0, len(codes), chunk):
+                profiles.update(lookup_raw_profiles(project, codes[i : i + chunk]))
+            for row_id, code in items:
+                stamp = profiles.get(code, {}).get("server_time")
+                if stamp is None:
+                    continue
+                db.execute(
+                    update(DefectScanRow)
+                    .where(DefectScanRow.id == row_id)
+                    .values(server_time=stamp)
+                )
+                updated += 1
+        if updated:
+            db.commit()
+        return updated
+    except Exception:
+        db.rollback()
+        logger.exception("backfill defect ServerTime failed")
+        return updated
+    finally:
+        db.close()
+
+
+_SERVER_TIME_BACKFILL_DONE = False
+
+
 def ensure_defect_tables() -> None:
+    global _SERVER_TIME_BACKFILL_DONE
     DefectBase.metadata.create_all(stores.defect_engine)
+    _ensure_defect_scan_server_time_column()
+    if not _SERVER_TIME_BACKFILL_DONE:
+        with contextlib.suppress(Exception):
+            _backfill_defect_server_times()
+        _SERVER_TIME_BACKFILL_DONE = True
 
 
 def _fmt_time(value) -> str:
@@ -114,7 +238,10 @@ def _body_from_sn(sn: str) -> str:
 
 
 def lookup_raw_profiles(project: dict, sns: list[str]) -> dict[str, dict]:
-    """按项目 raw 表唯一键批量取机台/模穴/本体。"""
+    """按项目 raw 表唯一键批量取机台/模穴/本体/ServerTime。"""
+    codes = [str(s or "").strip() for s in sns if str(s or "").strip()]
+    if not codes:
+        return {}
     table = table_name(str(project.get("prefix") or ""), str(project.get("project_id") or ""))
     inspector = inspect(stores.raw_engine)
     table_i = ident(table)
@@ -131,6 +258,7 @@ def lookup_raw_profiles(project: dict, sns: list[str]) -> dict[str, dict]:
     machine_col = _pick_col(columns, "机台")
     cavity_col = _pick_col(columns, "模穴", "模具模穴")
     body_col = _pick_col(columns, "本体")
+    time_col = _pick_col(columns, "ServerTime", "ingested_at", "检测时间", "时间")
     select_cols = [q(ident(sn_col))]
     if machine_col:
         select_cols.append(q(ident(machine_col)))
@@ -138,13 +266,15 @@ def lookup_raw_profiles(project: dict, sns: list[str]) -> dict[str, dict]:
         select_cols.append(q(ident(cavity_col)))
     if body_col:
         select_cols.append(q(ident(body_col)))
+    if time_col:
+        select_cols.append(q(ident(time_col)))
     sql = text(
         f"SELECT {', '.join(select_cols)} FROM {q(ident(table))} "
         f"WHERE BTRIM(({q(ident(sn_col))})::text) IN :sns"
     ).bindparams(bindparam("sns", expanding=True))
     out: dict[str, dict] = {}
     with stores.raw_engine.connect() as conn:
-        rows = conn.execute(sql, {"sns": sns}).mappings().all()
+        rows = conn.execute(sql, {"sns": codes}).mappings().all()
     for row in rows:
         sn = str(row.get(sn_col) or "").strip()
         if not sn:
@@ -154,10 +284,17 @@ def lookup_raw_profiles(project: dict, sns: list[str]) -> dict[str, dict]:
         body = str(row.get(body_col) or "").strip() if body_col else ""
         if not body:
             body = _body_from_sn(sn)
+        stamp = _coerce_server_time(row.get(time_col)) if time_col else None
+        prev = out.get(sn)
+        # 同 SN 多行时保留较晚的 ServerTime
+        if prev and prev.get("server_time") and stamp:
+            if stamp <= prev["server_time"]:
+                continue
         out[sn] = {
             "machine": machine,
             "cavity": cavity,
             "body": body,
+            "server_time": stamp,
             "matched": True,
         }
     return out
@@ -203,6 +340,7 @@ def insert_upload(
                     "cavity": str(info.get("cavity") or ""),
                     "body": str(info.get("body") or _body_from_sn(code)),
                     "matched": bool(info.get("matched")),
+                    "server_time": info.get("server_time"),
                     "created_at": now,
                 }
             )
@@ -216,6 +354,7 @@ def insert_upload(
                 "cavity": stmt.excluded.cavity,
                 "body": stmt.excluded.body,
                 "matched": stmt.excluded.matched,
+                "server_time": stmt.excluded.server_time,
                 "created_at": stmt.excluded.created_at,
             },
         )

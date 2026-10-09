@@ -24,7 +24,7 @@ class MetaProject(MetaBase):
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sfc_code: Mapped[str] = mapped_column(String(100), default="", nullable=False)
-    btype: Mapped[str] = mapped_column(String(50), default="", nullable=False)
+    btype: Mapped[str] = mapped_column(String(50), default="0", nullable=False)
     prefix: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 

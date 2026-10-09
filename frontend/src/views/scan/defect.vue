@@ -377,29 +377,29 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 14px;
   box-sizing: border-box;
-  min-height: calc(100vh - 86px);
+  min-height: calc(100vh - var(--la-chrome-total));
   margin: 0 !important;
   padding: 12px 16px 16px;
   background: #eef7fb;
 }
 
 .scan-head {
-  padding: 14px 16px;
+  padding: var(--la-space-md) var(--la-space-lg);
   background: #fff;
   border: 1px solid #d5ddd8;
-  border-radius: 10px;
+  border-radius: var(--la-radius-md);
 }
 
 .scan-head strong {
   display: block;
   color: #0c3f56;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--la-page-title);
+  font-weight: 650;
 }
 
 .scan-head span {
   color: #5b6b63;
-  font-size: 12px;
+  font-size: var(--la-page-desc);
 }
 
 .scan-banner {

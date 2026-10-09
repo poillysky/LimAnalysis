@@ -480,7 +480,7 @@ onMounted(load);
 
 <style scoped>
 .conn-page {
-  padding: 20px 24px 28px;
+  padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
 }
 
 .conn-grid {
@@ -505,25 +505,25 @@ onMounted(load);
 
 .conn-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: var(--la-space-md);
+  margin-bottom: var(--la-space-lg);
 }
 
 .conn-head__text h2 {
   margin: 0;
   color: var(--el-text-color-primary);
-  font-size: 17px;
+  font-size: var(--la-page-title);
   font-weight: 650;
-  letter-spacing: -0.02em;
-  line-height: 1.3;
+  letter-spacing: -0.01em;
+  line-height: var(--la-leading-tight);
 }
 
 .conn-head__text p {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   color: var(--el-text-color-secondary);
-  font-size: 12px;
+  font-size: var(--la-page-desc);
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   word-break: break-all;

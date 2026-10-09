@@ -179,9 +179,39 @@ export const searchViewerImages = (
       images: InspectionImage[];
       total_count: number;
       query: string;
+      hint?: string;
     };
   }>("get", `${API_PREFIX}/inspection/viewer/search`, {
     params: { project_id: projectId, q: query, source },
     timeout: 120000
   });
+};
+
+export type AppearanceIndexStatus = {
+  project_id?: string;
+  project_key?: string;
+  status: "building" | "ready" | "empty" | string;
+  status_label: string;
+  building?: boolean;
+  dir_count?: number;
+  file_count?: number;
+  indexed_label?: string;
+  warm_started?: boolean;
+};
+
+export const getAppearanceIndexStatus = (projectId: string) => {
+  return http.request<{ success: boolean; data: AppearanceIndexStatus }>(
+    "get",
+    `${API_PREFIX}/inspection/viewer/appearance-index`,
+    { params: { project_id: projectId } }
+  );
+};
+
+/** 进页后台全量建/刷；之后只增量 */
+export const warmAppearanceIndex = (projectId: string) => {
+  return http.request<{ success: boolean; data: AppearanceIndexStatus }>(
+    "post",
+    `${API_PREFIX}/inspection/viewer/appearance-index/warm`,
+    { params: { project_id: projectId } }
+  );
 };

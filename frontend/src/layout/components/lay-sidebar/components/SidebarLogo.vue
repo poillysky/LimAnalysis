@@ -40,7 +40,7 @@ const { title, getLogo } = useNav();
 .sidebar-logo-container {
   position: relative;
   width: 100%;
-  height: 48px;
+  height: var(--la-chrome-nav);
   overflow: hidden;
 
   .sidebar-logo-link {
@@ -52,18 +52,18 @@ const { title, getLogo } = useNav();
 
     img {
       display: inline-block;
-      height: 32px;
+      height: 26px;
     }
 
     .sidebar-title {
       display: inline-block;
-      height: 32px;
-      margin: 2px 0 0 12px;
+      height: 26px;
+      margin: 0 0 0 8px;
       overflow: hidden;
       text-overflow: ellipsis;
-      font-size: 18px;
+      font-size: var(--la-text-md);
       font-weight: 600;
-      line-height: 32px;
+      line-height: 26px;
       color: var(--pure-theme-sub-menu-active-text);
       white-space: nowrap;
     }

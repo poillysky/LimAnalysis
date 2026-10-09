@@ -353,7 +353,7 @@ onUnmounted(() => loadAbort?.abort());
   flex-direction: column;
   gap: 14px;
   box-sizing: border-box;
-  min-height: calc(100vh - 86px);
+  min-height: calc(100vh - var(--la-chrome-total));
   margin: 0 !important;
   padding: 12px 16px 16px;
   background: #eef7fb;

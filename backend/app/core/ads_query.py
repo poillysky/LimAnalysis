@@ -455,7 +455,11 @@ def _exclude_machine_cavity_sql(pairs) -> tuple[str, dict]:
         return "", {}
     machine_sql = f"BTRIM({q(ident('机台'))})"
     cavity_sql = f"BTRIM({q(ident('模穴'))})"
-    letter_sql = f"UPPER(SUBSTRING({cavity_sql} FROM CHAR_LENGTH({cavity_sql}) FOR 1))"
+    # 与前端 cavityLetter 对齐：取最后一个拉丁字母（兼容 A1、全角经 NFKC 后由应用侧处理）
+    letter_sql = (
+        f"UPPER(SUBSTRING(regexp_replace({cavity_sql}, '[^A-Za-z]', '', 'g') "
+        f"FROM CHAR_LENGTH(regexp_replace({cavity_sql}, '[^A-Za-z]', '', 'g')) FOR 1))"
+    )
     clauses: list[str] = []
     params: dict = {}
     for i, (machine, letter) in enumerate(items):

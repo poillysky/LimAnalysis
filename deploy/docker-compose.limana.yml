@@ -3,7 +3,7 @@
 # 三库沿用：deploy/docker-compose.nas.yml（LimAnalysis）
 #
 # 准备：
-#   mkdir -p /vol1/1000/Docker/limana/{meta,raw,zsj,zdwg}
+#   mkdir -p /vol1/1000/Docker/limana/{meta,raw,sql_models,zsj,zdwg}
 #
 # 启动（无需 .env）：
 #   docker compose -f docker-compose.limana.yml pull
@@ -20,8 +20,9 @@ x-app-env: &app-env
   APP_NAME: LimAnalysis API
   API_PREFIX: /api/v1
   CORS_ORIGINS: http://127.0.0.1:18088,http://localhost:18088
-  WORKSHOP_OFFLINE: "true"
   META_SQLITE_PATH: /data/meta/lim_meta.sqlite
+  # ETL/聚合 SQL 落盘目录（与下方卷一致，重建容器不丢）
+  SQL_MODELS_DIR: /data/sql_models
   RAW_DATABASE_URL: postgresql+psycopg://lim:lim@host.docker.internal:15432/lim_raw
   DWH_DATABASE_URL: postgresql+psycopg://lim:lim@host.docker.internal:15433/lim_dwh
   DEFECT_DATABASE_URL: postgresql+psycopg://lim:lim@host.docker.internal:15434/lim_defect
@@ -29,6 +30,7 @@ x-app-env: &app-env
 x-app-volumes: &app-volumes
   - /vol1/1000/Docker/limana/meta:/data/meta
   - /vol1/1000/Docker/limana/raw:/data/raw
+  - /vol1/1000/Docker/limana/sql_models:/data/sql_models
   - /vol1/1000/Docker/limana/zsj:/data/photos/zsj
   - /vol1/1000/Docker/limana/zdwg:/data/photos/zdwg
 
@@ -37,7 +39,7 @@ x-extra-hosts: &extra-hosts
 
 services:
   app:
-    image: poillysky/limanalysis:V1.0.3
+    image: poillysky/limanalysis:V1.0.4
     container_name: limana-app
     restart: unless-stopped
     mem_limit: 1536m
@@ -56,7 +58,7 @@ services:
       start_period: 45s
 
   collector:
-    image: poillysky/limanalysis:V1.0.3
+    image: poillysky/limanalysis:V1.0.4
     container_name: limana-collector
     restart: unless-stopped
     mem_limit: 1g
@@ -72,7 +74,7 @@ services:
       disable: true
 
   agg:
-    image: poillysky/limanalysis:V1.0.3
+    image: poillysky/limanalysis:V1.0.4
     container_name: limana-agg
     restart: unless-stopped
     mem_limit: 1g

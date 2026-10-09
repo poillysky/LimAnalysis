@@ -187,30 +187,30 @@ onUnmounted(() => abort?.abort());
   flex-direction: column;
   gap: 14px;
   box-sizing: border-box;
-  min-height: calc(100vh - 86px);
+  min-height: calc(100vh - var(--la-chrome-total));
   margin: 0 !important;
-  padding: 16px 20px 24px;
+  padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
   background: #eef7fb;
 }
 
 .cfg-head {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--la-space-md);
 }
 
 .cfg-head strong {
   display: block;
   color: #0c3f56;
-  font-size: 22px;
-  font-weight: 750;
-  letter-spacing: -0.03em;
+  font-size: var(--la-page-title);
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .cfg-head span {
   color: #5b6b63;
-  font-size: 13px;
+  font-size: var(--la-page-desc);
 }
 
 .cfg-count {

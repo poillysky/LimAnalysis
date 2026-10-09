@@ -14,13 +14,20 @@ from sqlalchemy import inspect, text
 
 from app.core import db as stores
 from app.core.appearance_index import (
+    appearance_index_has_rows,
+    appearance_index_is_fresh,
+    building_project,
     drop_files_by_rel_paths,
     drop_view_dir_index,
     ensure_view_dir_indexed,
+    get_appearance_index_status,
+    is_appearance_index_building,
     prune_project_index,
     prune_windows_for_dates,
     query_files_by_needle,
     query_files_by_sns,
+    schedule_appearance_index_build,
+    schedule_quiet_index_job,
 )
 from app.core.db import MetaSession
 from app.core.meta_init import INSPECTION_KEY, init_meta_store
@@ -863,14 +870,14 @@ def list_appearance_dates(
     }
 
 
-def _ensure_appearance_index_windows(
+def _ensure_appearance_index_windows_body(
     project_key: str,
     project_dir: Path,
     *,
     view: str,
     date_ymds: list[str],
 ) -> None:
-    """把各测试机在给定日期×视角刷进索引；磁盘上已消失的窗口同步删索引。"""
+    """把各测试机在给定日期×视角刷进索引（安静增量，不标 building）。"""
     view_name = str(view or "").strip()
     if not view_name:
         return
@@ -918,8 +925,31 @@ def _ensure_appearance_index_windows(
     )
 
 
-def _ensure_appearance_index_project(project_key: str, project_dir: Path) -> None:
-    """扫码前预热：索引现存目录，并 prune 整项目孤儿窗口。"""
+def _schedule_appearance_windows(
+    project_key: str,
+    project_dir: Path,
+    *,
+    view: str,
+    date_ymds: list[str],
+) -> None:
+    """查图请求里只排队后台增量，绝不同步扫盘。"""
+    view_name = str(view or "").strip()
+    days = [str(d).strip() for d in date_ymds if str(d).strip()]
+    if not view_name or not days:
+        return
+    job_key = f"{project_key}|win|{view_name}|{','.join(days)}"
+    schedule_quiet_index_job(
+        job_key,
+        lambda: _ensure_appearance_index_windows_body(
+            project_key, project_dir, view=view_name, date_ymds=days
+        ),
+    )
+
+
+def _ensure_appearance_index_project_body(
+    project_key: str, project_dir: Path
+) -> None:
+    """索引现存目录并 prune 孤儿窗口（调用方负责 building 标记）。"""
     live: set[tuple[str, str, str]] = set()
     for tester_name in _child_dir_names(project_dir):
         session_dir = _appearance_session_dir(project_dir / tester_name)
@@ -961,6 +991,57 @@ def _ensure_appearance_index_project(project_key: str, project_dir: Path) -> Non
     prune_project_index(project_key, live)
 
 
+def _ensure_appearance_index_project(project_key: str, project_dir: Path) -> None:
+    """同步全量/增量刷项目索引。"""
+    with building_project(project_key):
+        _ensure_appearance_index_project_body(project_key, project_dir)
+
+
+def appearance_index_status(project_id: str) -> dict:
+    """外观 SN 索引状态（进页预热全量，之后增量）。"""
+    project = _enabled_project(project_id)
+    status = get_appearance_index_status(str(project["project_id"]))
+    status["project_id"] = project["project_id"]
+    status["project_name"] = project["display_name"]
+    return status
+
+
+def warm_appearance_index(project_id: str, *, force: bool = False) -> dict:
+    """进外观页后台全量/增量刷；已新鲜则跳过；已在建则复用。"""
+    project = _enabled_project(project_id)
+    root = _root("appearance")
+    project_dir = _appearance_project_dir(root, project)
+    project_key = str(project["project_id"])
+    if not force and appearance_index_is_fresh(project_key):
+        status = appearance_index_status(project_id)
+        status["warm_started"] = False
+        status["skipped_fresh"] = True
+        return status
+    scheduled = schedule_appearance_index_build(
+        project_key,
+        lambda: _ensure_appearance_index_project_body(project_key, project_dir),
+    )
+    status = appearance_index_status(project_id)
+    status["warm_started"] = bool(scheduled.get("started"))
+    status["building"] = bool(
+        status.get("building") or scheduled.get("building")
+    )
+    if status["building"] and status.get("status") == "empty":
+        status["status"] = "building"
+        status["status_label"] = "生成中"
+    return status
+
+
+def _kick_appearance_index_if_empty(project_key: str, project_dir: Path) -> None:
+    """请求路径只负责点火，绝不同步扫盘。"""
+    if appearance_index_has_rows(project_key) or is_appearance_index_building(project_key):
+        return
+    schedule_appearance_index_build(
+        project_key,
+        lambda: _ensure_appearance_index_project_body(project_key, project_dir),
+    )
+
+
 def list_appearance_images_by_mold(
     project_id: str, machine: str, cavity: str, camera: str, date_str: str
 ) -> dict:
@@ -985,7 +1066,9 @@ def list_appearance_images_by_mold(
     scan_days = _ymd_range(prod_ymd, APPEARANCE_MOLD_LOOKAHEAD_DAYS) or [prod_ymd]
     raw_items: list[dict] = []
     if sn_set:
-        _ensure_appearance_index_windows(
+        # 只查 SQLite；窗口增量丢后台，不挡本次查图
+        _kick_appearance_index_if_empty(project_key, project_dir)
+        _schedule_appearance_windows(
             project_key,
             project_dir,
             view=camera_name,
@@ -1031,8 +1114,12 @@ def list_appearance_images_by_mold(
             images.append(client)
     hint = ""
     look = APPEARANCE_MOLD_LOOKAHEAD_DAYS
+    building = is_appearance_index_building(project_key)
+    has_index = appearance_index_has_rows(project_key)
     if not sn_set:
         hint = f"原始库没有机台 {machine_name}、穴位 {letter}、生产日 {prod_ymd} 的 SN"
+    elif not images and (building or not has_index):
+        hint = "索引仍在后台生成/更新，稍后再查即可看到新图"
     elif not images:
         hint = (
             f"有 {len(sn_set)} 个生产日 SN，"
@@ -1125,7 +1212,8 @@ def search_appearance_images(project_id: str, query: str, limit: int = 80) -> di
     root = _root("appearance")
     project_dir = _appearance_project_dir(root, project)
     project_key = str(project["project_id"])
-    _ensure_appearance_index_project(project_key, project_dir)
+    # 扫码只查索引；空则后台点火，绝不在请求里等扫盘
+    _kick_appearance_index_if_empty(project_key, project_dir)
     hits = query_files_by_needle(project_key, needle, limit=limit)
     raw_items: list[dict] = []
     missing_rels: list[str] = []
@@ -1162,10 +1250,17 @@ def search_appearance_images(project_id: str, query: str, limit: int = 80) -> di
         client = _to_client_image(item, root, "appearance")
         if client:
             images.append(client)
+    hint = ""
+    if not images and (
+        is_appearance_index_building(project_key)
+        or not appearance_index_has_rows(project_key)
+    ):
+        hint = "索引仍在后台生成，稍后再扫即可"
     return {
         "project_id": project["project_id"],
         "project_name": project["display_name"],
         "query": needle,
+        "hint": hint,
         "total_count": len(images),
         "images": images,
     }

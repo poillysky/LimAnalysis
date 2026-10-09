@@ -346,10 +346,10 @@ onUnmounted(() => {
 .board-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 52px);
-  min-height: 520px;
+  height: calc(100vh - var(--la-chrome-total));
+  min-height: 480px;
   margin: 0 !important;
-  padding: 8px;
+  padding: var(--la-space-sm);
 }
 
 .runtime-bar {

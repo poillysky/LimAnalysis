@@ -175,10 +175,42 @@ def _merge_project_config(data: dict, existing: dict | None = None) -> dict:
     return config
 
 
+def resolve_sfc_code(
+    *,
+    display_name: str = "",
+    prefix: str = "",
+    project_id: str = "",
+    current: str = "",
+) -> str:
+    """下载 p 参数：空或等于显示名时补成 SFC{DisplayName}（已带 SFC 则原样）。"""
+    name = str(display_name or prefix or project_id).strip()
+    code = str(current or "").strip()
+    if code and code != name:
+        return code
+    if not name:
+        return code
+    return name if name.upper().startswith("SFC") else f"SFC{name}"
+
+
+def resolve_btype(current: str | None = None) -> str:
+    """下载 type 参数：空则 0。"""
+    return str(current or "").strip() or "0"
+
+
 def _auto_sfc_code(row: MetaProject) -> None:
-    if str(row.sfc_code or "").strip():
-        return
-    row.sfc_code = str(row.display_name or row.prefix or row.project_id).strip()
+    row.sfc_code = resolve_sfc_code(
+        display_name=row.display_name or "",
+        prefix=row.prefix or "",
+        project_id=row.project_id or "",
+        current=row.sfc_code or "",
+    )
+    row.btype = resolve_btype(row.btype)
+
+
+def _fill_sfc_defaults(row: MetaProject) -> bool:
+    before_code, before_type = row.sfc_code, row.btype
+    _auto_sfc_code(row)
+    return row.sfc_code != before_code or row.btype != before_type
 
 
 def load_projects() -> list[dict]:
@@ -188,9 +220,7 @@ def load_projects() -> list[dict]:
         rows = db.scalars(select(MetaProject).order_by(MetaProject.project_id)).all()
         filled = False
         for row in rows:
-            before = row.sfc_code
-            _auto_sfc_code(row)
-            if row.sfc_code != before:
+            if _fill_sfc_defaults(row):
                 filled = True
         if filled:
             db.commit()
@@ -209,9 +239,7 @@ def get_project(project_id: str) -> dict | None:
         row = db.get(MetaProject, project_id)
         if row is None:
             return None
-        before = row.sfc_code
-        _auto_sfc_code(row)
-        if row.sfc_code != before:
+        if _fill_sfc_defaults(row):
             db.commit()
         return _to_dict(row, defaults)
     finally:
@@ -228,16 +256,16 @@ def create_project(data: dict) -> dict:
         base_id = requested_id or _slug_from_name(display_name)
         project_id = _unique_project_id(db, base_id)
         prefix = str(data.get("prefix") or "").strip() or project_id
-        sfc_code = str(data.get("sfc_code") or "").strip() or display_name
         row = MetaProject(
             project_id=project_id,
             display_name=display_name,
             enabled=bool(data.get("enabled", True)),
-            sfc_code=sfc_code,
-            btype=str(data.get("btype") or ""),
+            sfc_code=str(data.get("sfc_code") or "").strip(),
+            btype=resolve_btype(data.get("btype")),
             prefix=prefix,
             config=_merge_project_config(data),
         )
+        _auto_sfc_code(row)
         db.add(row)
         db.commit()
         db.refresh(row)
@@ -259,18 +287,27 @@ def update_project(project_id: str, data: dict) -> dict | None:
         if row is None:
             return None
         if "display_name" in data and data["display_name"] is not None:
-            row.display_name = str(data["display_name"])
-            if not str(data.get("sfc_code") or row.sfc_code or "").strip():
-                row.sfc_code = row.display_name
+            old_name = str(row.display_name or "").strip()
+            row.display_name = str(data["display_name"]).strip()
+            # 改名时：仅当 code 仍是空/旧自动值，才跟显示名重算
+            if "sfc_code" not in data:
+                current = str(row.sfc_code or "").strip()
+                old_auto = resolve_sfc_code(
+                    display_name=old_name,
+                    prefix=row.prefix or "",
+                    project_id=row.project_id or "",
+                )
+                if not current or current == old_name or current == old_auto:
+                    row.sfc_code = ""
         if "enabled" in data and data["enabled"] is not None:
             row.enabled = bool(data["enabled"])
         if "sfc_code" in data and data["sfc_code"] is not None:
-            row.sfc_code = str(data["sfc_code"]).strip() or row.display_name
-        _auto_sfc_code(row)
+            row.sfc_code = str(data["sfc_code"]).strip()
         if "btype" in data and data["btype"] is not None:
-            row.btype = str(data["btype"])
+            row.btype = resolve_btype(data["btype"])
         if "prefix" in data and data["prefix"] is not None:
             row.prefix = str(data["prefix"])
+        _auto_sfc_code(row)
         if (
             ("config" in data and data["config"] is not None)
             or ("machines" in data and data["machines"] is not None)

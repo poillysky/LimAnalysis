@@ -1,0 +1,44 @@
+// ============================================================================
+// 车间屏密度（目标 1600×900）
+// 壳层矮、侧栏窄、页标题紧凑，把像素留给主内容。
+// ============================================================================
+
+// 侧栏宽度由 sidebar.scss 的 $sideBarWidth 同步为 184（与 --la-sidebar-width 一致）
+
+// 页内通用：标题区紧凑（覆盖各页散落的大标题/大 padding）
+.main-content {
+  // 双 class 根节点（如 .ai-page.main-content）常自带 padding；用变量统一刻度
+  --_page-pad-x: var(--la-page-pad-x);
+  --_page-pad-y: var(--la-page-pad-y);
+}
+
+.main-content [class$="-head"] > div > h2,
+.main-content [class$="-head"] > h2,
+.main-content [class$="__head"] > div > h2,
+.main-content [class$="__head"] > h2,
+.main-content [class$="-head"] > div > .conn-head__text > h2,
+.main-content .conn-head__text > h2 {
+  margin: 0 0 var(--la-space-2xs) !important;
+  font-size: var(--la-page-title) !important;
+  font-weight: 650 !important;
+  line-height: var(--la-leading-tight) !important;
+  letter-spacing: -0.01em;
+}
+
+.main-content [class$="-head"] > div > p,
+.main-content [class$="-head"] > p,
+.main-content [class$="__head"] > div > p,
+.main-content [class$="__head"] > p,
+.main-content .conn-head__text > p {
+  margin: 0 !important;
+  font-size: var(--la-page-desc) !important;
+  line-height: var(--la-leading-normal);
+  color: var(--el-text-color-secondary);
+}
+
+.main-content [class$="-head"],
+.main-content [class$="__head"] {
+  margin-bottom: var(--la-space-lg) !important;
+  gap: var(--la-space-md) !important;
+  align-items: center !important;
+}

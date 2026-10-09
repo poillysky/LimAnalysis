@@ -93,20 +93,72 @@ export function isAbortError(error: unknown) {
   );
 }
 
-export function cavityLetter(cavity: string) {
-  const m = String(cavity || "")
+/** 全角字母/数字 → 半角，再 trim，避免 NAS 脏数据进不了格子。 */
+export function normalizeCavityText(cavity: string) {
+  return String(cavity || "")
+    .normalize("NFKC")
     .trim()
-    .toUpperCase()
-    .match(/([A-Z])\s*$/);
-  return m?.[1] || "";
+    .toUpperCase();
 }
 
+/**
+ * 从模穴字段取横轴字母。兼容：`A`、`A1`、`模穴A`、全角 `Ａ`。
+ * 取最后一个拉丁字母；I/O 由调用方用 CAVITY_LETTERS 过滤（现场穴位命名跳过）。
+ */
+export function cavityLetter(cavity: string) {
+  const letters = normalizeCavityText(cavity).match(/[A-Z]/g);
+  return letters?.[letters.length - 1] || "";
+}
+
+/**
+ * 本体穴位 → A–H。兼容：`1`–`8`、已是 `A`–`H`、全角数字、夹杂字符取末位。
+ */
 export function bodyCavityLetter(cavity: string) {
-  return BODY_DIGIT_TO_LETTER[String(cavity || "").trim()] || "";
+  const s = normalizeCavityText(cavity);
+  if (!s) return "";
+  if (BODY_DIGIT_TO_LETTER[s]) return BODY_DIGIT_TO_LETTER[s];
+  if ((BODY_CAVITY_LETTERS as readonly string[]).includes(s)) return s;
+  const digit = s.match(/[1-8]/g)?.at(-1);
+  if (digit) return BODY_DIGIT_TO_LETTER[digit] || "";
+  const letter = s.match(/[A-H]/g)?.at(-1) || "";
+  return (BODY_CAVITY_LETTERS as readonly string[]).includes(letter) ? letter : "";
 }
 
+/** 不良率 %：ng/qty，保留两位；产量为 0 时返回 null（格子显示空，不是 0%）。 */
 export function rateOf(qty: number, ng: number) {
   return qty > 0 ? Math.round((ng / qty) * 10000) / 100 : null;
+}
+
+/** 原始行里能落入交叉表横轴的产量合计（与透视表汇总同口径）。 */
+export function pivotKeptTotals(
+  source: PivotSource[],
+  axes: readonly string[],
+  axisOf: (cavity: string) => string
+) {
+  let qty = 0;
+  let ng = 0;
+  const entities = new Set<string>();
+  let droppedQty = 0;
+  for (const row of source) {
+    const q = Number(row.qty || 0);
+    const n = Number(row.ng || 0);
+    const axis = axisOf(row.cavity);
+    const entity = String(row.entity || "").trim();
+    if (!entity || !axis || !axes.includes(axis)) {
+      droppedQty += q;
+      continue;
+    }
+    qty += q;
+    ng += n;
+    entities.add(entity);
+  }
+  return {
+    qty,
+    ng,
+    machines: entities.size,
+    ratePct: rateOf(qty, ng),
+    droppedQty
+  };
 }
 
 export function formatQty(value: number | null | undefined) {
@@ -119,15 +171,22 @@ export function formatRate(value: number | null | undefined) {
   return `${Number(value).toFixed(2)}%`;
 }
 
+/** 无产量格子用 —，避免看起来像渲染漏了 */
 export function cellText(row: PivotRow, letter: string) {
   const value = row.cells[letter];
-  if (value == null) return "";
+  if (value == null) return "—";
   return row.metric === "qty" ? formatQty(value) : formatRate(value);
 }
 
 export function totalText(row: PivotRow) {
-  if (row.metric === "qty") return formatQty(row.totalQty);
-  return formatRate(row.totalRate);
+  if (row.metric === "qty") {
+    return row.totalQty > 0 ? formatQty(row.totalQty) : "—";
+  }
+  return row.totalRate == null ? "—" : formatRate(row.totalRate);
+}
+
+export function cellEmpty(row: PivotRow, letter: string) {
+  return row.cells[letter] == null;
 }
 
 export function cellStyle({

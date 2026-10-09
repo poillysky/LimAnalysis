@@ -32,6 +32,17 @@
   // 表格密集场景专用的行内间距（比 --la-space-sm 更紧）
   --la-space-cell-x: 10px;
   --la-space-cell-y: 5px;
+
+  // 车间屏 1600×900：壳层矮、主区大（导航 + 页签 ≈ 70px）
+  --la-chrome-nav: 40px;
+  --la-chrome-tags: 30px;
+  --la-chrome-total: calc(var(--la-chrome-nav) + var(--la-chrome-tags));
+  --la-sidebar-width: 184px;
+  --la-content-inset: 12px;
+  --la-page-pad-x: 16px;
+  --la-page-pad-y: 12px;
+  --la-page-title: var(--la-text-md); // 14px，标题让位给内容
+  --la-page-desc: var(--la-text-xs);
 }
 
 // ── 圆角 ─────────────────────────────────────────────────────────────────

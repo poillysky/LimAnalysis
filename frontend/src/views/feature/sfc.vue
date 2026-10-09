@@ -80,10 +80,16 @@ const projectForm = reactive({
   project_id: "",
   display_name: "",
   sfc_code: "",
-  btype: "",
+  btype: "0",
   prefix: "",
   enabled: true
 });
+
+function defaultSfcCode(displayName: string) {
+  const name = (displayName || "").trim();
+  if (!name) return "";
+  return name.toUpperCase().startsWith("SFC") ? name : `SFC${name}`;
+}
 const enabledProjectCount = computed(
   () => projects.value.filter(item => item.enabled).length
 );
@@ -353,8 +359,8 @@ async function onRun() {
 function openProjectEdit(row: SfcProjectRow) {
   projectForm.project_id = row.project_id;
   projectForm.display_name = row.display_name;
-  projectForm.sfc_code = row.sfc_code || "";
-  projectForm.btype = row.btype || "all";
+  projectForm.sfc_code = row.sfc_code || defaultSfcCode(row.display_name);
+  projectForm.btype = row.btype || "0";
   projectForm.prefix = row.prefix || "";
   projectForm.enabled = row.enabled;
   projectDialogVisible.value = true;
@@ -372,10 +378,6 @@ async function onToggleProject(row: SfcProjectRow, enabled: boolean) {
 }
 
 async function submitProject() {
-  if (!projectForm.sfc_code.trim()) {
-    ElMessage.warning("请填写 sfc_code");
-    return;
-  }
   if (!projectForm.prefix.trim()) {
     ElMessage.warning("请填写前缀");
     return;
@@ -383,8 +385,10 @@ async function submitProject() {
   projectSaving.value = true;
   try {
     await updateProject(projectForm.project_id, {
-      sfc_code: projectForm.sfc_code.trim(),
-      btype: projectForm.btype.trim() || "all",
+      sfc_code:
+        projectForm.sfc_code.trim() ||
+        defaultSfcCode(projectForm.display_name),
+      btype: projectForm.btype.trim() || "0",
       prefix: projectForm.prefix.trim(),
       enabled: projectForm.enabled
     });
@@ -652,7 +656,7 @@ onUnmounted(() => {
             <el-table-column label="type" min-width="90" align="left">
               <template #default="{ row }">
                 <el-tag size="small" effect="plain" round>
-                  {{ dash(row.btype || "all") }}
+                  {{ dash(row.btype || "0") }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -1017,7 +1021,7 @@ onUnmounted(() => {
                           </div>
                           <div class="topo-project__params">
                             <code>p={{ item.sfc_code || "—" }}</code>
-                            <code>type={{ item.btype || "all" }}</code>
+                            <code>type={{ item.btype || "0" }}</code>
                             <code>{{ item.prefix || "—" }}_raw</code>
                           </div>
                         </div>
@@ -1219,11 +1223,14 @@ onUnmounted(() => {
       width="420px"
     >
       <el-form label-width="90px">
-        <el-form-item label="sfc_code" required>
-          <el-input v-model="projectForm.sfc_code" />
+        <el-form-item label="sfc_code">
+          <el-input
+            v-model="projectForm.sfc_code"
+            :placeholder="defaultSfcCode(projectForm.display_name) || 'SFC…'"
+          />
         </el-form-item>
         <el-form-item label="type">
-          <el-input v-model="projectForm.btype" placeholder="all" />
+          <el-input v-model="projectForm.btype" placeholder="0" />
         </el-form-item>
         <el-form-item label="前缀" required>
           <el-input v-model="projectForm.prefix" />

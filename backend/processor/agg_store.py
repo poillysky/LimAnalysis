@@ -511,6 +511,21 @@ def suggest_fields(model_id: int) -> dict:
     }
 
 
+def patch_agg_sql_path(model_id: int, sql_path: str) -> None:
+    db = MetaSession()
+    try:
+        row = db.get(MetaAggModel, int(model_id))
+        if row is None:
+            return
+        row.sql_path = str(sql_path or "")
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def touch_model_run(model_id: int, *, ok: bool, rows: int, message: str) -> None:
     db = MetaSession()
     try:

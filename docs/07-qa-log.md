@@ -6,12 +6,12 @@
 
 **结论：** 先用两个项目做测试，都启用。
 
-| project_id | 显示名 | 样本 |
-| --- | --- | --- |
-| `eagle_rcvr` | EagleRcvr | `refence/legacy-src/SFCEagleRcvr_all_*.csv` |
-| `whale_spkr` | WhaleSpkr | `refence/legacy-src/SFCWhaleSpkr_all_*.csv` |
+| project_id | 显示名 | sfc_code（p） | type | 样本 |
+| --- | --- | --- | --- | --- |
+| `eagle_rcvr` | EagleRcvr | `SFCEagleRcvr` | `0` | `refence/legacy-src/SFCEagleRcvr_all_*.csv` |
+| `whale_spkr` | WhaleSpkr | `SFCWhaleSpkr` | `0` | `refence/legacy-src/SFCWhaleSpkr_all_*.csv` |
 
-`sfc_code` / `btype` / `prefix` 仍待从旧库或你补充。后续加项目只加配置，不改表结构。
+默认：`sfc_code = SFC{显示名}`（已带 `SFC` 则不重复加），`btype = 0`，`prefix = project_id`。可改；后续加项目只加配置，不改表结构。
 
 ## Q2 CSV 种类
 
@@ -87,11 +87,7 @@
 
 ## Q11 车间离线
 
-**结论：** 本系统给 **不联网的车间** 用。现场运行时 **不能依赖公网**，分析查询只读本机已有数据。
-
-- **业务数据：** 使用前必须已经下载并入库到本机（SQLite + `lim_raw` / `lim_dwh`）。车间界面不现场去拉 SFC、不请求外网接口。
-- **SFC 采集：** 在 **还能访问 SFC 的环境** 里提前跑（办公室/有内网的采集机）。CSV 入库后车间才能看。采集与车间分析可以同一台机（班前联网拉取、班中断网用），也可以先采再拷到车间机。细节做到采集模块再定。
-- **前端资源：** 打包必须自包含。禁止运行时走 CDN / Iconify 在线 / 外网头像。`VITE_CDN` 保持 `false`。
+**结论（已更新）：** 不再用 `WORKSHOP_OFFLINE` 限制功能。SFC / AI / 公式等是否可用，只看各自配置与网络是否通。前端打包仍建议自包含（`VITE_CDN=false`），避免依赖公网静态资源。
 
 
 

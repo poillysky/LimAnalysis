@@ -24,7 +24,7 @@
    ```text
    copy deploy\workshop\.env.workshop.example backend\.env
    ```
-   改 `CORS_ORIGINS`（车间前端访问地址）、三库 URL；车间建议 `WORKSHOP_OFFLINE=true`。
+   改 `CORS_ORIGINS`（车间前端访问地址）、三库 URL。
 4. **有网机构建前端**（车间可断公网）：
    ```bash
    cd frontend
@@ -42,9 +42,9 @@
 
 ## Docker Hub 镜像（GitHub Actions）
 
-推送标签 `V*` / `v*`（如 `V1.0.3`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送一体镜像：
+推送标签 `V*` / `v*`（如 `V1.0.4`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送一体镜像：
 
-- `{用户名}/limanalysis:V1.0.3`（及 `:latest`）
+- `{用户名}/limanalysis:V1.0.4`（及 `:latest`）
 - 同一镜像角色：`app`（nginx+API）/ `api` / `collector` / `agg`
 
 仓库 Secrets：
@@ -72,12 +72,6 @@
 
 若必须走局域网 HTTP：在 Edge 中把该源加入「将不安全的源视为安全」（仅内网机），或给 nginx 配自签/内网证书。
 
-## 车间离线模式
-
-- `.env`：`WORKSHOP_OFFLINE=true`（强制），或 API `PUT /api/v1/system/workshop` `{"offline": true}`。
-- 效果：不投递 SFC 定时采集；AI 测试/列表/启用 503；公式仍可用规则生成。
-- 班前能连 SFC 的采集机：设 `WORKSHOP_OFFLINE=false` 并打开 SFC 爬虫 `is_active`。
-
 ## 值守检查
 
 | 项 | 怎么看 |
@@ -86,7 +80,7 @@
 | 健康 | `GET http://127.0.0.1:8000/api/health` 或 `/api/v1/system/runtime-status`；前端「异常监控」页顶栏 |
 | 三库 | health 里 `stores.raw/dwh/defect.ok` |
 | Worker | `workers.collector/agg.alive`（心跳约 45s 内）；未起则整体 `degraded` |
-| 调度 | `schedulers.*.last_run_*`；车间 offline 时 SFC 应 `blocked_by_workshop` |
+| 调度 | `schedulers.*.last_run_*`；SFC 是否投递看爬虫 `is_active` |
 | 磁盘 | 功能管理 → 磁盘清理；或 cleanup last_run |
 | 前端图标 | 断公网侧栏仍有图标（本地 Iconify） |
 | Metabase | 不可用时看板空态提示，交叉表/扫码不受影响 |
@@ -121,7 +115,6 @@ NAS 改完 compose 后需 `docker compose -f docker-compose.nas.yml up -d` 重�
 - [ ] 自动外观数据分析 / 人工外观次品分析可用  
 - [ ] 侧栏图标不空白  
 - [ ] `/api/health` 返回 stores 状态  
-- [ ] AI 页提示车间离线禁用  
 - [ ] Metabase 停掉后看板友好提示，其它页正常  
 - [ ] 杀一个 worker 后 NSSM 自动拉起（或脚本重启）
 
@@ -129,4 +122,4 @@ NAS 改完 compose 后需 `docker compose -f docker-compose.nas.yml up -d` 重�
 
 - `GET /api/health` — 综合状态  
 - `GET /api/v1/system/runtime-status` — 同上（鉴权前缀内）  
-- `GET/PUT /api/v1/system/workshop` — 车间 offline 开关  
+- `GET/PUT /api/v1/system/workshop` — 兼容旧接口（不再限制功能）  

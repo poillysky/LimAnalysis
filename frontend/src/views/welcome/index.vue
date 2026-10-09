@@ -569,8 +569,8 @@ onUnmounted(() => {
   --home-card: #ffffff;
   --home-rate: #b42318;
   box-sizing: border-box;
-  min-height: calc(100vh - 96px);
-  padding: 28px 32px 40px;
+  min-height: calc(100vh - var(--la-chrome-total) - var(--la-content-inset) * 2);
+  padding: var(--la-space-xl) var(--la-space-2xl) var(--la-space-3xl);
   color: var(--home-ink);
   background: var(--home-paper);
 }
@@ -578,10 +578,10 @@ onUnmounted(() => {
 .home-board {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  min-height: 168px;
-  margin-bottom: 28px;
-  padding: 28px 32px 22px;
+  gap: 12px;
+  min-height: 140px;
+  margin-bottom: var(--la-space-xl);
+  padding: var(--la-space-xl) var(--la-space-2xl) var(--la-space-lg);
   cursor: pointer;
   color: #f7f8fa;
   background: var(--home-ink);
@@ -666,8 +666,8 @@ onUnmounted(() => {
 }
 
 .home-board__person {
-  margin: 0 0 12px;
-  font-size: 28px;
+  margin: 0 0 8px;
+  font-size: var(--la-text-2xl);
   font-weight: 650;
   letter-spacing: -0.03em;
   line-height: 1.2;

@@ -265,7 +265,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   width: 40px;
-  height: 48px;
+  height: var(--la-chrome-nav);
   cursor: pointer;
 
   .header-notice-icon {

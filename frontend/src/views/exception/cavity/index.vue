@@ -41,6 +41,8 @@ import {
   totalText,
   makeSpanMethod,
   makeLimAlertHint,
+  pivotKeptTotals,
+  cellEmpty,
   type PivotRow,
   type PivotSource
 } from "@/utils/pivotTable";
@@ -118,16 +120,42 @@ let tableAbort: AbortController | null = null;
 /** 标红判定读当前规则（活引用，规则改动即时生效） */
 const cellAlert = createCellAlert(() => alertRules.value);
 
-const summary = computed(() => {
-  const qty = rows.value.reduce((sum, row) => sum + Number(row.qty || 0), 0);
-  const ng = rows.value.reduce((sum, row) => sum + Number(row.ng || 0), 0);
-  const machines = new Set(rows.value.map(r => r.machine)).size;
-  return {
-    qty,
-    ng,
-    machines,
-    ratePct: rateOf(qty, ng)
-  };
+const summary = computed(() =>
+  pivotKeptTotals(
+    rows.value.map(row => ({
+      entity: row.machine,
+      cavity: row.cavity,
+      qty: row.qty,
+      ng: row.ng
+    })),
+    CAVITY_LETTERS,
+    cavityLetter
+  )
+);
+
+const droppedCavityHint = computed(() => {
+  const dropped = summary.value.droppedQty;
+  if (!(dropped > 0)) return "";
+  return `有 ${formatQty(dropped)} 产量的模穴无法归入 A–R（已跳过 I/O；请检查模穴是否含空格/全角/非字母），未计入交叉表与上方合计`;
+});
+
+const bodyKept = computed(() =>
+  pivotKeptTotals(
+    bodyRows.value.map(row => ({
+      entity: row.body,
+      cavity: row.cavity,
+      qty: row.qty,
+      ng: row.ng
+    })),
+    BODY_CAVITY_LETTERS,
+    bodyCavityLetter
+  )
+);
+
+const droppedBodyHint = computed(() => {
+  const dropped = bodyKept.value.droppedQty;
+  if (!(dropped > 0)) return "";
+  return `有 ${formatQty(dropped)} 产量的本体穴位无法归入 A–H（第 2 位应为 1–8），未计入本体交叉表`;
 });
 
 const windowLabel = computed(() => {
@@ -155,12 +183,13 @@ function buildPivot(
 ): PivotRow[] {
   const byEntity = new Map<string, Map<string, { qty: number; ng: number }>>();
   for (const row of source) {
+    const entity = String(row.entity || "").trim();
     const axis = axisOf(row.cavity);
-    if (!axis || !axes.includes(axis)) {
+    if (!entity || !axis || !axes.includes(axis)) {
       continue;
     }
-    if (!byEntity.has(row.entity)) byEntity.set(row.entity, new Map());
-    const cells = byEntity.get(row.entity)!;
+    if (!byEntity.has(entity)) byEntity.set(entity, new Map());
+    const cells = byEntity.get(entity)!;
     const prev = cells.get(axis) || { qty: 0, ng: 0 };
     cells.set(axis, {
       qty: prev.qty + Number(row.qty || 0),
@@ -688,11 +717,18 @@ onUnmounted(() => {
       :closable="false"
       :title="hint"
     />
+    <el-alert
+      v-if="droppedCavityHint"
+      class="cavity-hint"
+      type="warning"
+      :closable="false"
+      :title="droppedCavityHint"
+    />
 
     <section class="cavity-panel">
       <div class="cavity-panel__head">
         <strong>机台 × 模穴交叉表</strong>
-        <span>纵：机台 · 横：模穴 A–R · 点格子看历史曲线 · {{ limAlertHint }}</span>
+        <span>纵：机台 · 横：模穴 A–R（跳过 I/O）· 空格「—」= 无产量 · 点格子看历史曲线 · {{ limAlertHint }}</span>
       </div>
       <el-table
         class="cavity-table"
@@ -732,7 +768,11 @@ onUnmounted(() => {
           align="center"
         >
           <template #default="{ row }">
-            <span class="num">{{ cellText(row, letter) }}</span>
+            <span
+              class="num"
+              :class="{ 'is-empty': cellEmpty(row, letter) }"
+              :title="cellEmpty(row, letter) ? '该机台×模穴窗口内无产量' : undefined"
+            >{{ cellText(row, letter) }}</span>
           </template>
         </el-table-column>
         <el-table-column
@@ -756,11 +796,18 @@ onUnmounted(() => {
       :closable="false"
       :title="bodyHint"
     />
+    <el-alert
+      v-if="droppedBodyHint"
+      class="cavity-hint"
+      type="warning"
+      :closable="false"
+      :title="droppedBodyHint"
+    />
 
     <section class="cavity-panel">
       <div class="cavity-panel__head">
         <strong>本体 × 模穴交叉表</strong>
-        <span>纵：本体第 1 位（模具） · 横：本体第 2 位 1–8 → A–H · 点格子看历史曲线 · {{ bodyAlertHint }}</span>
+        <span>纵：本体第 1 位（模具） · 横：第 2 位 1–8 → A–H · 空格「—」= 无产量 · 点格子看历史曲线 · {{ bodyAlertHint }}</span>
       </div>
       <el-table
         class="cavity-table"
@@ -800,7 +847,11 @@ onUnmounted(() => {
           align="center"
         >
           <template #default="{ row }">
-            <span class="num">{{ cellText(row, letter) }}</span>
+            <span
+              class="num"
+              :class="{ 'is-empty': cellEmpty(row, letter) }"
+              :title="cellEmpty(row, letter) ? '该模具×穴位窗口内无产量' : undefined"
+            >{{ cellText(row, letter) }}</span>
           </template>
         </el-table-column>
         <el-table-column

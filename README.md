@@ -71,7 +71,7 @@ pnpm dev
 
 - 一键启停：[`deploy/workshop/start.ps1`](deploy/workshop/start.ps1) / [`stop.ps1`](deploy/workshop/stop.ps1)
 - Windows 服务：[`deploy/workshop/install-nssm.ps1`](deploy/workshop/install-nssm.ps1)
-- 环境模板：[`deploy/workshop/.env.workshop.example`](deploy/workshop/.env.workshop.example)（`WORKSHOP_OFFLINE=true`）
+- 环境模板：[`deploy/workshop/.env.workshop.example`](deploy/workshop/.env.workshop.example)
 - 前端：有网机构建 `pnpm build`，nginx 托管 `dist`（示例 [`deploy/workshop/nginx.conf.example`](deploy/workshop/nginx.conf.example)）
 - 完整说明与备份检查表：[deploy/workshop/README.md](deploy/workshop/README.md)
 

@@ -10,7 +10,6 @@ export type AiConfig = {
   temperature: number;
   api_key_set: boolean;
   ready: boolean;
-  workshop_offline?: boolean;
 };
 
 export const getAiConfig = () => {

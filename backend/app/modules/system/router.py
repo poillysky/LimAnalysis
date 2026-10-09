@@ -20,8 +20,10 @@ from app.core.connections import (
     save_metabase,
 )
 from app.core.db_browser import (
+    clear_table,
     ensure_engines,
     list_tables,
+    prepare_table_download,
     table_preview,
     target_info,
 )
@@ -377,14 +379,80 @@ def db_tables(target: str):
 
 
 @router.get("/db/{target}/tables/{table}")
-def db_table_rows(target: str, table: str, limit: int = 50, offset: int = 0):
+def db_table_rows(
+    target: str,
+    table: str,
+    limit: int = 50,
+    offset: int = 0,
+    time_from: str | None = None,
+    time_to: str | None = None,
+):
     try:
         ensure_engines(target)
-        return ok(table_preview(target, table, limit=limit, offset=offset))
+        return ok(
+            table_preview(
+                target,
+                table,
+                limit=limit,
+                offset=offset,
+                time_from=time_from,
+                time_to=time_to,
+            )
+        )
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
     except Exception as exc:
         return JSONResponse(fail(str(exc)[:300]), status_code=500)
+
+
+@router.post("/db/{target}/tables/{table}/clear")
+def db_table_clear(target: str, table: str):
+    try:
+        return ok(clear_table(target, table))
+    except ValueError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
+    except RuntimeError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
+
+
+@router.get("/db/{target}/tables/{table}/export")
+def db_table_export(
+    target: str,
+    table: str,
+    time_from: str | None = None,
+    time_to: str | None = None,
+):
+    import contextlib
+    import os
+
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    try:
+        payload = prepare_table_download(
+            target, table, time_from=time_from, time_to=time_to
+        )
+    except ValueError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
+    except RuntimeError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
+
+    path = payload["path"]
+
+    def _cleanup() -> None:
+        with contextlib.suppress(Exception):
+            os.unlink(path)
+
+    return FileResponse(
+        path,
+        filename=payload["filename"],
+        media_type=payload["media_type"],
+        background=BackgroundTask(_cleanup),
+    )
 
 
 @router.get("/defaults")

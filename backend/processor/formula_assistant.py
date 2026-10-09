@@ -253,7 +253,7 @@ def generate_formula_from_prompt(
             explain = f"直接拼接「{a}」与「{b}」"
         return _ok(formula, explain, fields)
 
-    # 8) 多列固定：全空→空；任一为 1→1；否则 0（2～5 列）
+    # 8) 多列固定：全空→空；任一为 1→1；否则 0（2～8 列）
     if (
         ("全空" in compact and "为空" in compact)
         or "有一个为1" in compact
@@ -274,15 +274,15 @@ def generate_formula_from_prompt(
                 "ok": False,
                 "formula": "",
                 "explanation": "",
-                "error": "请先写入 2～5 个字段，例如：[A] [B] [C] 全空为空，有一个为1就是1，其他为0",
+                "error": "请先写入 2～8 个字段，例如：[A] [B] [C] 全空为空，有一个为1就是1，其他为0",
                 "examples": PROMPT_EXAMPLES,
             }
-        if len(cols) > 5:
+        if len(cols) > 8:
             return {
                 "ok": False,
                 "formula": "",
                 "explanation": "",
-                "error": "最多支持 5 个字段",
+                "error": "最多支持 8 个字段",
                 "examples": PROMPT_EXAMPLES,
             }
 

@@ -305,27 +305,27 @@ onMounted(load);
 
 <style scoped>
 .disk-page {
-  padding: 20px 24px 28px;
+  padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
 }
 
 .disk-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: var(--la-space-md);
+  margin-bottom: var(--la-space-lg);
 }
 
 .disk-head h2 {
-  margin: 0 0 6px;
-  font-size: 22px;
-  font-weight: 700;
+  margin: 0 0 2px;
+  font-size: var(--la-page-title);
+  font-weight: 650;
 }
 
 .disk-head p {
   margin: 0;
   color: var(--el-text-color-secondary);
-  font-size: 13px;
+  font-size: var(--la-page-desc);
 }
 
 .disk-capacity {

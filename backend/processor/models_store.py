@@ -228,6 +228,22 @@ def update_model(model_id: int, data: dict) -> dict:
         db.close()
 
 
+def patch_model_sql_path(model_id: int, sql_path: str) -> None:
+    """仅回写 sql_path（文件缺失后重生时用）。"""
+    db = MetaSession()
+    try:
+        row = db.get(MetaEtlModel, int(model_id))
+        if row is None:
+            return
+        row.sql_path = str(sql_path or "")
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def list_fields(model_id: int) -> list[dict]:
     db = MetaSession()
     try:

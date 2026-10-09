@@ -15,7 +15,7 @@ defineOptions({
   name: "FeatureRoster"
 });
 
-const MACHINE_SLOTS = 6;
+const MACHINE_SLOTS = 7;
 
 type RosterRow = {
   key: string;
@@ -138,20 +138,42 @@ const nightCount = computed(() =>
   rows.value.filter(row => row.nightName.trim()).length
 );
 
-function suggest(query: string, source: string[]) {
+function suggest(query: string, source: string[], limit = 0) {
   const q = query.trim().toLowerCase();
   const matched = q
     ? source.filter(item => item.toLowerCase().includes(q))
     : source;
-  return matched.slice(0, 20).map(value => ({ value }));
+  const list = limit > 0 ? matched.slice(0, limit) : matched;
+  return list.map(value => ({ value }));
 }
 
 function suggestPersons(query: string, cb: (list: { value: string }[]) => void) {
-  cb(suggest(query, personNames.value));
+  cb(suggest(query, personNames.value, 30));
 }
 
-function suggestMachines(query: string, cb: (list: { value: string }[]) => void) {
-  cb(suggest(query, machines.value));
+/** 已占用机台（可排除当前正在编辑的格子，便于保留原值） */
+function takenMachines(exceptRowKey?: string, exceptSlot?: number) {
+  const taken = new Set<string>();
+  for (const row of rows.value) {
+    row.slots.forEach((raw, i) => {
+      if (exceptRowKey && row.key === exceptRowKey && i === exceptSlot) return;
+      const code = String(raw || "").trim();
+      if (code) taken.add(code);
+    });
+  }
+  return taken;
+}
+
+function suggestMachines(
+  row: RosterRow,
+  slotIndex: number,
+  query: string,
+  cb: (list: { value: string }[]) => void
+) {
+  const taken = takenMachines(row.key, slotIndex);
+  const available = machines.value.filter(code => !taken.has(code));
+  // 机台目录全量（未占用），不再截断前 20
+  cb(suggest(query, available));
 }
 
 function isComplete(row: RosterRow) {
@@ -343,26 +365,22 @@ onMounted(load);
       :title="backendHint"
     />
 
-    <el-card shadow="never" class="roster-card">
-      <template #header>
-        <div class="roster-head">
-          <div class="roster-head__title">
-            <span>排班表</span>
-            <span class="roster-stat roster-stat--day">白班 {{ dayCount }}</span>
-            <span class="roster-stat roster-stat--night">夜班 {{ nightCount }}</span>
-            <span class="roster-hours">白班 7:30–19:30 · 夜班 19:30–次日 7:30</span>
-            <span v-if="saving" class="roster-save">保存中</span>
-          </div>
-          <div class="roster-head__actions">
-            <el-button :disabled="!canSwap" @click="swapShifts">转班</el-button>
-            <el-button type="primary" @click="addRow">添加一行</el-button>
-          </div>
+    <div class="roster-card" v-loading="loading">
+      <div class="roster-head">
+        <div class="roster-head__title">
+          <span>排班表</span>
+          <span class="roster-stat roster-stat--day">白班 {{ dayCount }}</span>
+          <span class="roster-stat roster-stat--night">夜班 {{ nightCount }}</span>
+          <span v-if="saving" class="roster-save">保存中</span>
         </div>
-      </template>
+        <div class="roster-head__actions">
+          <el-button :disabled="!canSwap" @click="swapShifts">转班</el-button>
+          <el-button type="primary" @click="addRow">添加一行</el-button>
+        </div>
+      </div>
 
       <div class="roster-sheet">
         <el-table
-          v-loading="loading"
           :data="rows"
           border
           class="roster-table"
@@ -384,8 +402,8 @@ onMounted(load);
               label-class-name="is-day"
             >
               <template #header>
-                <div class="col-head">
-                  <span>白班</span>
+                <div class="col-head" aria-label="白班 7:30–19:30">
+                  <span class="col-head__title">白班</span>
                   <span class="col-head__note">7:30–19:30</span>
                 </div>
               </template>
@@ -409,8 +427,8 @@ onMounted(load);
               label-class-name="is-night"
             >
               <template #header>
-                <div class="col-head">
-                  <span>夜班</span>
+                <div class="col-head" aria-label="夜班 19:30–次日 7:30">
+                  <span class="col-head__title">夜班</span>
                   <span class="col-head__note">19:30–次日 7:30</span>
                 </div>
               </template>
@@ -432,8 +450,8 @@ onMounted(load);
             <el-table-column
               v-for="index in MACHINE_SLOTS"
               :key="`m-${index}`"
-              :label="String(index)"
-              min-width="108"
+              :label="`机台${index}`"
+              min-width="96"
               align="center"
               class-name="is-machine"
               label-class-name="is-machine"
@@ -442,7 +460,9 @@ onMounted(load);
                 <el-autocomplete
                   v-model="row.slots[index - 1]"
                   class="cell-input cell-input--machine"
-                  :fetch-suggestions="suggestMachines"
+                  :fetch-suggestions="
+                    (q, cb) => suggestMachines(row, index - 1, q, cb)
+                  "
                   placeholder="—"
                   value-key="value"
                   @input="schedulePersist(row)"
@@ -470,21 +490,33 @@ onMounted(load);
             </template>
           </el-table-column>
         </el-table>
-        <button type="button" class="roster-add" @click="addRow">
-          添加一行
-        </button>
       </div>
-    </el-card>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.roster-card :deep(.el-card__header) {
-  padding: 14px 18px;
-}
-
-.roster-card :deep(.el-card__body) {
-  padding: 0;
+/* 白班＝暖沙色，夜班＝品牌藏青系；固定色，兼容 NAS 旧浏览器 */
+.roster-card {
+  --roster-day-ink: #6f5630;
+  --roster-day-mute: #8a7048;
+  --roster-day-cell: #faf5ec;
+  --roster-day-head: #e8dcc6;
+  --roster-day-hover: #f2e9d8;
+  --roster-day-pill: #ebe0cc;
+  --roster-night-ink: #1e4e79;
+  --roster-night-mute: #4d6f8f;
+  --roster-night-cell: #eef3f7;
+  --roster-night-head: #d4e0eb;
+  --roster-night-hover: #e3ebf2;
+  --roster-night-pill: #d5e2ec;
+  --roster-line: #d5dae1;
+  --roster-neutral: #f5f6f8;
+  --roster-head-h: 44px;
+  overflow: hidden;
+  border: 1px solid var(--roster-line);
+  border-radius: var(--la-radius-md);
+  background: var(--el-bg-color);
 }
 
 .roster-head {
@@ -492,84 +524,113 @@ onMounted(load);
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--la-space-md);
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--roster-head-h);
+  margin: 0;
+  padding: 0 var(--la-space-xl);
+  border-bottom: 1px solid var(--roster-line);
+  background: var(--roster-neutral);
 }
 
 .roster-head__actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--la-space-sm);
+  height: 100%;
+}
+
+.roster-head__actions :deep(.el-button) {
+  height: 28px;
+  margin: 0;
+  padding: 0 12px;
 }
 
 .roster-head__title {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
+  gap: var(--la-space-sm);
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: var(--la-page-title);
+  font-weight: 650;
+  line-height: 1;
+  color: var(--el-text-color-primary);
 }
 
 .roster-stat {
   display: inline-flex;
   align-items: center;
-  height: 24px;
-  padding: 0 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--la-radius-sm);
+  font-size: var(--la-text-2xs);
+  font-weight: 600;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
 .roster-stat--day {
-  color: #8a5a12;
-  background: color-mix(in srgb, #e6a23c 22%, var(--el-bg-color));
+  color: var(--roster-day-ink);
+  background: var(--roster-day-pill);
 }
 
 .roster-stat--night {
-  color: #1d4f91;
-  background: color-mix(in srgb, #409eff 20%, var(--el-bg-color));
-}
-
-.roster-hours {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--el-text-color-secondary);
+  color: var(--roster-night-ink);
+  background: var(--roster-night-pill);
 }
 
 .roster-save {
-  font-size: 12px;
+  font-size: var(--la-text-2xs);
   font-weight: 500;
   color: var(--el-color-primary);
 }
 
+/* 「白班 + 时段」整块；清零 EP 内边距/行高后再绝对居中 */
 .col-head {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  line-height: 1.2;
+  margin: 0;
+  padding: 0;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.col-head__title {
+  font-size: var(--la-text-xs);
+  font-weight: 650;
+  line-height: 1.25;
 }
 
 .col-head__note {
   font-size: 11px;
   font-weight: 500;
-  color: var(--el-text-color-secondary);
+  line-height: 1.25;
+  opacity: 0.85;
 }
 
 .roster-sheet {
   overflow: hidden;
-  --roster-line: #c8c8c8;
 }
 
 .roster-table {
-  --el-table-header-bg-color: color-mix(
-    in srgb,
-    var(--el-fill-color-light) 80%,
-    var(--el-bg-color)
-  );
+  --el-table-header-bg-color: var(--roster-neutral);
   --el-table-border-color: var(--roster-line);
+  --el-table-header-padding: 0;
+  --roster-subhead-h: 56px;
 }
 
 .roster-table :deep(.el-table__inner-wrapper::before) {
@@ -577,17 +638,62 @@ onMounted(load);
 }
 
 .roster-table :deep(th.el-table__cell) {
-  height: 48px;
-  padding: 4px 0;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  padding: 0 !important;
+  vertical-align: middle;
+  font-size: var(--la-text-xs);
+  font-weight: 650;
+  letter-spacing: 0.01em;
   color: var(--el-text-color-primary);
   text-align: center;
 }
 
-.roster-table :deep(th.el-table__cell .cell) {
-  text-align: center;
+.roster-table :deep(th.el-table__cell > .cell) {
+  padding: 0 !important;
+  line-height: normal !important;
+}
+
+.roster-table :deep(.el-table__header tr:first-child th.el-table__cell) {
+  height: 36px;
+}
+
+.roster-table :deep(.el-table__header tr:first-child th.el-table__cell > .cell) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  line-height: 36px !important;
+}
+
+/* 白班/夜班：固定行高 + 零内边距，整块绝对居中 */
+.roster-table :deep(th.el-table__cell.is-day),
+.roster-table :deep(th.el-table__cell.is-night) {
+  height: var(--roster-subhead-h) !important;
+}
+
+.roster-table :deep(th.el-table__cell.is-day > .cell),
+.roster-table :deep(th.el-table__cell.is-night > .cell) {
+  position: relative !important;
+  box-sizing: border-box;
+  height: var(--roster-subhead-h) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  line-height: 0 !important;
+  font-size: 0;
+  white-space: normal !important;
+}
+
+.roster-table :deep(th.el-table__cell.is-machine) {
+  height: var(--roster-subhead-h) !important;
+}
+
+.roster-table :deep(th.el-table__cell.is-machine > .cell) {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  height: var(--roster-subhead-h) !important;
+  padding: 0 !important;
+  line-height: normal !important;
 }
 
 .roster-table :deep(.el-table--border),
@@ -613,37 +719,66 @@ onMounted(load);
 
 .roster-table :deep(td.el-table__cell) {
   padding: 0;
-  height: 46px;
+  height: 44px;
 }
 
 .roster-table :deep(.el-table__cell.is-index) {
   color: var(--el-text-color-placeholder);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--la-text-2xs);
+  background: #fafbfc !important;
+}
+
+.roster-table :deep(th.el-table__cell.is-day) {
+  color: var(--roster-day-ink);
+  background: var(--roster-day-head) !important;
+}
+
+.roster-table :deep(th.el-table__cell.is-night) {
+  color: var(--roster-night-ink);
+  background: var(--roster-night-head) !important;
+}
+
+.roster-table :deep(th.el-table__cell.is-day .col-head__note) {
+  color: var(--roster-day-mute);
+}
+
+.roster-table :deep(th.el-table__cell.is-night .col-head__note) {
+  color: var(--roster-night-mute);
+}
+
+.roster-table :deep(th.el-table__cell.is-machine) {
+  color: #4a5563;
+  background: #eef0f3 !important;
 }
 
 .roster-table :deep(.el-table__cell.is-day) {
-  background: color-mix(in srgb, #e6a23c 10%, var(--el-bg-color));
+  background: var(--roster-day-cell) !important;
 }
 
 .roster-table :deep(.el-table__cell.is-night) {
-  background: color-mix(in srgb, #409eff 9%, var(--el-bg-color));
+  background: var(--roster-night-cell) !important;
 }
 
 .roster-table :deep(.el-table__cell.is-machine) {
   font-variant-numeric: tabular-nums;
+  background: #fcfcfd !important;
 }
 
 .roster-table :deep(.el-table__body tr:hover > td.el-table__cell) {
-  background: color-mix(in srgb, var(--el-color-primary) 6%, var(--el-bg-color));
+  background: #f0f2f5;
 }
 
 .roster-table :deep(.el-table__body tr:hover > td.el-table__cell.is-day) {
-  background: color-mix(in srgb, #e6a23c 16%, var(--el-bg-color));
+  background: var(--roster-day-hover) !important;
 }
 
 .roster-table :deep(.el-table__body tr:hover > td.el-table__cell.is-night) {
-  background: color-mix(in srgb, #409eff 14%, var(--el-bg-color));
+  background: var(--roster-night-hover) !important;
+}
+
+.roster-table :deep(.el-table__body tr:hover > td.el-table__cell.is-machine) {
+  background: #f4f6f8 !important;
 }
 
 .cell-input {
@@ -651,7 +786,7 @@ onMounted(load);
 }
 
 .roster-table :deep(.el-input__wrapper) {
-  height: 46px;
+  height: 44px;
   padding: 0 10px;
   box-shadow: none;
   background: transparent;
@@ -659,7 +794,7 @@ onMounted(load);
 }
 
 .roster-table :deep(.el-input__inner) {
-  height: 46px;
+  height: 44px;
   text-align: center;
 }
 
@@ -671,47 +806,47 @@ onMounted(load);
 
 .roster-table :deep(.el-input__wrapper.is-focus) {
   box-shadow: inset 0 0 0 1px var(--el-color-primary);
-  background: var(--el-bg-color);
+  background: #fff;
 }
 
 .roster-table :deep(.el-input__inner::placeholder) {
-  color: color-mix(in srgb, var(--el-text-color-placeholder) 70%, transparent);
+  color: #b0b7c3;
 }
 
-.roster-add {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 42px;
-  border: 0;
-  border-top: 1px solid var(--roster-line);
-  background: color-mix(in srgb, var(--el-fill-color-lighter) 70%, var(--el-bg-color));
-  color: var(--el-text-color-regular);
-  font-size: 13px;
-  cursor: pointer;
+/* 聚焦时隐藏占位「—」横条，避免和光标叠在一起 */
+.roster-table :deep(.el-input__wrapper.is-focus .el-input__inner::placeholder) {
+  color: transparent;
+  opacity: 0;
 }
 
-.roster-add:hover {
-  color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-bg-color));
+html.dark .roster-card {
+  --roster-day-ink: #e6d3a8;
+  --roster-day-mute: #c4b08a;
+  --roster-day-cell: #2a261c;
+  --roster-day-head: #3a3424;
+  --roster-day-hover: #342e20;
+  --roster-day-pill: #3a3424;
+  --roster-night-ink: #a8c8e0;
+  --roster-night-mute: #7fa3c0;
+  --roster-night-cell: #1a2430;
+  --roster-night-head: #243648;
+  --roster-night-hover: #203040;
+  --roster-night-pill: #243648;
+  --roster-line: #2b313d;
+  --roster-neutral: #1e222b;
 }
 
-.roster-add:focus-visible {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: -2px;
+html.dark .roster-table :deep(.el-table__cell.is-index),
+html.dark .roster-table :deep(.el-table__cell.is-machine) {
+  background: #171a21 !important;
 }
 
-html.dark .roster-stat--day {
-  color: #f3d19e;
+html.dark .roster-table :deep(th.el-table__cell.is-machine) {
+  background: #232833 !important;
+  color: #c0c6d0;
 }
 
-html.dark .roster-stat--night {
-  color: #a0cfff;
-}
-
-html.dark .roster-sheet {
-  --roster-line: #5c5c5c;
+html.dark .roster-table :deep(.el-input__wrapper.is-focus) {
+  background: #171a21;
 }
 </style>

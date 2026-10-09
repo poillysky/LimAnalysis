@@ -12,7 +12,6 @@ import time
 from datetime import date, datetime
 from datetime import time as dt_time
 from decimal import Decimal
-from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import text
@@ -33,17 +32,55 @@ logger = logging.getLogger(__name__)
 
 
 def _read_sql_file(sql_path: str) -> str:
-    path = Path(sql_path)
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parent / sql_path
-    if not path.exists():
-        # models_store 写的是绝对路径；兼容相对
-        alt = Path(__file__).resolve().parent / "sql_models" / "layer1" / path.name
-        if alt.exists():
-            path = alt
-        else:
-            raise FileNotFoundError(f"SQL 文件不存在: {sql_path}")
-    return path.read_text(encoding="utf-8")
+    from processor.sql_generator import resolve_sql_path
+
+    return resolve_sql_path(sql_path, layer="layer1").read_text(encoding="utf-8")
+
+
+def _link_sql(model: dict) -> str:
+    """读 SQL 文件；缺失时用字段配置重生（NAS 上 sql_models 未挂载时也能跑）。"""
+    sql_path = str(model.get("sql_path") or "").strip()
+    if sql_path:
+        try:
+            return _strip_sql_comments(_read_sql_file(sql_path))
+        except FileNotFoundError:
+            logger.warning(
+                "SQL 文件缺失，改从字段配置生成: model_id=%s path=%s",
+                model.get("id"),
+                sql_path,
+            )
+    from processor.sql_generator import generate_link_select_sql, write_link_sql_file
+
+    fields = model.get("fields") or list_fields(int(model["id"]))
+    if not fields:
+        raise ValueError("请先配置并保存字段映射")
+    try:
+        sql_text, new_path = write_link_sql_file(
+            model_name=model["name"],
+            source_table=model["source_table"],
+            target_table=model["target_table"],
+            fields=fields,
+            unique_key=model.get("unique_key") or "",
+            description=f"project={model.get('project_id') or ''}",
+        )
+        # 尽力把可移植路径写回元库，避免下次再踩绝对路径
+        try:
+            from processor.models_store import patch_model_sql_path
+
+            patch_model_sql_path(int(model["id"]), new_path)
+        except Exception:
+            logger.debug("回写 sql_path 失败（可忽略）", exc_info=True)
+        return _strip_sql_comments(sql_text)
+    except Exception:
+        return _strip_sql_comments(
+            generate_link_select_sql(
+                model_name=model["name"],
+                source_table=model["source_table"],
+                target_table=model["target_table"],
+                fields=fields,
+                unique_key=model.get("unique_key") or "",
+            )
+        )
 
 
 def _strip_sql_comments(sql: str) -> str:
@@ -61,20 +98,7 @@ def preview_model(model_id: int, *, limit: int = 50) -> dict:
         raise ValueError("模型不存在")
     if not model.get("sql_path") and not model.get("fields"):
         raise ValueError("请先配置并保存字段映射")
-    if model.get("sql_path"):
-        sql = _strip_sql_comments(_read_sql_file(model["sql_path"]))
-    else:
-        from processor.sql_generator import generate_link_select_sql
-
-        sql = _strip_sql_comments(
-            generate_link_select_sql(
-                model_name=model["name"],
-                source_table=model["source_table"],
-                target_table=model["target_table"],
-                fields=model.get("fields") or [],
-                unique_key=model.get("unique_key") or "",
-            )
-        )
+    sql = _link_sql(model)
     stores.refresh_pg_engines()
     limited = f"SELECT * FROM ({sql}) AS _preview LIMIT {int(max(1, min(limit, 200)))}"
     columns, records = _fetch_rows(limited)
@@ -86,25 +110,9 @@ def sql_preview(model_id: int) -> dict:
     model = get_model(model_id, include_fields=True)
     if model is None:
         raise ValueError("模型不存在")
-    if model.get("sql_path"):
-        try:
-            sql = _read_sql_file(model["sql_path"])
-            return {"sql": sql, "sql_path": model["sql_path"]}
-        except FileNotFoundError:
-            pass
-    from processor.sql_generator import generate_link_select_sql
-
-    fields = model.get("fields") or list_fields(model_id)
-    if not fields:
-        raise ValueError("请先配置字段映射")
-    sql = generate_link_select_sql(
-        model_name=model["name"],
-        source_table=model["source_table"],
-        target_table=model["target_table"],
-        fields=fields,
-        unique_key=model.get("unique_key") or "",
-    )
-    return {"sql": sql, "sql_path": model.get("sql_path") or ""}
+    sql = _link_sql(model)
+    refreshed = get_model(model_id) or model
+    return {"sql": sql, "sql_path": refreshed.get("sql_path") or model.get("sql_path") or ""}
 
 
 def _dwh_exists(table: str) -> bool:
@@ -411,8 +419,7 @@ def execute_model(model_id: int, *, full_refresh: bool = False) -> dict:
     assert_model_runnable(model)
     assert model is not None
 
-    sql_path = model["sql_path"]
-    sql = _strip_sql_comments(_read_sql_file(sql_path))
+    sql = _link_sql(model)
     source = model["source_table"]
     target = model["target_table"]
     unique_key = model.get("unique_key") or ""

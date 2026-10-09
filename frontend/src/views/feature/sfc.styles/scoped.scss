@@ -9,7 +9,7 @@
 }
 
 .sfc-page {
-  padding: 20px 24px 28px;
+  padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
 }
 
 .sfc-tabs :deep(.el-tabs__header) {
@@ -63,13 +63,13 @@
 }
 
 .stat-card__value {
-  margin-top: 8px;
+  margin-top: 4px;
   color: var(--el-text-color-primary);
-  font-size: 20px;
+  font-size: var(--la-text-xl);
   font-weight: 650;
   letter-spacing: -0.02em;
   line-height: 1.25;
-  min-height: 28px;
+  min-height: 24px;
   display: flex;
   align-items: center;
 }

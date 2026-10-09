@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import Float, Integer, String, UniqueConstraint, delete, select
+from sqlalchemy import Float, Integer, String, UniqueConstraint, delete, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import MetaSession, meta_engine
@@ -19,10 +21,172 @@ from app.core.meta_models import MetaBase
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
 # 目录 mtime 在部分 NAS 上不可靠，辅以 TTL 强制重扫
 DIR_INDEX_TTL_SEC = 120.0
+# 项目级索引仍新鲜时，扫码跳过整树 walk，只查 SQLite（新图靠进页预热 / 注塑机窗增量）
+PROJECT_INDEX_FRESH_SEC = 300.0
 SN_QUERY_CHUNK = 400
 
 _lock = threading.RLock()
 _ensured_schema = False
+# 全量预热中的项目（仅影响状态条，不挡查图）
+_building_projects: set[str] = set()
+_warm_threads: dict[str, threading.Thread] = {}
+# 安静增量任务（不标 building）
+_quiet_threads: dict[str, threading.Thread] = {}
+
+
+@contextmanager
+def building_project(project_key: str):
+    key = str(project_key or "").strip()
+    if key:
+        with _lock:
+            _building_projects.add(key)
+    try:
+        yield
+    finally:
+        if key:
+            with _lock:
+                _building_projects.discard(key)
+
+
+def is_appearance_index_building(project_key: str) -> bool:
+    key = str(project_key or "").strip()
+    if not key:
+        return False
+    with _lock:
+        if key in _building_projects:
+            return True
+        thread = _warm_threads.get(key)
+        return bool(thread is not None and thread.is_alive())
+
+
+def appearance_index_has_rows(project_key: str) -> bool:
+    status = get_appearance_index_status(project_key)
+    return int(status.get("file_count") or 0) > 0 or int(status.get("dir_count") or 0) > 0
+
+
+def appearance_index_is_fresh(project_key: str) -> bool:
+    """已有索引且最近刷过。"""
+    status = get_appearance_index_status(project_key)
+    if int(status.get("file_count") or 0) <= 0 and int(status.get("dir_count") or 0) <= 0:
+        return False
+    indexed_at = float(status.get("indexed_at") or 0.0)
+    if indexed_at <= 0:
+        return False
+    return (time.time() - indexed_at) <= PROJECT_INDEX_FRESH_SEC
+
+
+def schedule_appearance_index_build(project_key: str, build_fn) -> dict:
+    """后台全量建/刷；已在跑则复用。标 building，仅供状态条。"""
+    key = str(project_key or "").strip()
+    if not key:
+        return {"started": False, "building": False}
+    with _lock:
+        alive = key in _warm_threads and _warm_threads[key].is_alive()
+        if key in _building_projects or alive:
+            return {"started": False, "building": True}
+        _building_projects.add(key)
+
+        def _run() -> None:
+            try:
+                build_fn()
+            except Exception:
+                pass
+            finally:
+                with _lock:
+                    _building_projects.discard(key)
+                    _warm_threads.pop(key, None)
+
+        thread = threading.Thread(
+            target=_run, daemon=True, name=f"appear-idx-{key[:24]}"
+        )
+        _warm_threads[key] = thread
+        thread.start()
+        return {"started": True, "building": True}
+
+
+def schedule_quiet_index_job(job_key: str, job_fn) -> bool:
+    """后台增量刷新：不标 building，不挡任何查图/扫码。"""
+    key = str(job_key or "").strip()
+    if not key:
+        return False
+    with _lock:
+        alive = key in _quiet_threads and _quiet_threads[key].is_alive()
+        if alive:
+            return False
+
+        def _run() -> None:
+            try:
+                job_fn()
+            except Exception:
+                pass
+            finally:
+                with _lock:
+                    _quiet_threads.pop(key, None)
+
+        thread = threading.Thread(
+            target=_run, daemon=True, name=f"appear-quiet-{key[:28]}"
+        )
+        _quiet_threads[key] = thread
+        thread.start()
+        return True
+
+
+def get_appearance_index_status(project_key: str) -> dict:
+    """索引状态：生成中 / 已完成 / 未生成。"""
+    ensure_appearance_index_schema()
+    key = str(project_key or "").strip()
+    building = is_appearance_index_building(key)
+    dir_count = 0
+    file_count = 0
+    indexed_at = 0.0
+    if key:
+        db = MetaSession()
+        try:
+            dir_count = int(
+                db.scalar(
+                    select(func.count())
+                    .select_from(AppearanceDirIndex)
+                    .where(AppearanceDirIndex.project_key == key)
+                )
+                or 0
+            )
+            file_count = int(
+                db.scalar(
+                    select(func.count())
+                    .select_from(AppearanceFileIndex)
+                    .where(AppearanceFileIndex.project_key == key)
+                )
+                or 0
+            )
+            indexed_at = float(
+                db.scalar(
+                    select(func.max(AppearanceDirIndex.indexed_at)).where(
+                        AppearanceDirIndex.project_key == key
+                    )
+                )
+                or 0.0
+            )
+        finally:
+            db.close()
+    if building:
+        status, label = "building", "生成中"
+    elif file_count > 0 or dir_count > 0:
+        status, label = "ready", "已完成"
+    else:
+        status, label = "empty", "未生成"
+    indexed_label = ""
+    if indexed_at > 0:
+        indexed_label = datetime.fromtimestamp(indexed_at).strftime("%m-%d %H:%M")
+    return {
+        "project_key": key,
+        "status": status,
+        "status_label": label,
+        "building": building,
+        "dir_count": dir_count,
+        "file_count": file_count,
+        "indexed_at": indexed_at,
+        "indexed_label": indexed_label,
+    }
 
 
 class AppearanceDirIndex(MetaBase):

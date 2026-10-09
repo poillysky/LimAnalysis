@@ -10,10 +10,50 @@ import re
 from pathlib import Path
 from typing import Any
 
+from app.core.config import settings
 from app.core.sql_ident import ident, q
 from processor.field_types import cast_direct_expr, coerce_sql_to_field_type
 
-SQL_MODELS_DIR = Path(__file__).resolve().parent / "sql_models"
+# 兼容旧 import；运行时一律走 sql_models_dir()
+PROCESSOR_DIR = Path(__file__).resolve().parent
+
+
+def sql_models_dir() -> Path:
+    return settings.sql_models_path
+
+
+def resolve_sql_path(sql_path: str, *, layer: str = "layer1") -> Path:
+    """解析 sql_path：相对路径相对 sql_models 根；兼容旧绝对路径与 sql_models/ 前缀。"""
+    raw = str(sql_path or "").strip().replace("\\", "/")
+    if not raw:
+        raise FileNotFoundError("SQL 路径为空")
+    root = sql_models_dir()
+    name = Path(raw).name
+    candidates: list[Path] = []
+
+    p = Path(raw)
+    if p.is_absolute():
+        candidates.append(p)
+    else:
+        rel = raw.lstrip("./")
+        if rel.startswith("sql_models/"):
+            rel = rel[len("sql_models/") :]
+        candidates.append((root / rel).resolve())
+        # 旧默认：相对 processor/
+        candidates.append((PROCESSOR_DIR / raw).resolve())
+
+    candidates.append((root / layer / name).resolve())
+    candidates.append((PROCESSOR_DIR / "sql_models" / layer / name).resolve())
+
+    seen: set[str] = set()
+    for cand in candidates:
+        key = str(cand)
+        if key in seen:
+            continue
+        seen.add(key)
+        if cand.is_file():
+            return cand
+    raise FileNotFoundError(f"SQL 文件不存在: {sql_path}")
 
 
 def process_formula(formula: str) -> str:
@@ -148,7 +188,10 @@ def write_link_sql_file(
     unique_key: str = "",
     description: str = "",
 ) -> tuple[str, str]:
-    """生成 SQL 并写入文件，返回 (sql_text, relative_or_absolute_path)。"""
+    """按当前字段立即覆盖写入 SQL，返回 (sql_text, 相对路径)。
+
+    只应在「保存并生成 SQL」时调用；改公式未点保存不会走到这里。
+    """
     sql = generate_link_select_sql(
         model_name=model_name,
         source_table=source_table,
@@ -157,11 +200,13 @@ def write_link_sql_file(
         unique_key=unique_key,
         description=description,
     )
-    layer = SQL_MODELS_DIR / "layer1"
+    layer = sql_models_dir() / "layer1"
     layer.mkdir(parents=True, exist_ok=True)
-    path = layer / f"{ident(target_table)}.sql"
+    name = f"{ident(target_table)}.sql"
+    path = layer / name
     path.write_text(sql, encoding="utf-8")
-    return sql, str(path)
+    # 相对 sql_models 根，跨机/容器只认文件名层级
+    return sql, f"layer1/{name}"
 
 
 _GRAIN_TRUNC = {"hour": "hour", "day": "day", "week": "week", "month": "month"}
@@ -300,8 +345,9 @@ def write_analysis_sql_file(
         fields=fields,
         description=description,
     )
-    layer = SQL_MODELS_DIR / "layer2"
+    layer = sql_models_dir() / "layer2"
     layer.mkdir(parents=True, exist_ok=True)
-    path = layer / f"{ident(target_table)}.sql"
+    name = f"{ident(target_table)}.sql"
+    path = layer / name
     path.write_text(sql, encoding="utf-8")
-    return sql, str(path)
+    return sql, f"layer2/{name}"

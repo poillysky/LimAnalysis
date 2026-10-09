@@ -577,7 +577,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 12px;
   box-sizing: border-box;
-  min-height: calc(100vh - 86px);
+  min-height: calc(100vh - var(--la-chrome-total));
   margin: 0 !important;
   padding: 10px 12px 12px;
   background: color-mix(in srgb, var(--el-fill-color-light) 65%, var(--el-bg-color));

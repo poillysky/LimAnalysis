@@ -38,6 +38,7 @@ import {
   totalText,
   makeSpanMethod,
   makeLimAlertHint,
+  pivotKeptTotals,
   type PivotRow,
   type PivotSource
 } from "@/utils/pivotTable";
@@ -105,10 +106,11 @@ function buildPivot(
 ): PivotRow[] {
   const byEntity = new Map<string, Map<string, { qty: number; ng: number }>>();
   for (const row of source) {
+    const entity = String(row.entity || "").trim();
     const axis = axisOf(row.cavity);
-    if (!axis || !axes.includes(axis)) continue;
-    if (!byEntity.has(row.entity)) byEntity.set(row.entity, new Map());
-    const cells = byEntity.get(row.entity)!;
+    if (!entity || !axis || !axes.includes(axis)) continue;
+    if (!byEntity.has(entity)) byEntity.set(entity, new Map());
+    const cells = byEntity.get(entity)!;
     const prev = cells.get(axis) || { qty: 0, ng: 0 };
     cells.set(axis, {
       qty: prev.qty + Number(row.qty || 0),
@@ -232,17 +234,18 @@ const bodyPivotRows = computed(() =>
   )
 );
 
-const summary = computed(() => {
-  const qty = rows.value.reduce((sum, row) => sum + Number(row.qty || 0), 0);
-  const ng = rows.value.reduce((sum, row) => sum + Number(row.ng || 0), 0);
-  const machines = new Set(rows.value.map(row => row.machine)).size;
-  return {
-    qty,
-    ng,
-    machines,
-    ratePct: rateOf(qty, ng)
-  };
-});
+const summary = computed(() =>
+  pivotKeptTotals(
+    rows.value.map(row => ({
+      entity: row.machine,
+      cavity: row.cavity,
+      qty: row.qty,
+      ng: row.ng
+    })),
+    CAVITY_LETTERS,
+    cavityLetter
+  )
+);
 
 const windowLabel = computed(() => {
   if (fromHour.value && toHour.value && fromHour.value !== toHour.value) {

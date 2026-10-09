@@ -3,12 +3,15 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import {
+  getAppearanceIndexStatus,
   getInspectionBootstrap,
   getViewerDates,
   getViewerFolders,
   getViewerImages,
   searchViewerImages,
+  warmAppearanceIndex,
   type AppearanceDim,
+  type AppearanceIndexStatus,
   type InspectionImage,
   type InspectionProject,
   type PhotoSource
@@ -59,6 +62,11 @@ const qrQuery = ref("");
 const filmRef = ref<HTMLElement | null>(null);
 /** 扫码定位时检出但不在项目机台清单里的机台，临时并入下拉 */
 const machineExtras = ref<string[]>([]);
+/** 外观 SN 索引：后台维护，查图/扫码零等待 */
+const indexInfo = ref<AppearanceIndexStatus | null>(null);
+let indexPollTimer: ReturnType<typeof setTimeout> | null = null;
+let indexRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let indexWarmToken = 0;
 
 const currentProject = computed(
   () => projects.value.find(item => item.project_id === projectId.value) || null
@@ -100,6 +108,93 @@ const counter = computed(() =>
     : "0 / 0"
 );
 
+const indexBadge = computed(() => {
+  if (!isAppearance.value) return null;
+  if (indexInfo.value?.building) {
+    return { type: "warning" as const, text: "索引后台生成中（不影响查图）" };
+  }
+  const status = indexInfo.value?.status || "empty";
+  if (status === "ready") {
+    const n = Number(indexInfo.value?.file_count || 0);
+    const when = indexInfo.value?.indexed_label || "";
+    return {
+      type: "success" as const,
+      text: when
+        ? `索引就绪 · ${n.toLocaleString()} 张 · ${when}`
+        : `索引就绪 · ${n.toLocaleString()} 张`
+    };
+  }
+  return {
+    type: "info" as const,
+    text: "索引后台维护中"
+  };
+});
+
+function stopIndexPoll() {
+  if (indexPollTimer != null) {
+    clearTimeout(indexPollTimer);
+    indexPollTimer = null;
+  }
+}
+
+function stopIndexRefresh() {
+  if (indexRefreshTimer != null) {
+    clearInterval(indexRefreshTimer);
+    indexRefreshTimer = null;
+  }
+}
+
+async function refreshIndexStatus() {
+  if (!isAppearance.value || !projectId.value) {
+    indexInfo.value = null;
+    return;
+  }
+  try {
+    const res = await getAppearanceIndexStatus(projectId.value);
+    indexInfo.value = res?.data || null;
+  } catch {
+    /* 状态条失败不挡主流程 */
+  }
+}
+
+function scheduleIndexPoll(token: number) {
+  stopIndexPoll();
+  indexPollTimer = setTimeout(async () => {
+    if (token !== indexWarmToken) return;
+    await refreshIndexStatus();
+    if (token !== indexWarmToken) return;
+    if (indexInfo.value?.building) scheduleIndexPoll(token);
+  }, 1500);
+}
+
+function startIndexRefreshLoop() {
+  stopIndexRefresh();
+  if (!isAppearance.value) return;
+  // 页面停留期间周期性后台增量（后端 fresh 则秒回）
+  indexRefreshTimer = setInterval(() => {
+    void warmIndex();
+  }, 5 * 60 * 1000);
+}
+
+/** 进外观页 / 换项目：只点火后台，不挡操作 */
+async function warmIndex() {
+  if (!isAppearance.value || !projectId.value || !ready.value) {
+    indexInfo.value = null;
+    return;
+  }
+  const token = ++indexWarmToken;
+  stopIndexPoll();
+  try {
+    const res = await warmAppearanceIndex(projectId.value);
+    if (token !== indexWarmToken) return;
+    indexInfo.value = res?.data || null;
+    if (indexInfo.value?.building) scheduleIndexPoll(token);
+  } catch {
+    if (token !== indexWarmToken) return;
+    await refreshIndexStatus();
+  }
+}
+
 function formatDate(value: string) {
   const raw = String(value || "").trim();
   if (/^\d{8}$/.test(raw)) {
@@ -138,8 +233,14 @@ async function bootstrap() {
       }
     }
     if (!ready.value) hint.value = "还没有配置照片目录。";
-    else if (isAppearance.value) await loadAppearanceViews();
-    else await loadDates();
+    else if (isAppearance.value) {
+      await loadAppearanceViews();
+      void warmIndex();
+      startIndexRefreshLoop();
+    } else {
+      stopIndexRefresh();
+      await loadDates();
+    }
   } catch (error) {
     hint.value = backendErrorHint(error);
   } finally {
@@ -308,6 +409,7 @@ watch(projectId, () => {
   machineExtras.value = [];
   if (isAppearance.value) {
     void loadAppearanceMeta().then(() => loadAppearanceViews());
+    void warmIndex();
   } else syncMachine();
 });
 
@@ -407,6 +509,7 @@ async function startCheck() {
     if (!images.value.length) {
       hint.value = res?.data?.hint || "这个筛选下没有照片。";
     }
+    if (isAppearance.value) void refreshIndexStatus();
     await nextTick();
     scrollFilm();
   } catch (error) {
@@ -498,7 +601,7 @@ async function searchByName() {
     images.value = res?.data?.images || [];
     index.value = 0;
     if (!images.value.length) {
-      hint.value = "没有匹配该文件名的照片。";
+      hint.value = res?.data?.hint || "没有匹配该文件名的照片。";
     } else {
       locating.value = true;
       const hit = images.value[0];
@@ -523,6 +626,7 @@ async function searchByName() {
         }`
       );
     }
+    if (isAppearance.value) void refreshIndexStatus();
     await nextTick();
     locating.value = false;
     scrollFilm();
@@ -572,7 +676,12 @@ watch(photoSource, () => {
   queryDim.value = "tester";
   void bootstrap();
 });
-onUnmounted(() => window.removeEventListener("keydown", onKey));
+onUnmounted(() => {
+  stopIndexPoll();
+  stopIndexRefresh();
+  indexWarmToken += 1;
+  window.removeEventListener("keydown", onKey);
+});
 </script>
 
 <template>
@@ -583,6 +692,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <component :is="useRenderIcon(pageIcon)" />
         </span>
         <h2>{{ pageTitle }}</h2>
+        <el-tag
+          v-if="indexBadge"
+          class="viewer-index-tag"
+          size="small"
+          effect="plain"
+          :type="indexBadge.type"
+        >
+          {{ indexBadge.text }}
+        </el-tag>
       </header>
 
       <div class="viewer-fields">
@@ -824,8 +942,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 <style scoped>
 .viewer-page {
   box-sizing: border-box;
-  min-height: calc(100vh - 96px);
-  padding: 20px 24px 28px;
+  min-height: calc(100vh - var(--la-chrome-total) - var(--la-content-inset) * 2);
+  padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
   background:
     radial-gradient(
       1100px 420px at 8% -12%,
@@ -836,38 +954,43 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 }
 
 .viewer-bar {
-  padding: 14px 16px 16px;
+  padding: var(--la-space-md) var(--la-space-lg) var(--la-space-lg);
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgb(15 23 42 / 5%);
+  border-radius: var(--la-radius-md);
+  box-shadow: var(--la-shadow-sm);
 }
 
 .viewer-bar__head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 12px;
+  gap: 8px 10px;
 }
 
 .viewer-bar__icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  font-size: var(--la-text-md);
   color: #2563eb;
   background: #eff6ff;
-  border-radius: 8px;
+  border-radius: var(--la-radius-sm);
 }
 
 .viewer-bar__head h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: var(--la-page-title);
+  font-weight: 650;
+  letter-spacing: -0.01em;
   color: #1f2a37;
+}
+
+.viewer-index-tag {
+  margin-left: 4px;
+  font-weight: 600;
 }
 
 .viewer-fields {

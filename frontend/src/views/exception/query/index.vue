@@ -557,7 +557,7 @@ onUnmounted(() => {
   gap: 12px;
   box-sizing: border-box;
   /* 抵消 layout .main-content 的 24px，但不能用负 margin（会顶进 tags 栏被遮挡） */
-  height: calc(100vh - 86px);
+  height: calc(100vh - var(--la-chrome-total));
   min-height: 0;
   margin: 0 !important;
   padding: 10px 12px 12px;

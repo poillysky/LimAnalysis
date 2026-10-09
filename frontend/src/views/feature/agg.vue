@@ -116,7 +116,16 @@ const aggregateOptions = [
   { label: "最小", value: "MIN" },
   { label: "去重计数", value: "COUNT_DISTINCT" }
 ];
+const formulaTemplates = [
+  { key: "rate", label: "不良率 = A / B", need: "two" },
+  { key: "pct", label: "百分比 = A / B * 100", need: "two" },
+  { key: "safe_div", label: "安全除法（分母为0→空）", need: "two" },
+  { key: "sum2", label: "两列相加", need: "two" },
+  { key: "diff", label: "两列相减 A - B", need: "two" }
+] as const;
+
 const formulaAssistVisible = ref(false);
+const formulaAssistTab = ref<"ai" | "template">("ai");
 const formulaAssistPrompt = ref("");
 const formulaAssistLoading = ref(false);
 const formulaAssistResult = ref("");
@@ -128,7 +137,6 @@ const formulaAssistSuggestLevel = ref(2);
 const formulaAssistTarget = ref<AggField | null>(null);
 const formulaAssistField = ref("");
 const formulaAssistField2 = ref("");
-const formulaTips: { label: string; formula: string }[] = [];
 const sourceNames = computed(() =>
   sourceColumns.value.map(c => c.column_name).filter(Boolean)
 );
@@ -400,15 +408,9 @@ function moveField(index: number, delta: number) {
   moveFieldBy(fields, index, delta);
 }
 
-function applyFormulaTip(row: AggField, formula: string) {
-  row.field_category = "derived";
-  row.formula = formula;
-  if (!row.target_field) row.target_field = "派生列";
-  onCategoryChange(row);
-}
-
 async function openFormulaAssist(row: AggField) {
   formulaAssistTarget.value = row;
+  formulaAssistTab.value = "ai";
   formulaAssistPrompt.value = "";
   formulaAssistResult.value = row.formula || "";
   formulaAssistExplain.value = "";
@@ -421,7 +423,8 @@ async function openFormulaAssist(row: AggField) {
     fields.value.find(f => f.field_category === "measure")?.target_field ||
     "";
   formulaAssistField2.value =
-    fields.value.find(f => f.target_field === "自动外观总不良数")?.target_field || "";
+    fields.value.find(f => f.target_field === "自动外观总不良数")?.target_field ||
+    "";
   formulaAssistVisible.value = true;
   try {
     const { getAiConfig } = await import("@/api/modules/ai");
@@ -430,6 +433,46 @@ async function openFormulaAssist(row: AggField) {
   } catch {
     formulaAssistAiReady.value = false;
   }
+}
+
+function applyFormulaTemplate(key: string) {
+  const a = (formulaAssistField.value || "").trim();
+  const b = (formulaAssistField2.value || "").trim();
+  if (!a || !b) {
+    ElMessage.warning("请先选两列（字段 + 再选一列）");
+    return;
+  }
+  const qa = `[${a}]`;
+  const qb = `[${b}]`;
+  const map: Record<string, { formula: string; explain: string }> = {
+    rate: {
+      formula: `${qa} * 1.0 / NULLIF(${qb}, 0)`,
+      explain: `模板：不良率 = 「${a}」/「${b}」`
+    },
+    pct: {
+      formula: `${qa} * 100.0 / NULLIF(${qb}, 0)`,
+      explain: `模板：百分比 = 「${a}」/「${b}」*100`
+    },
+    safe_div: {
+      formula: `CASE WHEN ${qb} = 0 OR ${qb} IS NULL THEN NULL ELSE ${qa} * 1.0 / ${qb} END`,
+      explain: `模板：安全除法「${a}」/「${b}」`
+    },
+    sum2: {
+      formula: `COALESCE(${qa}, 0) + COALESCE(${qb}, 0)`,
+      explain: `模板：「${a}」+「${b}」`
+    },
+    diff: {
+      formula: `COALESCE(${qa}, 0) - COALESCE(${qb}, 0)`,
+      explain: `模板：「${a}」-「${b}」`
+    }
+  };
+  const hit = map[key];
+  if (!hit) return;
+  formulaAssistResult.value = hit.formula;
+  formulaAssistExplain.value = hit.explain;
+  formulaAssistSource.value = "template";
+  formulaAssistSuggestLevel.value = 2;
+  formulaAssistError.value = "";
 }
 
 function insertAssistField(name: string) {
@@ -1077,26 +1120,8 @@ onUnmounted(stopRunTimers);
                   type="primary"
                   @click="openFormulaAssist(row.f)"
                 >
-                  AI描述生成
+                  公式生成
                 </el-button>
-                <el-dropdown
-                  v-if="formulaTips.length"
-                  trigger="click"
-                  @command="(cmd: string) => applyFormulaTip(row.f, cmd)"
-                >
-                  <el-button size="small" text type="primary">模板</el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item
-                        v-for="tip in formulaTips"
-                        :key="tip.label"
-                        :command="tip.formula"
-                      >
-                        {{ tip.label }}
-                      </el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
               </div>
               <span v-else class="muted">—</span>
             </template>
@@ -1165,12 +1190,12 @@ onUnmounted(stopRunTimers);
 
     <el-dialog
       v-model="formulaAssistVisible"
-      width="620px"
+      width="640px"
       destroy-on-close
     >
       <template #header>
         <div class="etl-assist-title">
-          <span>描述需求 → 生成公式</span>
+          <span>公式生成</span>
           <el-tag
             size="small"
             :type="formulaAssistAiReady ? 'success' : 'info'"
@@ -1178,79 +1203,163 @@ onUnmounted(stopRunTimers);
             {{
               formulaAssistAiReady
                 ? "AI 已就绪"
-                : "AI 未就绪（将用规则生成）"
+                : "AI 未就绪（描述页将用规则生成）"
             }}
           </el-tag>
         </div>
       </template>
-      <p class="etl-assist-lead">
-        先选已有汇总列，再用中文描述。已配置 AI 时优先由模型生成。
-        <router-link class="etl-assist-link" to="/feature/ai-model">
-          去配置 AI 模型
-        </router-link>
-      </p>
-      <div class="etl-assist-fields">
-        <div class="etl-assist-field">
-          <span class="etl-assist-label">字段</span>
-          <el-select
-            v-model="formulaAssistField"
-            filterable
-            clearable
-            placeholder="选择后写入描述"
-            style="width: 100%"
-            @change="(v: string) => v && insertAssistField(v)"
-          >
-            <el-option
-              v-for="opt in formulaAssistFieldOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
+
+      <el-tabs v-model="formulaAssistTab" class="etl-assist-tabs">
+        <el-tab-pane label="AI 描述" name="ai">
+          <p class="etl-assist-lead">
+            先选已有汇总列，再用中文描述。已配置 AI 时优先由模型生成。
+            <router-link class="etl-assist-link" to="/feature/ai-model">
+              去配置 AI 模型
+            </router-link>
+          </p>
+          <div class="etl-assist-fields">
+            <div class="etl-assist-field">
+              <span class="etl-assist-label">字段</span>
+              <el-select
+                v-model="formulaAssistField"
+                filterable
+                clearable
+                placeholder="选择后写入描述"
+                style="width: 100%"
+                @change="(v: string) => v && insertAssistField(v)"
+              >
+                <el-option
+                  v-for="opt in formulaAssistFieldOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
+            </div>
+            <div class="etl-assist-field">
+              <span class="etl-assist-label">再选一列（可选）</span>
+              <el-select
+                v-model="formulaAssistField2"
+                filterable
+                clearable
+                placeholder="需要两列时再选"
+                style="width: 100%"
+                @change="(v: string) => v && insertAssistField(v)"
+              >
+                <el-option
+                  v-for="opt in formulaAssistFieldOptions"
+                  :key="`b-${opt.value}`"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
+            </div>
+          </div>
+          <el-input
+            v-model="formulaAssistPrompt"
+            type="textarea"
+            :rows="5"
+            placeholder="例如：把自动外观总不良数按注塑机总产量换算"
+          />
+          <div class="etl-assist-actions">
+            <el-button
+              type="primary"
+              :loading="formulaAssistLoading"
+              @click="runFormulaAssist"
+            >
+              {{ formulaAssistAiReady ? "AI 生成公式" : "生成公式" }}
+            </el-button>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="模板" name="template">
+          <p class="etl-assist-lead">
+            先选两列，再点模板直接填出公式（不走 AI）。
+          </p>
+          <div class="etl-assist-fields">
+            <div class="etl-assist-field">
+              <span class="etl-assist-label">字段 A</span>
+              <el-select
+                v-model="formulaAssistField"
+                filterable
+                clearable
+                placeholder="分子 / 被减数"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="opt in formulaAssistFieldOptions"
+                  :key="`t-${opt.value}`"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
+            </div>
+            <div class="etl-assist-field">
+              <span class="etl-assist-label">字段 B</span>
+              <el-select
+                v-model="formulaAssistField2"
+                filterable
+                clearable
+                placeholder="分母 / 减数"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="opt in formulaAssistFieldOptions"
+                  :key="`t2-${opt.value}`"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
+            </div>
+          </div>
+          <div class="etl-assist-templates">
+            <button
+              v-for="tip in formulaTemplates"
+              :key="tip.key"
+              type="button"
+              class="etl-assist-template"
+              @click="applyFormulaTemplate(tip.key)"
+            >
+              <span class="etl-assist-template__label">{{ tip.label }}</span>
+              <span class="etl-assist-template__need">两列</span>
+            </button>
+          </div>
+          <div class="etl-assist-result">
+            <span class="etl-assist-label">公式预览（可改）</span>
+            <p
+              v-if="
+                formulaAssistExplain && formulaAssistSource === 'template'
+              "
+              class="etl-assist-explain"
+            >
+              <el-tag size="small" style="margin-right: 6px">模板</el-tag>
+              {{ formulaAssistExplain }}
+            </p>
+            <el-input
+              v-model="formulaAssistResult"
+              type="textarea"
+              :rows="4"
+              placeholder="点上方模板后出现公式，也可手改"
             />
-          </el-select>
-        </div>
-        <div class="etl-assist-field">
-          <span class="etl-assist-label">再选一列（可选）</span>
-          <el-select
-            v-model="formulaAssistField2"
-            filterable
-            clearable
-            placeholder="需要两列时再选"
-            style="width: 100%"
-            @change="(v: string) => v && insertAssistField(v)"
-          >
-            <el-option
-              v-for="opt in formulaAssistFieldOptions"
-              :key="`b-${opt.value}`"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </div>
-      </div>
-      <el-input
-        v-model="formulaAssistPrompt"
-        type="textarea"
-        :rows="3"
-        placeholder="例如：把自动外观总不良数按注塑机总产量换算"
-      />
-      <div class="etl-assist-actions">
-        <el-button
-          type="primary"
-          :loading="formulaAssistLoading"
-          @click="runFormulaAssist"
-        >
-          {{ formulaAssistAiReady ? "AI 生成公式" : "生成公式" }}
-        </el-button>
-      </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+
       <el-alert
         v-if="formulaAssistError"
         type="warning"
         :closable="false"
         :title="formulaAssistError"
         show-icon
+        style="margin-top: 8px"
       />
-      <template v-if="formulaAssistResult">
-        <p v-if="formulaAssistExplain" class="etl-assist-explain">
+      <template v-if="formulaAssistTab === 'ai' && formulaAssistResult">
+        <p
+          v-if="
+            formulaAssistExplain && formulaAssistSource !== 'template'
+          "
+          class="etl-assist-explain"
+        >
           <el-tag
             v-if="formulaAssistSource"
             size="small"
@@ -1260,7 +1369,7 @@ onUnmounted(stopRunTimers);
           </el-tag>
           {{ formulaAssistExplain }}
         </p>
-        <el-input v-model="formulaAssistResult" type="textarea" :rows="3" />
+        <el-input v-model="formulaAssistResult" type="textarea" :rows="5" />
       </template>
       <template #footer>
         <el-button @click="formulaAssistVisible = false">取消</el-button>

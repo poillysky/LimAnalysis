@@ -150,14 +150,19 @@ const typeFilterTabs = computed(() => {
   ];
 });
 
-const formulaTips = [
-  { label: "截取前3位", formula: 'LEFT([FCoverSN], 3)' },
-  { label: "去空格", formula: 'TRIM([FCoverSN])' },
-  { label: "转大写", formula: 'UPPER([FCoverSN])' },
-  { label: "空则默认", formula: "COALESCE(NULLIF(TRIM([列名]), ''), '未知')" }
-];
+const formulaTemplates = [
+  { key: "mid567", label: "提取第5–7位", need: "one" },
+  { key: "mid1314", label: "提取第13–14位", need: "one" },
+  { key: "trim", label: "去空格", need: "one" },
+  { key: "upper", label: "转大写", need: "one" },
+  { key: "okng", label: "OK → 合格 / 否则不合格", need: "one" },
+  { key: "bool01", label: "1 → 不良 / 0 → 良", need: "one" },
+  { key: "concat", label: "拼接两列（横杠）", need: "two" },
+  { key: "any01", label: "有1为1（2～8 列）", need: "many" }
+] as const;
 
 const formulaAssistVisible = ref(false);
+const formulaAssistTab = ref<"ai" | "template">("ai");
 const formulaAssistPrompt = ref("");
 const formulaAssistLoading = ref(false);
 const formulaAssistResult = ref("");
@@ -169,29 +174,35 @@ const formulaAssistSuggestLevel = ref(1);
 const formulaAssistTarget = ref<EtlField | null>(null);
 const formulaAssistField = ref("");
 const formulaAssistField2 = ref("");
+const formulaAssistManyFields = ref<string[]>([]);
 const assistEditorEl = ref<HTMLElement | null>(null);
 const assistComposing = ref(false);
-  const formulaAssistExamples = ref([
-    { label: "截取前几位", key: "left3" },
-    { label: "截取后几位", key: "right4" },
-    { label: "去空格", key: "trim" },
-    { label: "空值默认", key: "default" },
-    { label: "OK转义", key: "okng" },
-    { label: "0/1转义", key: "bool01" },
-    { label: "拼接两列", key: "concat" },
-    { label: "有1为1", key: "any01" }
-  ]);
 
-const formulaAssistFieldOptions = computed(() =>
-  sourceFields.value.map(f => ({
-    value: f.source_field,
-    label: `${f.source_field}（${
-      fieldTypeOptions.value.find(t => t.value === f.field_type)?.label ||
-      f.field_type ||
-      "文本"
-    }）`
-  }))
-);
+const formulaAssistFieldOptions = computed(() => {
+  const typeLabel = (ft: string) =>
+    fieldTypeOptions.value.find(t => t.value === ft)?.label || ft || "文本";
+  const seen = new Set<string>();
+  const out: { value: string; label: string }[] = [];
+  for (const f of sourceFields.value) {
+    const name = String(f.source_field || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push({
+      value: name,
+      label: `${name}（${typeLabel(f.field_type)}）`
+    });
+  }
+  for (const f of fields.value) {
+    const name = String(f.target_field || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push({
+      value: name,
+      label: `${name}（清洗列）`
+    });
+  }
+  return out;
+});
 
 const canEnable = computed(
   () =>
@@ -564,25 +575,18 @@ function onMappingChange(row: EtlField) {
   }
 }
 
-function applyFormulaTip(row: EtlField, tip: string) {
-  row.mapping_type = "derived";
-  row.formula = tip;
-  if (!row.target_field) row.target_field = "derived_col";
-}
-
 async function openFormulaAssist(row: EtlField) {
   formulaAssistTarget.value = row;
+  formulaAssistTab.value = "ai";
   formulaAssistPrompt.value = "";
   formulaAssistResult.value = row.formula || "";
   formulaAssistExplain.value = "";
   formulaAssistError.value = "";
   formulaAssistSource.value = "";
   formulaAssistSuggestLevel.value = 1;
-  formulaAssistField.value =
-    row.source_field ||
-    sourceFields.value[0]?.source_field ||
-    "";
+  formulaAssistField.value = "";
   formulaAssistField2.value = "";
+  formulaAssistManyFields.value = [];
   formulaAssistVisible.value = true;
   try {
     const { getAiConfig } = await import("@/api/modules/ai");
@@ -776,7 +780,13 @@ function onAssistEditorKeydown(event: KeyboardEvent) {
 
 watch(formulaAssistVisible, visible => {
   if (!visible) return;
-  nextTick(() => renderAssistEditor());
+  nextTick(() => {
+    if (formulaAssistTab.value === "ai") renderAssistEditor();
+  });
+});
+
+watch(formulaAssistTab, tab => {
+  if (tab === "ai") nextTick(() => renderAssistEditor());
 });
 
 function insertAssistField(name?: string) {
@@ -795,28 +805,40 @@ function insertAssistField(name?: string) {
   nextTick(() => renderAssistEditor());
 }
 
-function collectAssistFields(): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  const add = (name: string) => {
-    const col = String(name || "")
-      .trim()
-      .replace(/^\[|\]$/g, "");
-    if (!col || seen.has(col)) return;
-    seen.add(col);
-    out.push(col);
-  };
-  const re = /\[([^\]]+)\]/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(formulaAssistPrompt.value))) {
-    add(match[1]);
-  }
-  add(formulaAssistField.value);
-  add(formulaAssistField2.value);
-  return out;
+function syncTemplateFieldsFromChips() {
+  const cols = formulaAssistManyFields.value;
+  formulaAssistField.value = cols[0] || "";
+  formulaAssistField2.value = cols[1] || "";
 }
 
-/** 全空→空；任一为 1→1；否则 0（支持 2～5 列） */
+/** 模板页：选字段加入绿色卡片（与 AI 芯片同款） */
+function onTemplateFieldPick(name?: string) {
+  const col = String(name || "").trim();
+  if (!col) return;
+  const list = formulaAssistManyFields.value;
+  if (list.includes(col)) {
+    ElMessage.info(`「${col}」已在已选字段中`);
+    return;
+  }
+  if (list.length >= 8) {
+    ElMessage.warning("最多选 8 列");
+    return;
+  }
+  formulaAssistManyFields.value = [...list, col];
+  syncTemplateFieldsFromChips();
+  formulaAssistExplain.value = `已选 ${formulaAssistManyFields.value.length} 列，再点上方模板生成公式`;
+  formulaAssistSource.value = "template";
+  formulaAssistError.value = "";
+}
+
+function removeTemplateField(name: string) {
+  formulaAssistManyFields.value = formulaAssistManyFields.value.filter(
+    c => c !== name
+  );
+  syncTemplateFieldsFromChips();
+}
+
+/** 全空→空；任一为 1→1；否则 0（支持 2～8 列） */
 function buildAnyOneFormula(cols: string[]): string {
   const emptyParts = cols.map(
     c => `(NULLIF(TRIM(CAST([${c}] AS TEXT)), '') IS NULL)`
@@ -830,57 +852,98 @@ function buildAnyOneFormula(cols: string[]): string {
   );
 }
 
-function applyAssistExample(key: string) {
+function applyFormulaTemplate(key: string) {
+  const a = (formulaAssistField.value || "").trim();
+  const b = (formulaAssistField2.value || "").trim();
+  const qa = a ? `[${a}]` : "";
+  const qb = b ? `[${b}]` : "";
+
   if (key === "any01") {
-    const cols = collectAssistFields();
+    const cols = Array.from(
+      new Set(
+        (formulaAssistManyFields.value.length
+          ? formulaAssistManyFields.value
+          : [a, b]
+        )
+          .map(c => String(c || "").trim())
+          .filter(Boolean)
+      )
+    );
     if (cols.length < 2) {
-      ElMessage.warning(
-        "请先点选并插入 2～5 个原表字段，再点「有1为1」"
-      );
+      ElMessage.warning("请先在上方至少选 2 个字段（绿色卡片）");
       return;
     }
-    if (cols.length > 5) {
-      ElMessage.warning("最多支持 5 个字段，请删掉多余芯片后再试");
+    if (cols.length > 8) {
+      ElMessage.warning("最多支持 8 列");
       return;
     }
-    formulaAssistPrompt.value = `${cols
-      .map(c => `[${c}]`)
-      .join(" ")} 全空为空，有一个为1就是1，其他为0`;
     formulaAssistResult.value = buildAnyOneFormula(cols);
-    formulaAssistExplain.value = `固定逻辑：${cols.join(
+    formulaAssistExplain.value = `模板：${cols.join(
       "、"
     )} 全空→空；任一为1→1；否则→0`;
-    formulaAssistSource.value = "fixed";
+    formulaAssistSource.value = "template";
     formulaAssistSuggestLevel.value = 1;
     formulaAssistError.value = "";
-    nextTick(() => renderAssistEditor());
     return;
   }
 
-  const a = fieldToken(formulaAssistField.value);
-  const b = fieldToken(formulaAssistField2.value);
-  if (!a && key !== "concat") {
+  if (key === "concat") {
+    if (!a || !b) {
+      ElMessage.warning("拼接请先选两列");
+      return;
+    }
+    formulaAssistResult.value = `${qa} || '-' || ${qb}`;
+    formulaAssistExplain.value = `模板：拼接「${a}」与「${b}」，中间横杠`;
+    formulaAssistSource.value = "template";
+    formulaAssistSuggestLevel.value = 1;
+    formulaAssistError.value = "";
+    return;
+  }
+
+  // 单列模板：主列为空时可用「再选一列」
+  const col = a || b;
+  if (!col) {
     ElMessage.warning("请先选择原表字段");
     return;
   }
-  const map: Record<string, string> = {
-    left3: `取 ${a} 前3位`,
-    right4: `取 ${a} 后4位`,
-    trim: `去掉 ${a} 两边空格`,
-    default: `${a} 为空时填 未知`,
-    okng: `${a} 为 OK 显示 合格，否则 不合格`,
-    bool01: `${a} 为 1 显示 不良，为 0 显示 良`,
-    concat:
-      a && b
-        ? `拼接 ${a} 和 ${b}，中间用横杠`
-        : a
-          ? `拼接 ${a} 和 [另一列]，中间用横杠`
-          : "拼接 [线体] 和 [工站]，中间用横杠"
+  if (!a && b) {
+    formulaAssistField.value = b;
+  }
+  const qcol = `[${col}]`;
+
+  const map: Record<string, { formula: string; explain: string }> = {
+    mid567: {
+      formula: `SUBSTRING(${qcol} FROM 5 FOR 3)`,
+      explain: `模板：提取「${col}」第 5、6、7 位`
+    },
+    mid1314: {
+      formula: `SUBSTRING(${qcol} FROM 13 FOR 2)`,
+      explain: `模板：提取「${col}」第 13、14 位`
+    },
+    trim: {
+      formula: `TRIM(${qcol})`,
+      explain: `模板：去掉「${col}」首尾空格`
+    },
+    upper: {
+      formula: `UPPER(${qcol})`,
+      explain: `模板：「${col}」转大写`
+    },
+    okng: {
+      formula: `CASE WHEN UPPER(TRIM(${qcol})) = 'OK' THEN '合格' ELSE '不合格' END`,
+      explain: `模板：「${col}」为 OK→合格，否则不合格`
+    },
+    bool01: {
+      formula: `CASE WHEN NULLIF(TRIM(${qcol}), '') = '1' THEN '不良' WHEN NULLIF(TRIM(${qcol}), '') = '0' THEN '良' ELSE NULL END`,
+      explain: `模板：「${col}」1→不良，0→良`
+    }
   };
-  const text = map[key];
-  if (!text) return;
-  formulaAssistPrompt.value = text;
-  nextTick(() => renderAssistEditor());
+  const hit = map[key];
+  if (!hit) return;
+  formulaAssistResult.value = hit.formula;
+  formulaAssistExplain.value = hit.explain;
+  formulaAssistSource.value = "template";
+  formulaAssistSuggestLevel.value = 1;
+  formulaAssistError.value = "";
 }
 
 async function runFormulaAssist() {
@@ -1081,8 +1144,21 @@ async function onSaveAll() {
     model.value = res.data;
     fields.value = res.data.fields || [];
     sourceFields.value = res.data.source_fields || sourceFields.value;
+    // 保存瞬间即重写 sql 文件；改公式只改页面，点本按钮才落盘
     sqlText.value = res.data.sql_preview || "";
-    ElMessage.success("清洗表字段已保存并生成 SQL");
+    if (!sqlText.value && model.value?.id) {
+      try {
+        const sqlRes = await getSqlPreview(model.value.id);
+        sqlText.value = sqlRes.data.sql || "";
+      } catch {
+        /* 预览失败不挡保存成功 */
+      }
+    }
+    ElMessage.success(
+      sqlText.value
+        ? "已保存字段，SQL 已立即更新"
+        : "已保存字段并生成 SQL"
+    );
     await load(true);
   } catch (error) {
     ElMessage.error(
@@ -1899,6 +1975,13 @@ onUnmounted(() => {
             <el-form-item label="模型名称">
               <el-input v-model="model.name" />
             </el-form-item>
+            <el-form-item label="表路径" class="etl-meta-path">
+              <div class="etl-meta-path__flow" :title="`${model.source_table} → ${model.target_table}`">
+                <code class="etl-meta-path__table">{{ model.source_table }}</code>
+                <span class="etl-meta-path__arrow" aria-hidden="true">→</span>
+                <code class="etl-meta-path__table">{{ model.target_table }}</code>
+              </div>
+            </el-form-item>
             <el-form-item label="唯一键（清洗表）">
               <el-select
                 v-model="model.unique_key"
@@ -1948,11 +2031,6 @@ onUnmounted(() => {
                   }}
                 </span>
               </div>
-            </el-form-item>
-            <el-form-item label="表路径">
-              <span class="muted">
-                {{ model.source_table }} → {{ model.target_table }}
-              </span>
             </el-form-item>
           </div>
         </el-form>
@@ -2188,25 +2266,8 @@ onUnmounted(() => {
                 type="primary"
                 @click="openFormulaAssist(row.f)"
               >
-                AI描述生成
+                公式生成
               </el-button>
-              <el-dropdown
-                trigger="click"
-                @command="(cmd: string) => applyFormulaTip(row.f, cmd)"
-              >
-                <el-button size="small" text type="primary">模板</el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item
-                      v-for="tip in formulaTips"
-                      :key="tip.label"
-                      :command="tip.formula"
-                    >
-                      {{ tip.label }}
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
             </div>
             <el-input
               v-else-if="row.f.mapping_type === 'constant'"
@@ -2288,12 +2349,15 @@ onUnmounted(() => {
 
     <el-dialog
       v-model="formulaAssistVisible"
-      width="620px"
+      class="etl-assist-dialog"
+      width="640px"
       destroy-on-close
+      append-to-body
+      align-center
     >
       <template #header>
         <div class="etl-assist-title">
-          <span>描述需求 → 生成公式</span>
+          <span>公式生成</span>
           <el-tag
             size="small"
             :type="formulaAssistAiReady ? 'success' : 'info'"
@@ -2301,116 +2365,233 @@ onUnmounted(() => {
             {{
               formulaAssistAiReady
                 ? "AI 已就绪"
-                : "AI 未就绪（将用规则生成）"
+                : "AI 未就绪（描述页将用规则生成）"
             }}
           </el-tag>
         </div>
       </template>
-      <p class="etl-assist-lead">
-        先选原表字段写入描述（「有1为1」可插 2～5 列），再点快捷说法。已配置 AI
-        时优先由模型生成。
-        <router-link class="etl-assist-link" to="/feature/ai-model">
-          去配置 AI 模型
-        </router-link>
-      </p>
 
-      <div class="etl-assist-fields">
-        <div class="etl-assist-field">
-          <span class="etl-assist-label">原表字段</span>
-          <el-select
-            v-model="formulaAssistField"
-            filterable
-            clearable
-            placeholder="选择后直接写入描述"
-            style="width: 100%"
-            @change="(v: string) => v && insertAssistField(v)"
-          >
-            <el-option
-              v-for="opt in formulaAssistFieldOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </div>
-        <div class="etl-assist-field">
-          <span class="etl-assist-label">再选一列（可选）</span>
-          <el-select
-            v-model="formulaAssistField2"
-            filterable
-            clearable
-            placeholder="需要两列时再选，写入描述"
-            style="width: 100%"
-            @change="(v: string) => v && insertAssistField(v)"
-          >
-            <el-option
-              v-for="opt in formulaAssistFieldOptions"
-              :key="`b-${opt.value}`"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </div>
-      </div>
+      <el-tabs v-model="formulaAssistTab" class="etl-assist-tabs">
+        <el-tab-pane label="AI 描述" name="ai" lazy>
+          <template v-if="formulaAssistTab === 'ai'">
+            <p class="etl-assist-lead">
+              选字段写入描述，用中文说明需求。已配置 AI 时优先由模型生成。
+              <router-link class="etl-assist-link" to="/feature/ai-model">
+                去配置 AI 模型
+              </router-link>
+            </p>
+            <div class="etl-assist-fields">
+              <div class="etl-assist-field">
+                <span class="etl-assist-label">原表字段</span>
+                <el-select
+                  v-model="formulaAssistField"
+                  filterable
+                  clearable
+                  teleported
+                  placement="bottom-start"
+                  popper-class="etl-assist-select-popper"
+                  placeholder="选择后写入描述"
+                  style="width: 100%"
+                  @change="(v: string) => v && insertAssistField(v)"
+                >
+                  <el-option
+                    v-for="opt in formulaAssistFieldOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </div>
+              <div class="etl-assist-field">
+                <span class="etl-assist-label">再选一列（可选）</span>
+                <el-select
+                  v-model="formulaAssistField2"
+                  filterable
+                  clearable
+                  teleported
+                  placement="bottom-start"
+                  popper-class="etl-assist-select-popper"
+                  placeholder="需要两列时再选"
+                  style="width: 100%"
+                  @change="(v: string) => v && insertAssistField(v)"
+                >
+                  <el-option
+                    v-for="opt in formulaAssistFieldOptions"
+                    :key="`b-${opt.value}`"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </div>
+            </div>
+            <div
+              ref="assistEditorEl"
+              class="etl-assist-editor"
+              contenteditable="true"
+              spellcheck="false"
+              data-placeholder="先点上方字段插入芯片，再写「取前3位」这类中文。退格会整块删除字段。"
+              data-empty="true"
+              @input="onAssistEditorInput"
+              @keydown="onAssistEditorKeydown"
+              @paste="onAssistEditorPaste"
+              @compositionstart="assistComposing = true"
+              @compositionend="
+                assistComposing = false;
+                onAssistEditorInput();
+              "
+              @blur="renderAssistEditor"
+            ></div>
+            <div class="etl-assist-actions">
+              <el-button
+                type="primary"
+                :loading="formulaAssistLoading"
+                @click="runFormulaAssist"
+              >
+                {{ formulaAssistAiReady ? "AI 生成公式" : "生成公式" }}
+              </el-button>
+            </div>
+          </template>
+        </el-tab-pane>
 
-      <div class="etl-assist-chips">
-        <el-tag
-          v-for="ex in formulaAssistExamples"
-          :key="ex.key"
-          class="etl-assist-chip"
-          effect="plain"
-          style="cursor: pointer"
-          @click="applyAssistExample(ex.key)"
-        >
-          {{ ex.label }}
-        </el-tag>
-      </div>
-      <div
-        ref="assistEditorEl"
-        class="etl-assist-editor"
-        contenteditable="true"
-        spellcheck="false"
-        data-placeholder="先点上方字段插入芯片，再写「取前3位」这类中文。退格会整块删除字段。"
-        data-empty="true"
-        @input="onAssistEditorInput"
-        @keydown="onAssistEditorKeydown"
-        @paste="onAssistEditorPaste"
-        @compositionstart="assistComposing = true"
-        @compositionend="
-          assistComposing = false;
-          onAssistEditorInput();
-        "
-        @blur="renderAssistEditor"
-      ></div>
-      <div class="etl-assist-actions">
-        <el-button
-          type="primary"
-          :loading="formulaAssistLoading"
-          @click="runFormulaAssist"
-        >
-          {{ formulaAssistAiReady ? "AI 生成公式" : "生成公式" }}
-        </el-button>
-      </div>
+        <el-tab-pane label="模板" name="template" lazy>
+          <template v-if="formulaAssistTab === 'template'">
+            <p class="etl-assist-lead">
+              选字段加入绿色卡片（最多 8 个），再点模板填出公式。「有1为1」用卡片里全部列。
+            </p>
+            <div class="etl-assist-fields">
+              <div class="etl-assist-field">
+                <span class="etl-assist-label">添加字段</span>
+                <el-select
+                  filterable
+                  clearable
+                  teleported
+                  placement="bottom-start"
+                  popper-class="etl-assist-select-popper"
+                  placeholder="选择后加入已选卡片"
+                  style="width: 100%"
+                  :model-value="''"
+                  @change="onTemplateFieldPick"
+                >
+                  <el-option
+                    v-for="opt in formulaAssistFieldOptions"
+                    :key="`t-${opt.value}`"
+                    :label="opt.label"
+                    :value="opt.value"
+                    :disabled="formulaAssistManyFields.includes(opt.value)"
+                  />
+                </el-select>
+              </div>
+              <div class="etl-assist-field">
+                <span class="etl-assist-label">再加一列</span>
+                <el-select
+                  filterable
+                  clearable
+                  teleported
+                  placement="bottom-start"
+                  popper-class="etl-assist-select-popper"
+                  placeholder="继续添加"
+                  style="width: 100%"
+                  :model-value="''"
+                  @change="onTemplateFieldPick"
+                >
+                  <el-option
+                    v-for="opt in formulaAssistFieldOptions"
+                    :key="`t2-${opt.value}`"
+                    :label="opt.label"
+                    :value="opt.value"
+                    :disabled="formulaAssistManyFields.includes(opt.value)"
+                  />
+                </el-select>
+              </div>
+            </div>
+            <div class="etl-assist-chips">
+              <span class="etl-assist-label">已选字段</span>
+              <div
+                class="etl-assist-editor etl-assist-chips__box"
+                :data-empty="formulaAssistManyFields.length ? null : 'true'"
+                data-placeholder="从上方选择字段，会出现绿色卡片"
+              >
+                <span
+                  v-for="name in formulaAssistManyFields"
+                  :key="name"
+                  class="etl-assist-token etl-assist-token--chip"
+                >
+                  <i class="etl-assist-token__mark" />
+                  <span class="etl-assist-token__name">{{ name }}</span>
+                  <button
+                    type="button"
+                    class="etl-assist-token__x"
+                    :aria-label="`移除 ${name}`"
+                    :title="`移除 ${name}`"
+                    @click.stop="removeTemplateField(name)"
+                  >
+                    ×
+                  </button>
+                </span>
+              </div>
+            </div>
+            <div class="etl-assist-templates">
+              <button
+                v-for="tip in formulaTemplates"
+                :key="tip.key"
+                type="button"
+                class="etl-assist-template"
+                @click="applyFormulaTemplate(tip.key)"
+              >
+                <span class="etl-assist-template__label">{{ tip.label }}</span>
+                <span class="etl-assist-template__need">
+                  {{
+                    tip.need === "two"
+                      ? "两列"
+                      : tip.need === "many"
+                        ? "2～8"
+                        : "一列"
+                  }}
+                </span>
+              </button>
+            </div>
+          </template>
+        </el-tab-pane>
+      </el-tabs>
+
       <el-alert
         v-if="formulaAssistError"
         type="warning"
         :closable="false"
         :title="formulaAssistError"
         show-icon
+        style="margin-top: 8px"
       />
-      <template v-if="formulaAssistResult">
+      <div
+        v-if="formulaAssistTab === 'template' || formulaAssistResult"
+        class="etl-assist-result"
+      >
+        <span class="etl-assist-label">公式预览（可改）</span>
         <p v-if="formulaAssistExplain" class="etl-assist-explain">
-          <el-tag
-            v-if="formulaAssistSource"
-            size="small"
-            style="margin-right: 6px"
-          >
-            {{ formulaAssistSource === "ai" ? "AI" : "规则" }}
+          <el-tag size="small" style="margin-right: 6px">
+            {{
+              formulaAssistSource === "template"
+                ? "模板"
+                : formulaAssistSource === "ai"
+                  ? "AI"
+                  : formulaAssistSource === "rules"
+                    ? "规则"
+                    : "公式"
+            }}
           </el-tag>
           {{ formulaAssistExplain }}
         </p>
-        <el-input v-model="formulaAssistResult" type="textarea" :rows="3" />
-      </template>
+        <el-input
+          v-model="formulaAssistResult"
+          type="textarea"
+          :rows="formulaAssistTab === 'template' ? 4 : 5"
+          :placeholder="
+            formulaAssistTab === 'template'
+              ? '先选字段，再点模板（如「转大写」）生成公式'
+              : '生成后可手改'
+          "
+        />
+      </div>
       <template #footer>
         <el-button @click="formulaAssistVisible = false">取消</el-button>
         <el-button
@@ -2428,4 +2609,17 @@ onUnmounted(() => {
 <style lang="scss" scoped>
 // as *：与原 @import 的全局作用域语义一致
 @use "./etl.styles/scoped.scss" as *;
+</style>
+
+<style lang="scss">
+/* teleported 到 body，需非 scoped：避免下拉左边框被 dialog/tabs 裁切 */
+.etl-assist-dialog.el-dialog,
+.etl-assist-dialog .el-dialog__body {
+  overflow: visible;
+}
+
+.etl-assist-dialog .el-tabs__content,
+.etl-assist-dialog .el-tab-pane {
+  overflow: visible;
+}
 </style>

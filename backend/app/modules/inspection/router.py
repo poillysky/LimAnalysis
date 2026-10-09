@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from app.core.inspection import (
+    appearance_index_status,
     bootstrap,
     image_response,
     list_appearance_folders,
@@ -11,6 +12,7 @@ from app.core.inspection import (
     load_settings,
     save_settings,
     search_viewer_images,
+    warm_appearance_index,
 )
 from app.core.response import fail, ok
 from app.modules.inspection.schemas import InspectionSettingsIn
@@ -106,6 +108,24 @@ def inspection_viewer_search(
 ):
     try:
         return ok(search_viewer_images(project_id, q, source=source))
+    except ValueError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
+
+
+@router.get("/viewer/appearance-index")
+def inspection_appearance_index(project_id: str):
+    """自动外观 SN 索引状态：生成中 / 已完成 / 未生成。"""
+    try:
+        return ok(appearance_index_status(project_id))
+    except ValueError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
+
+
+@router.post("/viewer/appearance-index/warm")
+def inspection_appearance_index_warm(project_id: str):
+    """进页预热：后台全量建/刷索引，之后只增量。"""
+    try:
+        return ok(warm_appearance_index(project_id))
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
 
