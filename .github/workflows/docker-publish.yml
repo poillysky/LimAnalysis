@@ -13,9 +13,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "镜像标签（如 V1.0.4）"
+        description: "镜像标签（如 V1.0.5）"
         required: true
-        default: "V1.0.4"
+        default: "V1.0.5"
 
 permissions:
   contents: read
@@ -72,12 +72,20 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.user }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
-            ${{ steps.meta.outputs.user }}/${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
+          # 关闭 attestation / SBOM，避免打成 OCI index（旧 Synology load 易解大层失败）
+          provenance: false
+          sbom: false
+          # docker 媒体类型 + gzip，贴近旧引擎可 load 的格式（勿与顶层 push/tags 混用）
+          outputs: |
+            type=image,name=${{ steps.meta.outputs.user }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }},push=true,oci-mediatypes=false,compression=gzip,force-compression=true
+            type=image,name=${{ steps.meta.outputs.user }}/${{ env.IMAGE_NAME }}:latest,push=true,oci-mediatypes=false,compression=gzip,force-compression=true
+          # 优先复用 V1.0.3 已验证可被旧 NAS load 的底层（python/apt/pip）
+          cache-from: |
+            type=registry,ref=${{ steps.meta.outputs.user }}/${{ env.IMAGE_NAME }}:V1.0.3
+            type=gha
           cache-to: type=gha,mode=max
+          # 单平台，避免 index/多架构干扰旧引擎
+          platforms: linux/amd64
 
       - name: Summary
         shell: bash

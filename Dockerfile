@@ -4,6 +4,7 @@
 #   docker run … limanalysis collector
 #   docker run … limanalysis agg
 
+# 与 V1.0.3 相同 FROM 文案，便于 BuildKit 从 V1.0.3 复用底层缓存
 FROM node:20-alpine AS frontend-build
 
 WORKDIR /fe
