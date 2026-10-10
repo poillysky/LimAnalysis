@@ -3,10 +3,12 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   aggOverview,
+  clearAggLogs,
   ensureAggModel,
   getAggSqlPreview,
   generateAggFormula,
   getAggSourceColumns,
+  listAggLogs,
   previewAggData,
   runAgg,
   saveAggConfig,
@@ -17,6 +19,7 @@ import {
   type AggJob,
   type AggModel,
   type AggProjectRow,
+  type AggRunLog,
   type AggScheduler
 } from "@/api/modules/agg";
 import { backendErrorHint } from "@/api/http";
@@ -40,6 +43,9 @@ const schedulerSaving = ref(false);
 const rows = ref<AggProjectRow[]>([]);
 const hint = ref("");
 const activeJobId = ref<number | null>(null);
+const activeTab = ref("config");
+const logs = ref<AggRunLog[]>([]);
+const logsLoading = ref(false);
 const scheduler = reactive<AggScheduler>({
   is_active: false,
   last_run_time: "",
@@ -86,6 +92,17 @@ const enabledCount = computed(
 );
 const configuredCount = computed(
   () => rows.value.filter(r => (r.field_count || 0) > 0 && !r.is_draft).length
+);
+const latestLog = computed(() => logs.value[0] || null);
+const logsStatus = computed(
+  () => latestLog.value?.status || scheduler.last_run_status || ""
+);
+const logsTime = computed(
+  () =>
+    latestLog.value?.ended_at ||
+    latestLog.value?.started_at ||
+    scheduler.last_run_time ||
+    ""
 );
 const fieldFilter = ref("");
 const categoryFilter = ref("all");
@@ -252,8 +269,8 @@ function assignScheduler(data?: Partial<AggScheduler> | null) {
   scheduler.last_run_message = data?.last_run_message || "";
 }
 
-async function load() {
-  loading.value = true;
+async function load(silent = false) {
+  if (!silent) loading.value = true;
   hint.value = "";
   try {
     const res = await aggOverview();
@@ -264,11 +281,73 @@ async function load() {
       job && (job.status === "queued" || job.status === "running")
         ? job.id
         : null;
+    if (activeTab.value === "logs") await loadLogs(true);
   } catch (error) {
-    hint.value = backendErrorHint(error);
+    if (!silent) hint.value = backendErrorHint(error);
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
+}
+
+async function loadLogs(silent = false) {
+  if (!silent) logsLoading.value = true;
+  try {
+    const res = await listAggLogs(50);
+    logs.value = res?.data?.logs || [];
+  } catch (error) {
+    if (!silent) ElMessage.error(backendErrorHint(error));
+  } finally {
+    if (!silent) logsLoading.value = false;
+  }
+}
+
+async function onClearLogs() {
+  if (!logs.value.length) return;
+  try {
+    await ElMessageBox.confirm(
+      "清除全部运行日志？进行中的记录会保留。",
+      "清除日志",
+      { type: "warning" }
+    );
+  } catch {
+    return;
+  }
+  try {
+    const res = await clearAggLogs();
+    ElMessage.success(`已清除 ${res?.data?.deleted ?? 0} 条`);
+    await loadLogs();
+  } catch (error) {
+    ElMessage.error(backendErrorHint(error));
+  }
+}
+
+function dash(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || "—";
+}
+
+function modeLabel(mode: string) {
+  if (mode === "full") return "全量";
+  if (mode === "incremental") return "增量";
+  return mode || "—";
+}
+
+function triggerLabel(trigger: string) {
+  if (trigger === "auto") return "自动";
+  if (trigger === "manual") return "手动";
+  return trigger || "—";
+}
+
+function formatDuration(sec: number) {
+  const n = Number(sec) || 0;
+  if (n < 60) return `${n.toFixed(1)} 秒`;
+  const m = Math.floor(n / 60);
+  const s = Math.round(n % 60);
+  return `${m} 分 ${s} 秒`;
+}
+
+function onTabChange(name: string | number) {
+  if (name === "logs") void loadLogs();
 }
 
 async function onSaveScheduler() {
@@ -596,12 +675,15 @@ async function onRun(opts?: {
       finishRunBar(false, job.message || "聚合失败");
       ElMessage.error(job.message || "聚合失败");
     }
-    await load();
+    await load(true);
+    if (activeTab.value === "logs") await loadLogs(true);
   } catch (error) {
     finishRunBar(false, backendErrorHint(error));
     ElMessage.error(backendErrorHint(error));
   } finally {
     running.value = false;
+    await load(true);
+    if (activeTab.value === "logs") await loadLogs(true);
   }
 }
 
@@ -710,9 +792,6 @@ onUnmounted(stopRunTimers);
     <header v-if="!editorOpen" class="etl-head">
       <div>
         <h2>数据聚合</h2>
-        <p>
-          清洗表明细按时间细度、再按自动外观线体 / 机台 / 模穴 / 模仁 / 本体等维度写成汇总表。默认按小时一组，增量默认回算最近 12 小时，均可在配置里改。
-        </p>
       </div>
       <div class="etl-head__actions">
         <el-button :loading="running" @click="onRunFull()">全量重建全部</el-button>
@@ -740,6 +819,12 @@ onUnmounted(stopRunTimers);
     />
 
     <template v-if="!editorOpen">
+      <el-tabs
+        v-model="activeTab"
+        class="etl-tabs"
+        @tab-change="onTabChange"
+      >
+        <el-tab-pane label="聚合配置" name="config">
       <section class="etl-stats">
         <div class="etl-stat">
           <span class="etl-stat__label">项目</span>
@@ -763,9 +848,6 @@ onUnmounted(stopRunTimers);
         <div class="etl-schedule__head">
           <div>
             <h3>自动聚合</h3>
-            <p>
-              每小时整点跑一轮。细度与回算窗口以各模型配置为准（默认按小时一组、回算最近 12 小时）。请保持聚合服务处于运行状态。
-            </p>
           </div>
           <el-tag
             size="small"
@@ -809,7 +891,6 @@ onUnmounted(stopRunTimers);
         <div class="etl-panel__head">
           <div>
             <h2>项目列表</h2>
-            <p>清洗表 → 按小时汇总表。每小时、每个维度组合一行。</p>
           </div>
         </div>
         <el-table :data="rows" border stripe empty-text="暂无项目" class="etl-list-table">
@@ -897,6 +978,225 @@ onUnmounted(stopRunTimers);
           </el-table-column>
         </el-table>
       </section>
+        </el-tab-pane>
+
+        <el-tab-pane label="运行日志" name="logs">
+          <section class="etl-panel etl-logs-hero">
+            <div class="etl-panel__head">
+              <div>
+                <h2>运行状态</h2>
+              </div>
+              <div class="etl-panel__actions">
+                <el-button
+                  type="primary"
+                  :loading="running"
+                  :disabled="!enabledCount"
+                  @click="onRun()"
+                >
+                  增量聚合全部
+                </el-button>
+                <el-button
+                  :loading="running"
+                  :disabled="!enabledCount"
+                  @click="onRunFull()"
+                >
+                  全量重建全部
+                </el-button>
+                <el-button :loading="logsLoading" @click="loadLogs()">
+                  刷新
+                </el-button>
+              </div>
+            </div>
+            <div class="etl-stats etl-logs-stats">
+              <div
+                class="etl-stat"
+                :class="running || activeJobId ? 'is-busy' : 'is-idle'"
+              >
+                <span class="etl-stat__label">当前状态</span>
+                <strong>{{
+                  running || activeJobId ? "聚合中" : "空闲"
+                }}</strong>
+                <span class="etl-stat__hint">{{
+                  scheduler.is_active ? "整点自动" : "定时关闭"
+                }}</span>
+              </div>
+              <div class="etl-stat">
+                <span class="etl-stat__label">上次结果</span>
+                <strong class="etl-stat__tag">
+                  <el-tag
+                    v-if="logsStatus"
+                    size="small"
+                    :type="statusType(logsStatus)"
+                    effect="light"
+                    round
+                  >
+                    {{ statusLabel(logsStatus) }}
+                  </el-tag>
+                  <span v-else class="muted">尚未运行</span>
+                </strong>
+              </div>
+              <div class="etl-stat">
+                <span class="etl-stat__label">上次时间</span>
+                <strong class="etl-stat__time">{{ dash(logsTime) }}</strong>
+              </div>
+              <div class="etl-stat">
+                <span class="etl-stat__label">可自动跑</span>
+                <strong>
+                  {{ enabledCount }}
+                  <span class="etl-stat__unit">模型</span>
+                </strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="etl-panel" v-loading="logsLoading">
+            <div class="etl-panel__head">
+              <div>
+                <h2>运行日志</h2>
+              </div>
+              <div class="etl-panel__actions">
+                <span class="etl-count">{{ logs.length }} 条记录</span>
+                <el-button :disabled="!logs.length" @click="onClearLogs">
+                  清除日志
+                </el-button>
+              </div>
+            </div>
+
+            <div v-if="!logs.length" class="etl-logs-empty">
+              <div class="etl-logs-empty__title">还没有运行记录</div>
+              <div class="etl-logs-empty__desc">
+                发起一轮聚合，或开启整点自动后，这里会列出每次结果
+              </div>
+              <div class="etl-logs-empty__actions">
+                <el-button
+                  type="primary"
+                  :loading="running"
+                  :disabled="!enabledCount"
+                  @click="onRun()"
+                >
+                  增量聚合全部
+                </el-button>
+              </div>
+            </div>
+
+            <el-table v-else :data="logs" class="etl-list-table etl-logs-table">
+              <el-table-column type="expand">
+                <template #default="{ row }">
+                  <div
+                    v-if="row.detail?.projects?.length"
+                    class="etl-log-projects"
+                  >
+                    <div
+                      v-for="(p, idx) in row.detail.projects"
+                      :key="idx"
+                      class="etl-log-project"
+                    >
+                      <span class="etl-log-project__name">{{
+                        dash(p.project_id || p.target_table)
+                      }}</span>
+                      <span class="etl-num-cell">
+                        写入 {{ Number(p.rows || 0).toLocaleString() }}
+                      </span>
+                      <span class="etl-log-msg">{{ dash(p.message) }}</span>
+                    </div>
+                  </div>
+                  <div
+                    v-if="row.detail?.lines?.length"
+                    class="etl-log-lines"
+                  >
+                    <div
+                      v-for="(line, idx) in row.detail.lines"
+                      :key="idx"
+                      class="etl-log-line"
+                      :class="`is-${line.level || 'info'}`"
+                    >
+                      <span class="etl-log-time">{{ dash(line.time) }}</span>
+                      <span class="etl-log-level">{{
+                        line.level || "info"
+                      }}</span>
+                      <span class="etl-log-msg">{{
+                        dash(line.message)
+                      }}</span>
+                    </div>
+                  </div>
+                  <div
+                    v-if="
+                      !row.detail?.lines?.length && !row.detail?.projects?.length
+                    "
+                    class="muted etl-log-empty"
+                  >
+                    无明细
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="开始" min-width="160">
+                <template #default="{ row }">
+                  <span class="etl-time-cell">{{
+                    dash(row.started_at)
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="结束" min-width="160">
+                <template #default="{ row }">
+                  <span class="etl-time-cell">{{
+                    dash(row.ended_at)
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="来源" width="96" align="center">
+                <template #default="{ row }">
+                  <el-tag size="small" effect="plain" round>
+                    {{ triggerLabel(row.trigger) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="模式" width="96" align="center">
+                <template #default="{ row }">
+                  <el-tag
+                    size="small"
+                    :type="row.run_mode === 'full' ? 'warning' : 'primary'"
+                    effect="light"
+                    round
+                  >
+                    {{ modeLabel(row.run_mode) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="100" align="center">
+                <template #default="{ row }">
+                  <el-tag
+                    size="small"
+                    :type="statusType(row.status)"
+                    effect="light"
+                    round
+                  >
+                    {{ statusLabel(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="写入行数" width="110" align="right">
+                <template #default="{ row }">
+                  <span class="etl-num-cell">{{
+                    Number(row.rows_affected || 0).toLocaleString()
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="耗时" width="100" align="right">
+                <template #default="{ row }">
+                  <span class="etl-num-cell">{{
+                    formatDuration(row.duration)
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="说明" min-width="220">
+                <template #default="{ row }">
+                  <span class="msg-cell">{{ dash(row.message) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+        </el-tab-pane>
+      </el-tabs>
     </template>
 
     <section v-else class="etl-panel etl-editor" v-loading="editorLoading">
@@ -1161,7 +1461,6 @@ onUnmounted(stopRunTimers);
           </el-table-column>
         </el-table>
       </div>
-      <p class="etl-tip">预览取清洗表里最新有数据的 1 小时，不按当前时刻截断。</p>
     </section>
 
     <el-dialog v-model="previewOpen" :title="previewLive ? '预览' : '汇总表'" width="86%">

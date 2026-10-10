@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { ElMessage } from "element-plus";
 import type { UploadFile } from "element-plus";
@@ -103,22 +103,17 @@ async function loadBootstrap(id = "") {
   }
 }
 
-async function loadScans() {
-  listAbort?.abort();
-  listAbort = new AbortController();
-  try {
-    const res = await listDefectScans(
-      {
-        project_id: projectId.value || undefined,
-        defect_item: defectItem.value || undefined
-      },
-      listAbort.signal
-    );
-    ops.value = res?.data?.ops || [];
-  } catch (error) {
-    hint.value = backendErrorHint(error);
-  }
-}
+	async function loadScans() {
+	  listAbort?.abort();
+	  listAbort = new AbortController();
+	  try {
+	    // 操作记录独立于当前项目/次品项选择，始终拉全部
+	    const res = await listDefectScans({}, listAbort.signal);
+	    ops.value = res?.data?.ops || [];
+	  } catch (error) {
+	    hint.value = backendErrorHint(error);
+	  }
+	}
 
 async function onProjectChange(id: string) {
   await loadBootstrap(id);
@@ -172,11 +167,7 @@ async function onUploadFile(upload: UploadFile) {
   }
 }
 
-watch(defectItem, () => {
-  void loadScans();
-});
-
-onMounted(async () => {
+	onMounted(async () => {
   await loadBootstrap();
   await loadScans();
   focusScan();

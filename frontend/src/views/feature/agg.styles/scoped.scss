@@ -87,6 +87,7 @@
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 12px;
   background: var(--el-bg-color);
+  text-align: center;
 }
 .etl-stat__label {
   display: block;
@@ -95,8 +96,147 @@
   color: var(--el-text-color-secondary);
 }
 .etl-stat strong {
+  display: block;
   font-size: var(--la-text-xl);
   font-weight: 650;
+}
+.etl-stat.is-busy {
+  border-color: color-mix(
+    in srgb,
+    var(--el-color-warning) 40%,
+    var(--el-border-color)
+  );
+  background: color-mix(
+    in srgb,
+    var(--el-color-warning) 8%,
+    var(--el-bg-color)
+  );
+}
+.etl-stat.is-idle {
+  background: var(--el-fill-color-lighter);
+}
+.etl-stat__hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.etl-stat__unit {
+  margin-left: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-text-color-secondary);
+}
+.etl-stat__time {
+  font-size: 15px !important;
+  font-variant-numeric: tabular-nums;
+}
+.etl-stat__tag {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+.etl-tabs {
+  margin-top: 4px;
+}
+.etl-logs-hero {
+  margin-bottom: 14px;
+}
+.etl-logs-stats {
+  margin-bottom: 0;
+}
+.etl-logs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 16px;
+  text-align: center;
+}
+.etl-logs-empty__title {
+  font-size: 15px;
+  font-weight: 650;
+}
+.etl-logs-empty__desc {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.etl-logs-empty__actions {
+  margin-top: 8px;
+}
+.etl-count {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.etl-time-cell,
+.etl-num-cell {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.etl-log-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 4px;
+  font-size: 12px;
+}
+.etl-log-project {
+  display: grid;
+  grid-template-columns: minmax(100px, 1.2fr) 110px minmax(0, 2fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--el-fill-color-lighter);
+}
+.etl-log-project__name {
+  font-weight: 600;
+}
+.etl-log-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.etl-log-line {
+  display: grid;
+  grid-template-columns: 150px 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.etl-log-time {
+  color: var(--el-text-color-secondary);
+}
+.etl-log-level {
+  font-weight: 650;
+  text-transform: uppercase;
+}
+.etl-log-msg {
+  word-break: break-word;
+}
+.etl-log-empty {
+  padding: 8px 12px;
+}
+.etl-log-line.is-error .etl-log-level,
+.etl-log-line.is-error {
+  color: var(--el-color-danger);
+}
+.etl-log-line.is-success .etl-log-level {
+  color: var(--el-color-success);
+}
+.msg-cell {
+  color: var(--el-text-color-regular);
+  line-height: 1.45;
 }
 .etl-schedule {
   margin-bottom: 14px;
@@ -215,8 +355,14 @@
 .etl-panel__actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-shrink: 0;
+}
+.etl-panel__actions .etl-count {
+  font-variant-numeric: tabular-nums;
+  line-height: 32px;
 }
 .etl-config-bar {
   margin-bottom: 8px;

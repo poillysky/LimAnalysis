@@ -345,10 +345,10 @@ def _upsert_dwh(
     target_table: str,
     unique_key: str,
     type_map: dict[str, str] | None = None,
-) -> int:
-    """按唯一键 UPSERT，不删清洗表。列类型按模型 field_type。"""
+) -> dict[str, int]:
+    """按唯一键 UPSERT，不删清洗表。返回写入/新增/更新行数。"""
     if not rows:
-        return 0
+        return {"rows": 0, "rows_inserted": 0, "rows_updated": 0}
     table_i = ident(target_table)
     pk = ident(unique_key)
     types = dict(type_map or {})
@@ -392,7 +392,9 @@ def _upsert_dwh(
         updates = ", ".join(
             f"{q(c)} = EXCLUDED.{q(c)}" for c in columns if c != pk
         )
+        # DO UPDATE 才能用 xmax=0 区分新增/更新；仅 PK 时退回 DO NOTHING
         conflict = f"DO UPDATE SET {updates}" if updates else "DO NOTHING"
+        returning = " RETURNING (xmax = 0) AS inserted" if updates else ""
         raw = conn.connection.driver_connection
         with raw.cursor() as cur:
             cur.execute(f"DROP TABLE IF EXISTS {q(temp)}")
@@ -407,10 +409,23 @@ def _upsert_dwh(
                 SELECT DISTINCT ON ({q(pk)}) {col_sql}
                 FROM {q(temp)}
                 ORDER BY {q(pk)}{order_extra}
-                ON CONFLICT ({q(pk)}) {conflict}
+                ON CONFLICT ({q(pk)}) {conflict}{returning}
                 """
             )
-    return len(rows)
+            if updates:
+                flags = cur.fetchall()
+                inserted = sum(1 for (flag,) in flags if flag)
+                updated = len(flags) - inserted
+                return {
+                    "rows": len(flags),
+                    "rows_inserted": inserted,
+                    "rows_updated": updated,
+                }
+    return {
+        "rows": len(rows),
+        "rows_inserted": len(rows),
+        "rows_updated": 0,
+    }
 
 
 def execute_model(model_id: int, *, full_refresh: bool = False) -> dict:
@@ -462,10 +477,17 @@ def execute_model(model_id: int, *, full_refresh: bool = False) -> dict:
         params = {"etl_wm": watermark} if (can_incremental and watermark) else {}
         columns, records = _fetch_rows(run_sql, params)
         if mode == "incremental":
-            rows = _upsert_dwh(columns, records, target, unique_key, type_map)
-            msg = f"增量写入 {target}（{rows:,} 行）"
+            write = _upsert_dwh(columns, records, target, unique_key, type_map)
+            rows = int(write["rows"])
+            inserted = int(write["rows_inserted"])
+            updated = int(write["rows_updated"])
+            msg = (
+                f"增量写入 {target}（{rows:,} 行，新增 {inserted:,} / 更新 {updated:,}）"
+            )
         else:
             rows = _rebuild_dwh(columns, records, target, unique_key, type_map)
+            inserted = rows
+            updated = 0
             msg = f"全量重建 {target}（{rows:,} 行）"
         _touch_project_summary(model["project_id"], True, rows, msg)
         touch_model_run(model_id, ok=True, rows=rows, message=msg)
@@ -480,6 +502,8 @@ def execute_model(model_id: int, *, full_refresh: bool = False) -> dict:
             "watermark": watermark or "",
             "source_rows": len(records),
             "rows": rows,
+            "rows_inserted": inserted,
+            "rows_updated": updated,
             "duration": round(time.time() - started, 3),
             "message": msg,
         }
@@ -523,6 +547,8 @@ def execute_all_enabled(*, full_refresh: bool = False) -> dict:
         "projects": results,
         "errors": errors,
         "total_rows": sum(int(r.get("rows") or 0) for r in results),
+        "total_inserted": sum(int(r.get("rows_inserted") or 0) for r in results),
+        "total_updated": sum(int(r.get("rows_updated") or 0) for r in results),
     }
 
 

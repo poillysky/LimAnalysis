@@ -414,13 +414,13 @@ def _frame_to_value_rows(frame: pd.DataFrame, columns: list[str]) -> list[list]:
 
 def _execute_batches(
     engine, table: str, columns: list[str], pk: str, rows: list[list]
-) -> None:
+) -> dict[str, int]:
     """
     COPY 进临时表，再一次 INSERT … SELECT … ON CONFLICT。
-    比逐行/多 VALUES 往返快很多。
+    返回写入/新增/更新行数（xmax=0 为新增）。
     """
     if not rows:
-        return
+        return {"rows": 0, "rows_inserted": 0, "rows_updated": 0}
     col_sql = ", ".join(q(col) for col in columns)
     conflict = _conflict_clause(columns, pk)
     temp = f"_stg_{ident(table)}"[:60]
@@ -439,13 +439,23 @@ def _execute_batches(
                 SELECT {col_sql}, now()
                 FROM {q(temp)}
                 ON CONFLICT ({q(pk)}) {conflict}
+                RETURNING (xmax = 0) AS inserted
                 """
             )
+            flags = cur.fetchall()
+    inserted = sum(1 for (flag,) in flags if flag)
+    updated = len(flags) - inserted
+    return {
+        "rows": len(flags),
+        "rows_inserted": inserted,
+        "rows_updated": updated,
+    }
 
 
 def upsert_dataframe(frame: pd.DataFrame, prefix: str, project_id: str) -> dict:
+    empty = {"total": 0, "unique": 0, "rows_inserted": 0, "rows_updated": 0}
     if frame.empty:
-        return {"total": 0, "unique": 0}
+        return empty
     pk_src = unique_column(frame)
     frame = frame.copy()
     # 先丢掉空白唯一键，再 ffill，避免文件开头空行被填成脏数据
@@ -457,7 +467,7 @@ def upsert_dataframe(frame: pd.DataFrame, prefix: str, project_id: str) -> dict:
         & pk_series.str.lower().ne("none")
     ].copy()
     if frame.empty:
-        return {"total": 0, "unique": 0}
+        return empty
     frame[pk_src] = frame[pk_src].astype(str).str.strip()
     frame = frame.drop_duplicates(subset=[pk_src], keep="last")
 
@@ -486,7 +496,7 @@ def upsert_dataframe(frame: pd.DataFrame, prefix: str, project_id: str) -> dict:
         logger.info("removed %s empty-key rows from %s", purged, table)
     rows = _frame_to_value_rows(frame, columns)
     try:
-        _execute_batches(engine, table, columns, pk, rows)
+        write = _execute_batches(engine, table, columns, pk, rows)
     except Exception as exc:
         msg = str(exc)
         if "DuplicateColumn" in msg or "specified more than once" in msg:
@@ -506,7 +516,7 @@ def upsert_dataframe(frame: pd.DataFrame, prefix: str, project_id: str) -> dict:
             drop_competing_unique_indexes(engine, table, pk)
             ensure_conflict_target(engine, table, pk)
             try:
-                _execute_batches(engine, table, columns, pk, rows)
+                write = _execute_batches(engine, table, columns, pk, rows)
             except Exception as retry_exc:
                 raise RuntimeError(
                     f"入库失败：唯一键 {pk} 冲突。"
@@ -515,8 +525,10 @@ def upsert_dataframe(frame: pd.DataFrame, prefix: str, project_id: str) -> dict:
         else:
             raise
     return {
-        "total": len(rows),
+        "total": int(write.get("rows") or len(rows)),
         "unique": int(frame[pk].nunique()),
+        "rows_inserted": int(write.get("rows_inserted") or 0),
+        "rows_updated": int(write.get("rows_updated") or 0),
         "table": table,
         "unique_key": pk,
         "dropped_columns": dropped,

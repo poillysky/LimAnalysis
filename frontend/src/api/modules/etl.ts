@@ -124,11 +124,15 @@ export type EtlRunLog = {
   status: string;
   message: string;
   rows_affected: number;
+  rows_inserted?: number;
+  rows_updated?: number;
   duration: number;
   job_id: number;
   detail?: {
     lines?: EtlLogLine[];
     projects?: Record<string, unknown>[];
+    rows_inserted?: number;
+    rows_updated?: number;
   };
 };
 

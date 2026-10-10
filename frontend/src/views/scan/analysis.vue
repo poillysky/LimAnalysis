@@ -134,8 +134,9 @@ function buildPivot(
       const cell = cells.get(axis);
       const qty = cell?.qty ?? 0;
       const ng = cell?.ng ?? 0;
-      qtyCells[axis] = cell ? qty : null;
-      rateCells[axis] = cell ? rateOf(qty, ng) : null;
+      qtyCells[axis] = cell && qty > 0 ? qty : null;
+      rateCells[axis] = cell && qty > 0 ? rateOf(qty, ng) : null;
+      if (qty <= 0) continue;
       totalQty += qty;
       totalNg += ng;
       const g = grandAxis.get(axis) || { qty: 0, ng: 0 };
@@ -143,6 +144,7 @@ function buildPivot(
       g.ng += ng;
       grandAxis.set(axis, g);
     }
+    if (totalQty <= 0) continue;
     grandQty += totalQty;
     grandNg += totalNg;
     const qtyMap: Record<string, number> = {};

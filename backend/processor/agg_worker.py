@@ -109,10 +109,15 @@ def start_agg_scheduler() -> None:
 
 def _handle(job: dict) -> None:
     from collector.jobs import JOB_ETL_AGG, STATUS_FAILED, STATUS_SUCCESS, finish_job
+    from processor.agg_logs import create_agg_log, finish_agg_log, log_line
     from processor.agg_runner import execute_agg
 
     job_id = int(job["id"])
     payload = job.get("payload") or {}
+    trigger = str(payload.get("trigger") or "manual")
+    full_refresh = bool(payload.get("full_refresh"))
+    run_mode = "full" if full_refresh else "incremental"
+    log_id: int | None = None
     try:
         if job.get("job_type") != JOB_ETL_AGG:
             finish_job(
@@ -121,24 +126,58 @@ def _handle(job: dict) -> None:
                 message=f"unknown job_type: {job.get('job_type')}",
             )
             return
+        log_id = create_agg_log(
+            trigger=trigger,
+            run_mode=run_mode,
+            job_id=job_id,
+            message="聚合进行中",
+        )
         result = execute_agg(
             project_id=payload.get("project_id"),
             model_id=payload.get("model_id"),
             all_enabled=bool(payload.get("all_enabled")),
-            full_refresh=bool(payload.get("full_refresh")),
+            full_refresh=full_refresh,
             backfill_hours=payload.get("backfill_hours"),
         )
         ok = bool(result.get("ok", True))
+        rows = int(result.get("total_rows") or result.get("rows") or 0)
+        msg = str(
+            result.get("message")
+            or (f"聚合完成，写入 {rows} 行" if ok else "聚合失败")
+        )[:500]
+        lines = list(result.get("execution_logs") or [])
+        projects = list(result.get("projects") or [])
+        if not projects and result.get("project_id"):
+            projects = [
+                {
+                    "project_id": result.get("project_id"),
+                    "target_table": result.get("target_table"),
+                    "rows": rows,
+                    "message": result.get("message") or msg,
+                }
+            ]
+        finish_agg_log(
+            log_id,
+            status="success" if ok else "failed",
+            message=msg,
+            rows_affected=rows,
+            duration=float(result.get("duration") or 0),
+            lines=lines,
+            projects=projects,
+            run_mode=str(result.get("run_mode") or result.get("mode") or run_mode),
+        )
+        job_result = {
+            k: v for k, v in result.items() if k != "execution_logs"
+        }
         finish_job(
             job_id,
             status=STATUS_SUCCESS if ok else STATUS_FAILED,
-            message="etl agg done",
-            result=result,
+            message=msg,
+            result=job_result,
         )
-        if str(payload.get("trigger") or "") == "auto":
+        if trigger == "auto":
             from app.core.agg_config import patch_agg_config
 
-            rows = result.get("total_rows") or result.get("rows") or 0
             patch_agg_config(
                 {
                     "last_run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -153,12 +192,22 @@ def _handle(job: dict) -> None:
         logger.info(
             "job #%s etl_agg ok mode=%s rows=%s full_refresh=%s",
             job_id,
-            result.get("mode"),
-            result.get("rows") or result.get("total_rows"),
-            payload.get("full_refresh"),
+            result.get("mode") or result.get("run_mode"),
+            rows,
+            full_refresh,
         )
     except Exception as exc:
         logger.exception("job #%s failed", job_id)
+        if log_id is not None:
+            finish_agg_log(
+                log_id,
+                status="failed",
+                message=str(exc)[:500],
+                rows_affected=0,
+                duration=0,
+                lines=[log_line("error", str(exc)[:500])],
+                run_mode=run_mode,
+            )
         finish_job(
             job_id,
             status=STATUS_FAILED,

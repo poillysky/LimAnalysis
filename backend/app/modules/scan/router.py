@@ -97,6 +97,8 @@ def scan_create(body: DefectScanCreate):
         return ok(record_scan(body.project_id, body.defect_item, body.sn))
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
+    except Exception as exc:
+        return JSONResponse(fail(f"上传失败: {exc}"), status_code=500)
 
 
 @router.post("/defect/scans/batch")
@@ -105,6 +107,8 @@ def scan_batch(body: DefectScanBatchIn):
         return ok(record_scans(body.project_id, body.defect_item, body.sns))
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
+    except Exception as exc:
+        return JSONResponse(fail(f"上传失败: {exc}"), status_code=500)
 
 
 @router.post("/defect/scans/import")
@@ -125,3 +129,5 @@ async def scan_import(
         )
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
+    except Exception as exc:
+        return JSONResponse(fail(f"上传失败: {exc}"), status_code=500)

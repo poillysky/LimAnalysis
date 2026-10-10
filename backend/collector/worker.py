@@ -50,26 +50,73 @@ def _handle(job: dict) -> None:
     payload = job.get("payload") or {}
     try:
         if job_type == JOB_DISK_CLEANUP:
+            import time
             from datetime import datetime
 
             from app.core.disk_cleanup import patch_disk_cleanup_config, run_cleanup
+            from app.core.disk_cleanup_logs import (
+                create_disk_cleanup_log,
+                finish_disk_cleanup_log,
+            )
 
+            trigger = str(payload.get("trigger") or "manual")
+            log_id = create_disk_cleanup_log(
+                trigger=trigger,
+                job_id=job_id,
+                message="清理进行中",
+            )
+            t0 = time.time()
             try:
                 result = run_cleanup()
             except Exception as exc:
+                msg = str(exc)[:500]
                 patch_disk_cleanup_config(
                     {
                         "last_run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "last_run_status": "failed",
-                        "last_run_message": str(exc)[:500],
+                        "last_run_message": msg,
                     }
+                )
+                finish_disk_cleanup_log(
+                    log_id,
+                    status="failed",
+                    message=msg,
+                    duration=round(time.time() - t0, 3),
+                    detail={"error": msg},
                 )
                 raise
             ok = bool(result.get("ok", True))
+            msg = str(result.get("message") or "disk cleanup done")[:500]
+            detail = {
+                k: result.get(k)
+                for k in (
+                    "deleted_rows",
+                    "deleted_files",
+                    "db_retention_days",
+                    "image_retention_days",
+                    "meta_prune",
+                    "errors",
+                    "raw_ok",
+                    "dwh_ok",
+                    "defect_ok",
+                    "images_mold_files",
+                    "images_appearance_files",
+                )
+                if k in result
+            }
+            finish_disk_cleanup_log(
+                log_id,
+                status="success" if ok else "failed",
+                message=msg,
+                deleted_rows=int(result.get("deleted_rows") or 0),
+                deleted_files=int(result.get("deleted_files") or 0),
+                duration=round(time.time() - t0, 3),
+                detail=detail,
+            )
             finish_job(
                 job_id,
                 status=STATUS_SUCCESS if ok else STATUS_FAILED,
-                message=str(result.get("message") or "disk cleanup done")[:500],
+                message=msg,
                 result=result,
             )
             logger.info(
@@ -101,21 +148,46 @@ def _handle(job: dict) -> None:
                 )
                 ok = bool(result.get("ok", True))
                 rows = int(result.get("total_rows") or result.get("rows") or 0)
-                msg = str(
-                    result.get("message")
-                    or (
+                inserted = int(
+                    result.get("total_inserted")
+                    or result.get("rows_inserted")
+                    or 0
+                )
+                updated = int(
+                    result.get("total_updated")
+                    or result.get("rows_updated")
+                    or 0
+                )
+                if ok and not result.get("message") and rows:
+                    msg = (
                         f"清洗完成，写入 {rows} 行"
-                        if ok
-                        else "清洗失败"
+                        + (f"（新增 {inserted} / 更新 {updated}）" if updated or inserted else "")
                     )
-                )[:500]
+                else:
+                    msg = str(
+                        result.get("message")
+                        or ("清洗完成" if ok else "清洗失败")
+                    )[:500]
                 lines = list(result.get("execution_logs") or [])
                 projects = list(result.get("projects") or [])
+                if not projects and result.get("project_id"):
+                    projects = [
+                        {
+                            "project_id": result.get("project_id"),
+                            "target_table": result.get("target_table"),
+                            "rows": rows,
+                            "rows_inserted": inserted,
+                            "rows_updated": updated,
+                            "message": result.get("message") or msg,
+                        }
+                    ]
                 finish_etl_log(
                     log_id,
                     status="success" if ok else "failed",
                     message=msg,
                     rows_affected=rows,
+                    rows_inserted=inserted,
+                    rows_updated=updated,
                     duration=float(result.get("duration") or 0),
                     lines=lines,
                     projects=projects,

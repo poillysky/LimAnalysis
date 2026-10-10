@@ -103,6 +103,20 @@ def overview():
     )
 
 
+@router.get("/logs")
+def get_logs(limit: int = 50):
+    from processor.agg_logs import list_agg_logs
+
+    return ok({"logs": list_agg_logs(limit=limit)})
+
+
+@router.delete("/logs")
+def remove_logs():
+    from processor.agg_logs import clear_agg_logs
+
+    return ok(clear_agg_logs())
+
+
 @router.get("/scheduler")
 def get_scheduler():
     from app.core.agg_config import load_agg_config

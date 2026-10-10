@@ -134,8 +134,12 @@ export const runSfcNow = () => {
   );
 };
 
-export const clearSfcLogs = () => {
-  return http.request("delete", `${API_PREFIX}/sfc/logs`);
+export const clearSfcLogs = (force = false) => {
+  return http.request<{ success: boolean; data: { deleted: number; forced?: boolean } }>(
+    "delete",
+    `${API_PREFIX}/sfc/logs`,
+    { params: force ? { force: true } : undefined }
+  );
 };
 
 export const uploadSfcCsv = (projectId: string, file: File) => {

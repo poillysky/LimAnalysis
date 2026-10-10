@@ -6,6 +6,7 @@ export type DiskPathDetail = {
   path?: string;
   dir_bytes?: number | null;
   dir_files?: number | null;
+  dir_bytes_truncated?: boolean;
   exists?: boolean;
   error?: string | null;
 };
@@ -20,6 +21,7 @@ export type DiskPathUsage = {
   used_pct: number | null;
   dir_bytes: number | null;
   dir_files: number | null;
+  dir_bytes_truncated?: boolean;
   total_label?: string;
   used_label?: string;
   free_label?: string;
@@ -87,4 +89,33 @@ export const runDiskCleanup = () => {
       status: string;
     };
   }>("post", `${API_PREFIX}/system/disk-cleanup/run`);
+};
+
+export type DiskCleanupLog = {
+  id: number;
+  started_at: string;
+  ended_at: string;
+  trigger: string;
+  status: string;
+  message: string;
+  deleted_rows: number;
+  deleted_files: number;
+  duration: number;
+  job_id: number;
+  detail?: Record<string, unknown>;
+};
+
+export const listDiskCleanupLogs = (limit = 50) => {
+  return http.request<{ success: boolean; data: { logs: DiskCleanupLog[] } }>(
+    "get",
+    `${API_PREFIX}/system/disk-cleanup/logs`,
+    { params: { limit } }
+  );
+};
+
+export const clearDiskCleanupLogs = () => {
+  return http.request<{ success: boolean; data: { deleted: number } }>(
+    "delete",
+    `${API_PREFIX}/system/disk-cleanup/logs`
+  );
 };

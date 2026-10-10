@@ -35,9 +35,13 @@ type LogRow = {
   project_name?: string;
   account?: string;
   rows_affected?: number;
+  rows_inserted?: number;
+  rows_updated?: number;
   duration?: number;
   detail?: {
     lines?: { time: string; level: string; message: string }[];
+    rows_inserted?: number;
+    rows_updated?: number;
   };
 };
 
@@ -110,6 +114,8 @@ const uploadFile = ref<File | null>(null);
 const uploading = ref(false);
 const uploadResult = ref<{
   rows: number;
+  rows_inserted?: number;
+  rows_updated?: number;
   table: string;
   display_name: string;
 } | null>(null);
@@ -311,22 +317,53 @@ async function onClearLogs() {
     ElMessage.info("暂无日志可清除");
     return;
   }
+  const hasRunningRow = logs.value.some(item => item.status === "running");
+  const busy = running.value || hasRunningRow;
   try {
-    await ElMessageBox.confirm(
-      "清除全部运行日志？进行中的记录会保留。",
-      "确认",
-      { type: "warning" }
-    );
-  } catch {
-    return;
-  }
-  try {
-    const res = await clearSfcLogs();
-    const deleted =
-      (res as { data?: { deleted?: number } })?.data?.deleted ?? 0;
-    ElMessage.success(deleted ? `已清除 ${deleted} 条` : "已清除");
+    if (busy) {
+      await ElMessageBox.confirm(
+        "检测到「采集中」或任务未结束。中途清日志容易留下死记录。\n\n选「强制清除」可删掉含进行中的全部日志（推荐用于死记录）。",
+        "采集未结束",
+        {
+          type: "warning",
+          confirmButtonText: "强制清除",
+          cancelButtonText: "取消"
+        }
+      );
+      const res = await clearSfcLogs(true);
+      const deleted = res?.data?.deleted ?? 0;
+      ElMessage.success(deleted ? `已强制清除 ${deleted} 条` : "已清除");
+    } else {
+      await ElMessageBox.confirm("清除全部运行日志？", "确认", {
+        type: "warning"
+      });
+      const res = await clearSfcLogs(false);
+      const deleted = res?.data?.deleted ?? 0;
+      ElMessage.success(deleted ? `已清除 ${deleted} 条` : "已清除");
+    }
     await load();
   } catch (error) {
+    if (error === "cancel" || error === "close") return;
+    // 默认清除撞上进行中 → 提示后可再强制
+    const status = (error as { response?: { status?: number } })?.response
+      ?.status;
+    if (status === 409) {
+      try {
+        await ElMessageBox.confirm(
+          `${backendErrorHint(error)}\n\n是否强制清除？`,
+          "无法清除",
+          { type: "warning", confirmButtonText: "强制清除" }
+        );
+        const res = await clearSfcLogs(true);
+        ElMessage.success(
+          res?.data?.deleted ? `已强制清除 ${res.data.deleted} 条` : "已清除"
+        );
+        await load();
+      } catch {
+        /* cancel */
+      }
+      return;
+    }
     ElMessage.error(backendErrorHint(error));
   }
 }
@@ -427,13 +464,18 @@ async function onUpload() {
       return;
     }
     const result = job.result || {};
+    const rows = Number(result.rows || 0);
+    const inserted = Number(result.rows_inserted || 0);
+    const updated = Number(result.rows_updated || 0);
     uploadResult.value = {
-      rows: Number(result.rows || 0),
+      rows,
+      rows_inserted: inserted,
+      rows_updated: updated,
       table: String(result.table || ""),
       display_name: String(result.display_name || "")
     };
     ElMessage.success(
-      `已入库 ${uploadResult.value.rows} 行 → ${uploadResult.value.table}`
+      `已入库 ${rows} 行（新增 ${inserted} / 更新 ${updated}） → ${uploadResult.value.table}`
     );
     await load(true);
   } catch (error) {
@@ -854,6 +896,13 @@ onUnmounted(() => {
                 }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="更新" width="96" align="right">
+              <template #default="{ row }">
+                <span class="time-cell">{{
+                  Number(row.rows_updated || 0).toLocaleString()
+                }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="耗时" width="96" align="right">
               <template #default="{ row }">
                 <span class="time-cell">{{
@@ -1208,7 +1257,12 @@ onUnmounted(() => {
               <div class="upload-result__body">
                 <span>{{ uploadResult.display_name }}</span>
                 <strong>{{ uploadResult.rows.toLocaleString() }}</strong>
-                <span>行 →</span>
+                <span>
+                  行（新增
+                  {{ Number(uploadResult.rows_inserted || 0).toLocaleString() }}
+                  / 更新
+                  {{ Number(uploadResult.rows_updated || 0).toLocaleString() }}）→
+                </span>
                 <code class="code-chip">{{ uploadResult.table }}</code>
               </div>
             </div>

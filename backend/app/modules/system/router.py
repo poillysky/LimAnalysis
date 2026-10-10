@@ -356,6 +356,20 @@ def disk_cleanup_run():
     return ok(result)
 
 
+@router.get("/disk-cleanup/logs")
+def disk_cleanup_logs(limit: int = 50):
+    from app.core.disk_cleanup_logs import list_disk_cleanup_logs
+
+    return ok({"logs": list_disk_cleanup_logs(limit=limit)})
+
+
+@router.delete("/disk-cleanup/logs")
+def disk_cleanup_logs_clear():
+    from app.core.disk_cleanup_logs import clear_disk_cleanup_logs
+
+    return ok(clear_disk_cleanup_logs())
+
+
 @router.get("/db/{target}/info")
 def db_target_info(target: str):
     try:

@@ -101,6 +101,8 @@ def _finish_log(
     message: str,
     lines: list[dict] | None = None,
     rows_affected: int = 0,
+    rows_inserted: int = 0,
+    rows_updated: int = 0,
     duration: float = 0.0,
     account: str | None = None,
 ) -> None:
@@ -110,7 +112,11 @@ def _finish_log(
         "message": str(message or "")[:500],
         "rows_affected": int(rows_affected or 0),
         "duration": float(duration or 0.0),
-        "detail": {"lines": list(lines or [])[-200:]},
+        "detail": {
+            "lines": list(lines or [])[-200:],
+            "rows_inserted": int(rows_inserted or 0),
+            "rows_updated": int(rows_updated or 0),
+        },
     }
     if account is not None:
         fields["account"] = str(account or "")[:80]
@@ -146,37 +152,90 @@ def list_recent_logs(limit: int = 50) -> list[dict]:
             .order_by(MetaSfcLog.id.desc())
             .limit(max(1, min(200, int(limit or 50))))
         ).all()
-        return [
-            {
-                "id": row.id,
-                "started_at": row.started_at,
-                "ended_at": row.ended_at,
-                "trigger": row.trigger,
-                "status": row.status,
-                "message": row.message,
-                "project_id": getattr(row, "project_id", "") or "",
-                "project_name": getattr(row, "project_name", "") or "",
-                "account": getattr(row, "account", "") or "",
-                "rows_affected": int(getattr(row, "rows_affected", 0) or 0),
-                "duration": float(getattr(row, "duration", 0) or 0),
-                "detail": row.detail or {},
-            }
-            for row in rows
-        ]
+        out = []
+        for row in rows:
+            detail = dict(row.detail or {})
+            out.append(
+                {
+                    "id": row.id,
+                    "started_at": row.started_at,
+                    "ended_at": row.ended_at,
+                    "trigger": row.trigger,
+                    "status": row.status,
+                    "message": row.message,
+                    "project_id": getattr(row, "project_id", "") or "",
+                    "project_name": getattr(row, "project_name", "") or "",
+                    "account": getattr(row, "account", "") or "",
+                    "rows_affected": int(getattr(row, "rows_affected", 0) or 0),
+                    "rows_inserted": int(detail.get("rows_inserted") or 0),
+                    "rows_updated": int(detail.get("rows_updated") or 0),
+                    "duration": float(getattr(row, "duration", 0) or 0),
+                    "detail": detail,
+                }
+            )
+        return out
     finally:
         db.close()
 
 
-def clear_logs() -> dict:
-    """清除采集日志。进行中的记录保留，避免打断当前任务展示。"""
+def _fail_orphan_running_logs(message: str = "采集中断（残留）") -> int:
+    """把库里仍标 running、但已无对应任务的日志收成 failed。"""
+    init_meta_store()
+    now = _now()
+    msg = str(message or "采集中断（残留）")[:500]
+    db = MetaSession()
+    try:
+        rows = db.scalars(
+            select(MetaSfcLog).where(MetaSfcLog.status == "running")
+        ).all()
+        if not rows:
+            return 0
+        for row in rows:
+            row.status = "failed"
+            row.ended_at = now
+            row.message = msg
+            try:
+                started = datetime.strptime(str(row.started_at), "%Y-%m-%d %H:%M:%S")
+                row.duration = round((datetime.now() - started).total_seconds(), 3)
+            except Exception:
+                pass
+        db.commit()
+        return len(rows)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def clear_logs(*, force: bool = False) -> dict:
+    """清除采集日志。
+
+    默认：采集任务仍在排队/执行时拒绝清除（避免中途清日志留下「采集中」死记录）。
+    force=True：先把 running 收成 failed，再全部删除（用于清死记录或强制清空）。
+    """
+    from collector.jobs import JOB_CRAWL, find_active_job
+
+    config = load_sfc_config()
+    active = find_active_job(JOB_CRAWL)
+    # 以任务队列为准；孤立 is_running 视为假死
+    if bool(config.get("is_running")) and not active:
+        patch_sfc_config({"is_running": False})
+    live = bool(active)
+    if live and not force:
+        raise ValueError(
+            "采集仍在进行，请等结束后再清日志；"
+            "若确认是死记录，请使用强制清除"
+        )
+    _fail_orphan_running_logs(
+        "强制清除日志" if force else "清除日志：残留采集中已失效"
+    )
     init_meta_store()
     db = MetaSession()
     try:
-        result = db.execute(
-            delete(MetaSfcLog).where(MetaSfcLog.status != "running")
-        )
+        result = db.execute(delete(MetaSfcLog))
         db.commit()
-        return {"deleted": int(result.rowcount or 0)}
+        return {"deleted": int(result.rowcount or 0), "forced": bool(force)}
     except Exception:
         db.rollback()
         raise
@@ -243,12 +302,14 @@ def crawl_all(trigger: str = "manual") -> dict:
 
 
 def clear_stale_running() -> None:
-    """进程重启后清掉残留的 is_running，避免任务永久假死。"""
+    """进程重启后清掉残留 is_running，并把「采集中」死日志收成 failed。"""
     config = load_sfc_config()
-    if not config.get("is_running"):
-        return
-    patch_sfc_config({"is_running": False})
-    logger.warning("已清除残留的 is_running 标记")
+    if config.get("is_running"):
+        patch_sfc_config({"is_running": False})
+        logger.warning("已清除残留的 is_running 标记")
+    closed = _fail_orphan_running_logs("Worker 重启，残留采集中断")
+    if closed:
+        logger.warning("已关闭 %s 条残留「采集中」日志", closed)
 
 
 def _patch_run_status(status: str) -> None:
@@ -378,19 +439,26 @@ def _run_job(trigger: str) -> dict:
                 csv_path.unlink(missing_ok=True)
                 csv_path = None
                 rows = int(result.get("total") or 0)
+                inserted = int(result.get("rows_inserted") or 0)
+                updated = int(result.get("rows_updated") or 0)
                 plines.append(
                     line(
                         "success",
-                        f"{name} 入库 {rows} 行 → {result.get('table')}",
+                        f"{name} 入库 {rows} 行（新增 {inserted} / 更新 {updated}）"
+                        f" → {result.get('table')}",
                     )
                 )
                 _touch_project(pid, True, rows, "ok")
                 _finish_log(
                     lid,
                     status="success",
-                    message=f"{name} 入库 {rows} 行",
+                    message=(
+                        f"{name} 入库 {rows} 行（新增 {inserted} / 更新 {updated}）"
+                    ),
                     lines=plines,
                     rows_affected=rows,
+                    rows_inserted=inserted,
+                    rows_updated=updated,
                     duration=round(time.time() - t0, 3),
                     account=account_name,
                 )
@@ -572,12 +640,17 @@ def _upload_project_csv_unlocked(
             raise ValueError("CSV 无有效数据")
         result = upsert_dataframe(frame, prefix, project_id)
         rows = int(result.get("total") or 0)
+        inserted = int(result.get("rows_inserted") or 0)
+        updated = int(result.get("rows_updated") or 0)
         table = result.get("table") or f"{prefix}_raw"
         lines.append(
             {
                 "time": _now(),
                 "level": "success",
-                "message": f"{name} 入库 {rows} 行 → {table}",
+                "message": (
+                    f"{name} 入库 {rows} 行（新增 {inserted} / 更新 {updated}）"
+                    f" → {table}"
+                ),
             }
         )
         dropped = result.get("dropped_columns") or []
@@ -594,15 +667,21 @@ def _upload_project_csv_unlocked(
         _finish_log(
             log_id,
             status="success",
-            message=f"{name} 上传入库 {rows} 行",
+            message=(
+                f"{name} 上传入库 {rows} 行（新增 {inserted} / 更新 {updated}）"
+            ),
             lines=lines,
             rows_affected=rows,
+            rows_inserted=inserted,
+            rows_updated=updated,
             duration=round(time.time() - t0, 3),
         )
         return {
             "project_id": project_id,
             "display_name": name,
             "rows": rows,
+            "rows_inserted": inserted,
+            "rows_updated": updated,
             "table": table,
             "unique_key": result.get("unique_key"),
             "dropped_columns": dropped,

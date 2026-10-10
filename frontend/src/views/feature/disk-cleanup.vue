@@ -2,14 +2,18 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
+  clearDiskCleanupLogs,
   getDiskCleanup,
+  listDiskCleanupLogs,
   runDiskCleanup,
   saveDiskCleanup,
   type DiskCleanupConfig,
+  type DiskCleanupLog,
   type DiskDbUsage,
   type DiskPathUsage
 } from "@/api/modules/diskCleanup";
 import { backendErrorHint } from "@/api/http";
+import { statusType } from "@/composables/useFieldList";
 
 defineOptions({
   name: "FeatureDiskCleanup"
@@ -18,6 +22,9 @@ defineOptions({
 const loading = ref(false);
 const saving = ref(false);
 const running = ref(false);
+const activeTab = ref("config");
+const logs = ref<DiskCleanupLog[]>([]);
+const logsLoading = ref(false);
 
 const form = reactive({
   enabled: true,
@@ -84,13 +91,7 @@ const dbCards = computed(() => [
   { key: "defect" as const, title: "次品库 defect", item: databases.defect }
 ]);
 
-const resultSummary = computed(() => {
-  const r = lastRun.result || {};
-  const rows = Number(r.deleted_rows ?? 0);
-  const files = Number(r.deleted_files ?? 0);
-  if (!lastRun.time && !rows && !files) return "";
-  return `删除库行 ${rows.toLocaleString()} · 图片文件 ${files.toLocaleString()}`;
-});
+const latestLog = computed(() => logs.value[0] || null);
 
 function applyConfig(cfg: DiskCleanupConfig) {
   form.enabled = !!cfg.enabled;
@@ -101,6 +102,72 @@ function applyConfig(cfg: DiskCleanupConfig) {
   lastRun.status = cfg.last_run_status || "";
   lastRun.message = cfg.last_run_message || "";
   lastRun.result = cfg.last_run_result || {};
+}
+
+function dash(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || "—";
+}
+
+function triggerLabel(trigger: string) {
+  if (trigger === "auto") return "自动";
+  if (trigger === "manual") return "手动";
+  return trigger || "—";
+}
+
+function statusLabel(status: string) {
+  const map: Record<string, string> = {
+    success: "成功",
+    failed: "失败",
+    running: "进行中",
+    queued: "已排队",
+    busy: "忙碌"
+  };
+  return map[status] || status || "—";
+}
+
+function formatDuration(sec: number) {
+  const n = Number(sec) || 0;
+  if (n < 60) return `${n.toFixed(1)} 秒`;
+  const m = Math.floor(n / 60);
+  const s = Math.round(n % 60);
+  return `${m} 分 ${s} 秒`;
+}
+
+function onTabChange(name: string | number) {
+  if (name === "logs") void loadLogs();
+}
+
+async function loadLogs(silent = false) {
+  if (!silent) logsLoading.value = true;
+  try {
+    const res = await listDiskCleanupLogs(50);
+    logs.value = res?.data?.logs || [];
+  } catch (error) {
+    if (!silent) ElMessage.error(backendErrorHint(error));
+  } finally {
+    if (!silent) logsLoading.value = false;
+  }
+}
+
+async function onClearLogs() {
+  if (!logs.value.length) return;
+  try {
+    await ElMessageBox.confirm(
+      "清除全部清理日志？进行中的记录会保留。",
+      "清除日志",
+      { type: "warning" }
+    );
+  } catch {
+    return;
+  }
+  try {
+    const res = await clearDiskCleanupLogs();
+    ElMessage.success(`已清除 ${res?.data?.deleted ?? 0} 条`);
+    await loadLogs();
+  } catch (error) {
+    ElMessage.error(backendErrorHint(error));
+  }
 }
 
 async function load() {
@@ -119,6 +186,7 @@ async function load() {
       databases.dwh = data.capacity.databases.dwh;
       databases.defect = data.capacity.databases.defect;
     }
+    if (activeTab.value === "logs") await loadLogs(true);
   } catch (error) {
     ElMessage.error(backendErrorHint(error));
   } finally {
@@ -161,7 +229,10 @@ async function onRun() {
     ElMessage.success(msg);
     lastRun.status = res?.data?.status || "queued";
     lastRun.message = msg;
-    setTimeout(() => void load(), 1500);
+    setTimeout(() => {
+      void load();
+      if (activeTab.value === "logs") void loadLogs(true);
+    }, 1500);
   } catch (error) {
     ElMessage.error(backendErrorHint(error));
   } finally {
@@ -185,6 +256,8 @@ onMounted(load);
       <el-tag :type="statusTag.type">{{ statusTag.text }}</el-tag>
     </div>
 
+    <el-tabs v-model="activeTab" class="disk-tabs" @tab-change="onTabChange">
+      <el-tab-pane label="清理配置" name="config">
     <section class="disk-capacity">
       <h3>容量监控</h3>
       <div class="disk-db-row">
@@ -204,14 +277,22 @@ onMounted(load);
             <span>{{ card.item?.dir_label || "—" }}</span>
           </header>
           <p class="disk-line">
-            磁盘 {{ card.item?.used_label || "—" }} /
+            本卷已用 {{ card.item?.used_label || "—" }} /
             {{ card.item?.total_label || "—" }}
             <template v-if="card.item?.used_pct != null">
               · {{ card.item.used_pct }}%
             </template>
+            <span class="disk-muted">（整盘，不是下面目录）</span>
+          </p>
+          <p class="disk-line">
+            目录占用 {{ card.item?.dir_label || "—" }}
             <template v-if="card.item?.dir_files != null">
               · {{ card.item.dir_files.toLocaleString() }} 文件
             </template>
+            <span v-if="card.item?.dir_bytes_truncated" class="disk-err">
+              （文件数超过 20 万，计数可能不完整）
+            </span>
+            <span class="disk-muted">（磁盘占用，含子目录）</span>
           </p>
           <template v-if="card.key === 'images' && card.item?.details?.length">
             <p
@@ -222,6 +303,9 @@ onMounted(load);
               {{ d.label }} {{ d.path || "未配置" }}
               ·
               {{ d.exists ? fmtDetailSize(d.dir_bytes) : d.error || "不可用" }}
+              <template v-if="d.exists && d.dir_files != null">
+                · {{ Number(d.dir_files).toLocaleString() }} 文件
+              </template>
             </p>
           </template>
           <p v-else class="disk-path">{{ card.item?.path || "未配置" }}</p>
@@ -269,26 +353,6 @@ onMounted(load);
           <el-button :loading="running" @click="onRun">立即清理</el-button>
           <el-button plain @click="load">刷新容量</el-button>
         </el-form-item>
-        <el-alert
-          v-if="lastRun.time || lastRun.message"
-          :type="
-            lastRun.status === 'success'
-              ? 'success'
-              : lastRun.status === 'failed'
-                ? 'error'
-                : 'info'
-          "
-          :closable="false"
-          show-icon
-        >
-          <template #title>
-            <span>
-              {{ lastRun.time || "—" }}
-              <template v-if="lastRun.message"> · {{ lastRun.message }}</template>
-            </span>
-          </template>
-          <div v-if="resultSummary" class="disk-result">{{ resultSummary }}</div>
-        </el-alert>
       </el-form>
       <aside class="disk-aside">
         <h3>说明</h3>
@@ -297,15 +361,211 @@ onMounted(load);
           <li>Postgres 按时间列分批删除（默认保留 90 天）。</li>
           <li>图片目录读取「图片目录」配置的注塑 / 外观根路径。</li>
           <li>CSV 上传入库成功后立即删除本地文件；失败则保留。</li>
+          <li>每次清理结果见「清理日志」。</li>
         </ul>
       </aside>
     </section>
+      </el-tab-pane>
+
+      <el-tab-pane label="清理日志" name="logs">
+        <section class="disk-panel disk-logs-panel" v-loading="logsLoading">
+          <header class="disk-logs-head">
+            <div>
+              <h3>清理日志</h3>
+              <p>
+                最近
+                {{
+                  latestLog
+                    ? `${dash(latestLog.ended_at || latestLog.started_at)} · ${statusLabel(latestLog.status)}`
+                    : lastRun.time
+                      ? `${dash(lastRun.time)} · ${statusLabel(lastRun.status)}`
+                      : "尚无记录"
+                }}
+              </p>
+            </div>
+            <div class="disk-logs-actions">
+              <span class="disk-count">{{ logs.length }} 条记录</span>
+              <el-button :loading="running" @click="onRun">立即清理</el-button>
+              <el-button :loading="logsLoading" @click="loadLogs()">
+                刷新
+              </el-button>
+              <el-button :disabled="!logs.length" @click="onClearLogs">
+                清除日志
+              </el-button>
+            </div>
+          </header>
+
+          <div v-if="!logs.length" class="disk-logs-empty">
+            <div class="disk-logs-empty__title">还没有清理记录</div>
+            <div class="disk-logs-empty__desc">
+              点「立即清理」或等每日定时跑完后，这里会列出每次结果
+            </div>
+          </div>
+
+          <el-table v-else :data="logs" class="disk-logs-table">
+            <el-table-column type="expand">
+              <template #default="{ row }">
+                <div v-if="row.detail && Object.keys(row.detail).length" class="disk-log-detail">
+                  <div>
+                    库行
+                    {{ Number((row.detail.deleted_rows ?? row.deleted_rows) || 0).toLocaleString() }}
+                    · 图片
+                    {{ Number((row.detail.deleted_files ?? row.deleted_files) || 0).toLocaleString() }}
+                    · 注塑
+                    {{ Number(row.detail.images_mold_files || 0).toLocaleString() }}
+                    · 外观
+                    {{ Number(row.detail.images_appearance_files || 0).toLocaleString() }}
+                  </div>
+                  <div v-if="Array.isArray(row.detail.errors) && row.detail.errors.length" class="disk-err">
+                    {{ row.detail.errors.slice(0, 5).join("；") }}
+                  </div>
+                </div>
+                <div v-else class="disk-muted">无明细</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="开始" min-width="160">
+              <template #default="{ row }">
+                <span class="disk-num">{{ dash(row.started_at) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="结束" min-width="160">
+              <template #default="{ row }">
+                <span class="disk-num">{{ dash(row.ended_at) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="来源" width="96" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain" round>
+                  {{ triggerLabel(row.trigger) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag
+                  size="small"
+                  :type="statusType(row.status)"
+                  effect="light"
+                  round
+                >
+                  {{ statusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="删除库行" width="110" align="right">
+              <template #default="{ row }">
+                <span class="disk-num">{{
+                  Number(row.deleted_rows || 0).toLocaleString()
+                }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="删除图片" width="110" align="right">
+              <template #default="{ row }">
+                <span class="disk-num">{{
+                  Number(row.deleted_files || 0).toLocaleString()
+                }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="耗时" width="100" align="right">
+              <template #default="{ row }">
+                <span class="disk-num">{{
+                  formatDuration(row.duration)
+                }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="说明" min-width="220">
+              <template #default="{ row }">
+                {{ dash(row.message) }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
 <style scoped>
 .disk-page {
   padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
+}
+
+.disk-tabs {
+  margin-top: 4px;
+}
+
+.disk-logs-panel {
+  display: block;
+}
+
+.disk-logs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.disk-logs-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.disk-logs-head p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.disk-logs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.disk-count {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+  line-height: 32px;
+}
+
+.disk-logs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.disk-logs-empty__title {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.disk-logs-empty__desc {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.disk-logs-table {
+  width: 100%;
+}
+
+.disk-num {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.disk-log-detail {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--el-text-color-regular);
 }
 
 .disk-head {
@@ -427,11 +687,6 @@ onMounted(load);
 .disk-unit {
   margin-left: 10px;
   color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.disk-result {
-  margin-top: 4px;
   font-size: 12px;
 }
 

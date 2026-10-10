@@ -89,6 +89,29 @@ export type AggPreview = {
   source_table: string;
 };
 
+export type AggLogLine = {
+  time?: string;
+  level?: string;
+  message?: string;
+};
+
+export type AggRunLog = {
+  id: number;
+  started_at: string;
+  ended_at: string;
+  trigger: string;
+  run_mode: string;
+  status: string;
+  message: string;
+  rows_affected: number;
+  duration: number;
+  job_id: number;
+  detail?: {
+    lines?: AggLogLine[];
+    projects?: Record<string, unknown>[];
+  };
+};
+
 export const aggOverview = () => {
   return http.request<{
     success: boolean;
@@ -99,6 +122,21 @@ export const aggOverview = () => {
       scheduler?: AggScheduler;
     };
   }>("get", `${API_PREFIX}/agg/overview`);
+};
+
+export const listAggLogs = (limit = 50) => {
+  return http.request<{ success: boolean; data: { logs: AggRunLog[] } }>(
+    "get",
+    `${API_PREFIX}/agg/logs`,
+    { params: { limit } }
+  );
+};
+
+export const clearAggLogs = () => {
+  return http.request<{ success: boolean; data: { deleted: number } }>(
+    "delete",
+    `${API_PREFIX}/agg/logs`
+  );
 };
 
 export const saveAggScheduler = (payload: { is_active?: boolean }) => {

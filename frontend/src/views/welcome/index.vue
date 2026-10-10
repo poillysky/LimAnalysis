@@ -437,9 +437,6 @@ onUnmounted(() => {
       </div>
 
       <div :key="`${currentBroadcast.kind}-${activeIdx}`" class="home-board__body">
-        <p v-if="currentBroadcast.eyebrow" class="home-board__kicker">
-          {{ currentBroadcast.eyebrow }}
-        </p>
         <p v-if="currentBroadcast.person" class="home-board__person">
           {{ currentBroadcast.person }}
         </p>
@@ -451,10 +448,7 @@ onUnmounted(() => {
             {{ line }}
           </li>
         </ul>
-        <p
-          v-else-if="!currentBroadcast.eyebrow"
-          class="home-board__fallback"
-        >
+        <p v-else class="home-board__fallback">
           {{ currentBroadcast.text }}
         </p>
       </div>
@@ -655,14 +649,6 @@ onUnmounted(() => {
 
 .home-board__body {
   animation: home-board-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.home-board__kicker {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: rgb(247 248 250 / 68%);
 }
 
 .home-board__person {

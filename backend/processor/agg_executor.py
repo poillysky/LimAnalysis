@@ -93,7 +93,7 @@ def _restrict_source_hours(sql: str, source_table: str, time_field: str) -> str:
         sql,
         source_table,
         time_field,
-        _window_start_sql(),
+        f"{q(ident(time_field))} >= {_window_start_sql()}",
         quoted_source=q(ident(source_table)),
         quoted_column=q(ident(time_field)),
         context="聚合按小时窗口",

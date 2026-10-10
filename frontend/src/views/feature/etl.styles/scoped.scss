@@ -127,6 +127,7 @@
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 12px;
   background: var(--el-bg-color);
+  text-align: center;
 }
 
 .etl-stat__label {
@@ -183,6 +184,7 @@
 .etl-stat__tag {
   display: flex !important;
   align-items: center;
+  justify-content: center;
   min-height: 28px;
   font-size: 14px !important;
   font-weight: 500 !important;
@@ -969,6 +971,29 @@
 .etl-num-cell {
   font-variant-numeric: tabular-nums;
   font-size: 13px;
+}
+
+.etl-log-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 4px;
+  font-size: 12px;
+}
+
+.etl-log-project {
+  display: grid;
+  grid-template-columns: minmax(100px, 1.2fr) 110px 180px minmax(0, 2fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--el-fill-color-lighter);
+}
+
+.etl-log-project__name {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
 }
 
 .etl-log-lines {

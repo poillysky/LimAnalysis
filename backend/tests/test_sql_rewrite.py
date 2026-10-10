@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import unittest
 
+from processor.agg_executor import _restrict_source_hours
 from processor.sql_rewrite import SourceRewriteError, safe_ident, wrap_source_time_window
 
 
@@ -23,6 +24,27 @@ def _rewrite(sql, *, table="raw_tbl", col="ServerTime", pred=None, strict=False,
         context=ctx,
         strict=strict,
     )
+
+
+class AggHoursRestrictTest(unittest.TestCase):
+    def test_predicate_is_boolean_comparison(self):
+        sql = (
+            'WITH aggregated AS (\n'
+            '    SELECT date_trunc(\'hour\',"ServerTime") AS "hour"\n'
+            '    FROM "eel_spkr_dwd"\n'
+            '    WHERE "ServerTime" IS NOT NULL\n'
+            '    GROUP BY date_trunc(\'hour\',"ServerTime")\n'
+            ')\n'
+            'SELECT * FROM aggregated\n'
+        )
+        out = _restrict_source_hours(sql, "eel_spkr_dwd", "ServerTime")
+        self.assertIn(
+            'FROM (SELECT * FROM "eel_spkr_dwd" WHERE "ServerTime" >= date_trunc(\'hour\', NOW())',
+            out,
+        )
+        self.assertIn("::interval) AS \"eel_spkr_dwd\"", out)
+        # 外层原有 WHERE 保留，不能只剩时间戳表达式
+        self.assertIn('WHERE "ServerTime" IS NOT NULL', out)
 
 
 class RewriteSuccessTest(unittest.TestCase):

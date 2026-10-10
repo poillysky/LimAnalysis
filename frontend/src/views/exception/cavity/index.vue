@@ -40,7 +40,6 @@ import {
   rateOf,
   totalText,
   makeSpanMethod,
-  makeLimAlertHint,
   pivotKeptTotals,
   cellEmpty,
   type PivotRow,
@@ -215,8 +214,10 @@ function buildPivot(
       const cell = cells.get(axis);
       const qty = cell?.qty ?? 0;
       const ng = cell?.ng ?? 0;
-      qtyCells[axis] = cell ? qty : null;
-      rateCells[axis] = cell ? rateOf(qty, ng) : null;
+      // 产量为 0 的格当无数据，不画 0
+      qtyCells[axis] = cell && qty > 0 ? qty : null;
+      rateCells[axis] = cell && qty > 0 ? rateOf(qty, ng) : null;
+      if (qty <= 0) continue;
       totalQty += qty;
       totalNg += ng;
       const g = grandAxis.get(axis) || { qty: 0, ng: 0 };
@@ -224,6 +225,8 @@ function buildPivot(
       g.ng += ng;
       grandAxis.set(axis, g);
     }
+    // 整行产量合计为 0：不显示该机台/模具
+    if (totalQty <= 0) continue;
     grandQty += totalQty;
     grandNg += totalNg;
     const qtyMap: Record<string, number> = {};
@@ -439,13 +442,6 @@ function saveAlertConfig() {
   alertOpen.value = false;
   loadTable();
 }
-
-const limAlertHint = makeLimAlertHint(() => alertRules.value);
-
-const bodyAlertHint = computed(() => {
-  const r = alertRules.value;
-  return `模穴 ≥ ${r.bodyCavityRateAbovePct}%（产量不低于 ${r.bodyCavityMinQty} 才标）；模具 ≥ ${r.bodyMachineRateAbovePct}%（产量不低于 ${r.bodyMachineMinQty} 才标）`;
-});
 
 const excludeHint = computed(() => {
   const parts: string[] = [];
@@ -728,7 +724,6 @@ onUnmounted(() => {
     <section class="cavity-panel">
       <div class="cavity-panel__head">
         <strong>机台 × 模穴交叉表</strong>
-        <span>纵：机台 · 横：模穴 A–R（跳过 I/O）· 空格「—」= 无产量 · 点格子看历史曲线 · {{ limAlertHint }}</span>
       </div>
       <el-table
         class="cavity-table"
@@ -807,7 +802,6 @@ onUnmounted(() => {
     <section class="cavity-panel">
       <div class="cavity-panel__head">
         <strong>本体 × 模穴交叉表</strong>
-        <span>纵：本体第 1 位（模具） · 横：第 2 位 1–8 → A–H · 空格「—」= 无产量 · 点格子看历史曲线 · {{ bodyAlertHint }}</span>
       </div>
       <el-table
         class="cavity-table"

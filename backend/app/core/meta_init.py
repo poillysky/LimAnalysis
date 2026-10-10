@@ -1,8 +1,10 @@
 from app.core.db import MetaSession, meta_engine
 from app.core.meta_models import (  # noqa: F401
+    MetaAggLog,
     MetaAggModel,
     MetaAggModelField,
     MetaBase,
+    MetaDiskCleanupLog,
     MetaEtlLog,
     MetaEtlModel,
     MetaEtlModelField,

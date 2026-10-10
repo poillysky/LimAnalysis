@@ -85,6 +85,42 @@ class MetaEtlLog(MetaBase):
     detail: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
 
+class MetaAggLog(MetaBase):
+    """数据聚合运行日志（结构对齐 meta_etl_logs）。"""
+
+    __tablename__ = "meta_agg_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    ended_at: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    trigger: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
+    run_mode: Mapped[str] = mapped_column(String(20), default="incremental", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="running", nullable=False)
+    message: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    rows_affected: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duration: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    job_id: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class MetaDiskCleanupLog(MetaBase):
+    """磁盘清理运行日志。"""
+
+    __tablename__ = "meta_disk_cleanup_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    ended_at: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    trigger: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="running", nullable=False)
+    message: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    deleted_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    deleted_files: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duration: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    job_id: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+
 class MetaUser(MetaBase):
     """本地用户。车间离线使用，密码只存哈希。"""
 

@@ -142,7 +142,8 @@ def download_project_csv(
     last_error = None
     for attempt in range(retry):
         try:
-            page = session.get(url, timeout=30)
+            # 连接短超时、读超时与下载 POST 对齐；旧 30s 在自动采集高峰易 Read timed out
+            page = session.get(url, timeout=(15, 120))
             if "login" in page.url.lower() or page.status_code == 401:
                 raise SessionExpiredError("Session 已过期")
             if page.status_code != 200:
@@ -168,7 +169,9 @@ def download_project_csv(
                 match = re.search(pattern, page.text)
                 if match:
                     form_data[name] = match.group(1)
-            response = session.post(url, data=form_data, headers={"Referer": url}, timeout=120)
+            response = session.post(
+                url, data=form_data, headers={"Referer": url}, timeout=(15, 180)
+            )
             if "login" in response.url.lower() or response.status_code == 401:
                 raise SessionExpiredError("Session 已过期")
             if response.status_code != 200:

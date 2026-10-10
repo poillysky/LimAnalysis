@@ -313,7 +313,15 @@ def insert_upload(
     pid = str(project.get("project_id") or "").strip()
     name = str(project.get("display_name") or pid)
     how = "file" if method == "file" else "scan"
-    profiles = lookup_raw_profiles(project, codes)
+    try:
+        profiles = lookup_raw_profiles(project, codes)
+    except Exception:
+        logger.warning(
+            "raw profile lookup failed for %s, upload without match",
+            pid,
+            exc_info=True,
+        )
+        profiles = {}
     db = stores.DefectSession()
     try:
         op = DefectUploadOp(
@@ -345,6 +353,7 @@ def insert_upload(
                 }
             )
         stmt = pg_insert(DefectScanRow).values(payload)
+        server_time_col = DefectScanRow.__table__.c.ServerTime
         stmt = stmt.on_conflict_do_update(
             constraint="uq_defect_scans_project_sn_item",
             set_={
@@ -354,7 +363,7 @@ def insert_upload(
                 "cavity": stmt.excluded.cavity,
                 "body": stmt.excluded.body,
                 "matched": stmt.excluded.matched,
-                "server_time": stmt.excluded.server_time,
+                server_time_col.key: stmt.excluded[server_time_col.key],
                 "created_at": stmt.excluded.created_at,
             },
         )

@@ -148,6 +148,7 @@ export function pivotKeptTotals(
       droppedQty += q;
       continue;
     }
+    if (q <= 0) continue;
     qty += q;
     ng += n;
     entities.add(entity);
@@ -201,8 +202,7 @@ export function cellStyle({
     borderColor: "#c6c6c6",
     padding: "0 4px",
     textAlign: "center" as const,
-    background: "#fff",
-    color: "inherit",
+    // 底色/字色交给 CSS（含 .is-alert），避免内联 #fff 压住预警红
     fontWeight: prop === "entity" || prop === "total" || row.isTotal ? 600 : 400
   };
 }

@@ -1483,7 +1483,6 @@ onUnmounted(() => {
     <header v-if="!editorOpen" class="etl-head">
       <div>
         <h2>数据清洗</h2>
-        <p>默认只处理原表更新，按唯一键写入 lim_dwh；映射变更后请全量重建。</p>
       </div>
       <div class="etl-head__actions">
         <el-button :loading="running" @click="onRunFull()">全量重建全部</el-button>
@@ -1541,7 +1540,6 @@ onUnmounted(() => {
         <div class="etl-schedule__head">
           <div>
             <h3>自动运行</h3>
-            <p>开启后 Worker 按间隔投递「全部已启用模型」清洗任务（需保持 worker 运行）。</p>
           </div>
           <el-tag
             size="small"
@@ -1591,7 +1589,6 @@ onUnmounted(() => {
         <div class="etl-panel__head">
           <div>
             <h2>项目列表</h2>
-            <p>自动运行与「增量」只处理原表更新；改映射后请点「全量」。</p>
           </div>
         </div>
         <el-table
@@ -1819,6 +1816,29 @@ onUnmounted(() => {
               <el-table-column type="expand">
                 <template #default="{ row }">
                   <div
+                    v-if="row.detail?.projects?.length"
+                    class="etl-log-projects"
+                  >
+                    <div
+                      v-for="(p, idx) in row.detail.projects"
+                      :key="idx"
+                      class="etl-log-project"
+                    >
+                      <span class="etl-log-project__name">{{
+                        dash(p.project_id || p.target_table)
+                      }}</span>
+                      <span class="etl-num-cell">
+                        写入 {{ Number(p.rows || 0).toLocaleString() }}
+                      </span>
+                      <span class="etl-num-cell muted">
+                        新增 {{ Number(p.rows_inserted || 0).toLocaleString() }}
+                        / 更新
+                        {{ Number(p.rows_updated || 0).toLocaleString() }}
+                      </span>
+                      <span class="etl-log-msg">{{ dash(p.message) }}</span>
+                    </div>
+                  </div>
+                  <div
                     v-if="row.detail?.lines?.length"
                     class="etl-log-lines"
                   >
@@ -1837,7 +1857,14 @@ onUnmounted(() => {
                       }}</span>
                     </div>
                   </div>
-                  <div v-else class="muted etl-log-empty">无明细</div>
+                  <div
+                    v-if="
+                      !row.detail?.lines?.length && !row.detail?.projects?.length
+                    "
+                    class="muted etl-log-empty"
+                  >
+                    无明细
+                  </div>
                 </template>
               </el-table-column>
               <el-table-column label="开始" min-width="160">
@@ -1889,6 +1916,13 @@ onUnmounted(() => {
                 <template #default="{ row }">
                   <span class="etl-num-cell">{{
                     Number(row.rows_affected || 0).toLocaleString()
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="更新行数" width="110" align="right">
+                <template #default="{ row }">
+                  <span class="etl-num-cell">{{
+                    Number(row.rows_updated || 0).toLocaleString()
                   }}</span>
                 </template>
               </el-table-column>
@@ -2023,13 +2057,6 @@ onUnmounted(() => {
                   :disabled="!canEnable && !model.is_enabled"
                   @change="v => onToggleEnable(switchValue(v))"
                 />
-                <span class="muted">
-                  {{
-                    canEnable || model.is_enabled
-                      ? "启用后才能清洗"
-                      : "请先保存并生成 SQL"
-                  }}
-                </span>
               </div>
             </el-form-item>
           </div>
@@ -2314,14 +2341,6 @@ onUnmounted(() => {
       </el-table>
       </div>
 
-      <p class="etl-tip">
-        <template v-if="editorStage === 'types'">
-          第 1 页只配置原表字段类型。点「下一步」进入清洗表配置——不会自动带入列，需手动添加。
-        </template>
-        <template v-else>
-          第 2 页请手动「添加清洗列」：选原表字段、填清洗表字段名，可选派生公式。配好后点「保存并生成 SQL」。
-        </template>
-      </p>
     </section>
 
     <el-dialog v-model="sqlOpen" title="生成的 SQL" width="720px" destroy-on-close>

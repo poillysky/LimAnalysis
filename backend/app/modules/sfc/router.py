@@ -137,10 +137,13 @@ def run_now():
 
 
 @router.delete("/logs")
-def remove_logs():
+def remove_logs(force: bool = False):
     from collector.runner import clear_logs
 
-    return ok(clear_logs())
+    try:
+        return ok(clear_logs(force=bool(force)))
+    except ValueError as exc:
+        return JSONResponse(fail(str(exc)), status_code=409)
 
 
 @router.post("/purge-empty-rows")

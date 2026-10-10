@@ -1,4 +1,4 @@
-"""数据清洗运行日志：写入 meta_etl_logs，供页面「运行日志」展示。"""
+"""数据聚合运行日志：写入 meta_agg_logs，供页面「运行日志」展示。"""
 
 from __future__ import annotations
 
@@ -8,30 +8,30 @@ from sqlalchemy import delete, select
 
 from app.core.db import MetaSession
 from app.core.meta_init import init_meta_store
-from app.core.meta_models import MetaEtlLog
+from app.core.meta_models import MetaAggLog
 
 
 def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def create_etl_log(
+def create_agg_log(
     *,
     trigger: str = "manual",
     run_mode: str = "incremental",
     job_id: int = 0,
-    message: str = "清洗进行中",
+    message: str = "聚合进行中",
 ) -> int:
     init_meta_store()
     db = MetaSession()
     try:
-        row = MetaEtlLog(
+        row = MetaAggLog(
             started_at=_now(),
             ended_at="",
             trigger=str(trigger or "manual")[:20],
             run_mode=str(run_mode or "incremental")[:20],
             status="running",
-            message=str(message or "清洗进行中")[:500],
+            message=str(message or "聚合进行中")[:500],
             rows_affected=0,
             duration=0.0,
             job_id=int(job_id or 0),
@@ -45,14 +45,12 @@ def create_etl_log(
         db.close()
 
 
-def finish_etl_log(
+def finish_agg_log(
     log_id: int,
     *,
     status: str,
     message: str = "",
     rows_affected: int = 0,
-    rows_inserted: int = 0,
-    rows_updated: int = 0,
     duration: float = 0.0,
     lines: list[dict] | None = None,
     projects: list[dict] | None = None,
@@ -61,7 +59,7 @@ def finish_etl_log(
     init_meta_store()
     db = MetaSession()
     try:
-        row = db.get(MetaEtlLog, int(log_id))
+        row = db.get(MetaAggLog, int(log_id))
         if row is None:
             return
         row.status = str(status or "failed")[:20]
@@ -76,8 +74,6 @@ def finish_etl_log(
             detail["lines"] = list(lines)[:200]
         if projects is not None:
             detail["projects"] = list(projects)[:50]
-        detail["rows_inserted"] = int(rows_inserted or 0)
-        detail["rows_updated"] = int(rows_updated or 0)
         row.detail = detail
         db.commit()
     except Exception:
@@ -87,47 +83,42 @@ def finish_etl_log(
         db.close()
 
 
-def list_etl_logs(limit: int = 50) -> list[dict]:
+def list_agg_logs(limit: int = 50) -> list[dict]:
     init_meta_store()
     db = MetaSession()
     try:
         rows = db.scalars(
-            select(MetaEtlLog)
-            .order_by(MetaEtlLog.id.desc())
+            select(MetaAggLog)
+            .order_by(MetaAggLog.id.desc())
             .limit(max(1, min(200, int(limit or 50))))
         ).all()
-        out = []
-        for row in rows:
-            detail = dict(row.detail or {})
-            out.append(
-                {
-                    "id": row.id,
-                    "started_at": row.started_at,
-                    "ended_at": row.ended_at,
-                    "trigger": row.trigger,
-                    "run_mode": row.run_mode,
-                    "status": row.status,
-                    "message": row.message,
-                    "rows_affected": row.rows_affected,
-                    "rows_inserted": int(detail.get("rows_inserted") or 0),
-                    "rows_updated": int(detail.get("rows_updated") or 0),
-                    "duration": row.duration,
-                    "job_id": row.job_id,
-                    "detail": detail,
-                }
-            )
-        return out
+        return [
+            {
+                "id": row.id,
+                "started_at": row.started_at,
+                "ended_at": row.ended_at,
+                "trigger": row.trigger,
+                "run_mode": row.run_mode,
+                "status": row.status,
+                "message": row.message,
+                "rows_affected": row.rows_affected,
+                "duration": row.duration,
+                "job_id": row.job_id,
+                "detail": row.detail or {},
+            }
+            for row in rows
+        ]
     finally:
         db.close()
 
 
-def clear_etl_logs() -> dict:
+def clear_agg_logs() -> dict:
     """清除已结束日志；进行中的保留。"""
     init_meta_store()
     db = MetaSession()
     try:
         result = db.execute(
-            delete(MetaEtlLog).where(MetaEtlLog.status != "running")
+            delete(MetaAggLog).where(MetaAggLog.status != "running")
         )
         db.commit()
         return {"deleted": int(result.rowcount or 0)}

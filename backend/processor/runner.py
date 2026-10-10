@@ -118,14 +118,14 @@ def execute_etl(
                     )
                 )
             ok = bool(result.get("ok"))
-            lines.append(
-                log_line(
-                    "success" if ok else "error",
-                    f"合计写入 {result.get('total_rows') or 0} 行"
-                    if ok
-                    else f"部分失败（{len(result.get('errors') or [])}）",
-                )
-            )
+            if ok:
+                total = int(result.get("total_rows") or 0)
+                ins = int(result.get("total_inserted") or 0)
+                upd = int(result.get("total_updated") or 0)
+                summary = f"合计写入 {total} 行（新增 {ins} / 更新 {upd}）"
+            else:
+                summary = f"部分失败（{len(result.get('errors') or [])}）"
+            lines.append(log_line("success" if ok else "error", summary))
             return {
                 "ok": ok,
                 "run_scope": "all",

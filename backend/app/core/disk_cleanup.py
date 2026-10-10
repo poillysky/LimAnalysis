@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -166,6 +168,7 @@ def _disk_usage_info(path: Path) -> dict:
         "used_pct": None,
         "dir_bytes": None,
         "dir_files": None,
+        "dir_bytes_truncated": False,
         "error": None,
     }
     try:
@@ -179,29 +182,60 @@ def _disk_usage_info(path: Path) -> dict:
         info["free"] = int(usage.free)
         info["used_pct"] = round(100.0 * usage.used / usage.total, 1) if usage.total else None
         if path.is_dir():
-            dir_bytes, dir_files = _estimate_dir_size(path)
+            dir_bytes, dir_files, truncated = _estimate_dir_size(path)
             info["dir_bytes"] = dir_bytes
             info["dir_files"] = dir_files
+            info["dir_bytes_truncated"] = truncated
     except Exception as exc:
         info["error"] = str(exc)[:200]
     return info
 
 
-def _estimate_dir_size(root: Path) -> tuple[int, int]:
+def _file_usage_bytes(st: os.stat_result) -> int:
+    """目录占用：Linux/NAS 用块分配（对齐 du / 文件管理器），Windows 用 st_size。"""
+    blocks = getattr(st, "st_blocks", 0) or 0
+    if blocks > 0:
+        return int(blocks) * 512
+    return int(st.st_size)
+
+
+def _dir_usage_bytes_via_du(root: Path) -> int | None:
+    """Linux 容器内用 du 一次扫完整棵树，避免 walk 截断导致 NAS 体积偏小。"""
+    if os.name == "nt" or not shutil.which("du"):
+        return None
+    try:
+        proc = subprocess.run(
+            ["du", "-s", "--block-size=1", str(root)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=True,
+        )
+        line = (proc.stdout or "").strip().split()
+        if not line:
+            return None
+        return int(line[0])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _estimate_dir_size(root: Path) -> tuple[int, int, bool]:
+    """Return (usage_bytes, file_count, count_truncated)."""
+    du_total = _dir_usage_bytes_via_du(root)
     total = 0
     files = 0
+    truncated = False
     try:
         for dirpath, dirnames, filenames in root.walk(on_error=lambda _e: None):
-            # pathlib.Path.walk is 3.12+; project uses 3.12
             for name in filenames:
                 files += 1
                 if files > _DIR_SIZE_FILE_CAP:
-                    return total, files
-                try:
-                    total += (dirpath / name).stat().st_size
-                except OSError:
-                    continue
-            # prune obvious junk
+                    truncated = True
+                elif du_total is None:
+                    try:
+                        total += _file_usage_bytes((dirpath / name).stat())
+                    except OSError:
+                        continue
             dirnames[:] = [
                 d
                 for d in dirnames
@@ -209,20 +243,22 @@ def _estimate_dir_size(root: Path) -> tuple[int, int]:
                 not in {"$recycle.bin", "system volume information", ".git"}
             ]
     except AttributeError:
-        # fallback if walk unavailable
         for p in root.rglob("*"):
             if not p.is_file():
                 continue
             files += 1
             if files > _DIR_SIZE_FILE_CAP:
-                break
-            try:
-                total += p.stat().st_size
-            except OSError:
-                continue
+                truncated = True
+            elif du_total is None:
+                try:
+                    total += _file_usage_bytes(p.stat())
+                except OSError:
+                    continue
     except OSError:
         pass
-    return total, files
+    if du_total is not None:
+        total = du_total
+    return total, files, truncated
 
 
 def _pg_database_size(engine: Engine) -> dict:
@@ -248,6 +284,7 @@ def _empty_path(error: str = "未配置") -> dict:
         "used_pct": None,
         "dir_bytes": None,
         "dir_files": None,
+        "dir_bytes_truncated": False,
         "error": error,
     }
 
@@ -292,6 +329,7 @@ def _merge_image_paths(mold: Path, appearance: Path) -> dict:
     disk_src = max(existing, key=lambda i: float(i.get("used_pct") or 0))
     dir_bytes = sum(int(i.get("dir_bytes") or 0) for i in existing)
     dir_files = sum(int(i.get("dir_files") or 0) for i in existing)
+    dir_bytes_truncated = any(i.get("dir_bytes_truncated") for i in existing)
     path_lines = []
     for i in infos:
         tag = i.get("label") or ""
@@ -314,6 +352,7 @@ def _merge_image_paths(mold: Path, appearance: Path) -> dict:
         "used_pct": disk_src.get("used_pct"),
         "dir_bytes": dir_bytes,
         "dir_files": dir_files,
+        "dir_bytes_truncated": dir_bytes_truncated,
         "error": None,
         "details": [
             {
@@ -321,6 +360,7 @@ def _merge_image_paths(mold: Path, appearance: Path) -> dict:
                 "path": i.get("path"),
                 "dir_bytes": i.get("dir_bytes"),
                 "dir_files": i.get("dir_files"),
+                "dir_bytes_truncated": i.get("dir_bytes_truncated"),
                 "exists": i.get("exists"),
                 "error": i.get("error"),
             }
