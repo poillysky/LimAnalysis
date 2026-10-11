@@ -274,7 +274,10 @@ def generate_formula_from_prompt(
                 "ok": False,
                 "formula": "",
                 "explanation": "",
-                "error": "请先写入 2～8 个字段，例如：[A] [B] [C] 全空为空，有一个为1就是1，其他为0",
+                "error": (
+                    "请先写入 2～8 个字段，例如：[A] [B] [C] "
+                    "全空为空，有一个为1就是1，其他为0"
+                ),
                 "examples": PROMPT_EXAMPLES,
             }
         if len(cols) > 8:

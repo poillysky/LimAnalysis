@@ -94,7 +94,11 @@ def _tick_etl() -> None:
 
 def _tick_disk_cleanup() -> None:
     """每天定点投递磁盘清理（实际清理在 Worker）。"""
-    from app.core.disk_cleanup import load_disk_cleanup_config, patch_disk_cleanup_config, request_disk_cleanup
+    from app.core.disk_cleanup import (
+        load_disk_cleanup_config,
+        patch_disk_cleanup_config,
+        request_disk_cleanup,
+    )
     from collector.jobs import JOB_DISK_CLEANUP, find_active_job
 
     config = load_disk_cleanup_config()

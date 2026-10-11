@@ -1,3 +1,28 @@
+"""数据库引擎与会话工厂。
+
+## 连接配置热替换设计（重要，改动前务必读）
+
+三套 PG（raw / dwh / defect）的连接串来自元数据库，用户可在「系统管理 → 连接配置」
+页面在线修改。改完要**立即生效**，但进程里已持有的 engine 不会自动感知，
+于是本模块用「全局 engine 变量 + 热替换」来实现：
+
+- `refresh_pg_engines(force=False)` 比较「当前 URL 元组」与上次构建时的 key：
+  - URL 未变且距上次构建在 `_PG_ENGINE_TTL`（30s）内 → 直接复用，不做任何事；
+  - URL 变了，或 `force=True` → dispose 旧 engine，重建新 engine，
+    并对所有 `sessionmaker` 调 `configure(bind=...)` 换绑。
+
+## 并发假设（不要破坏）
+
+engine 句柄是**全局可变的**，而查询/入库是并发发生的：
+- 所有重建都在 `_engine_lock`（RLock）内完成，保证「dispose→重建→换绑」原子；
+- `_PG_ENGINE_TTL` 节流让高频调用（如每次请求前 refresh）退化成廉价的 key 比较；
+- 刻意**不缓存 session/connection**，每次 `MetaSession()` 现取现用，
+  所以换绑后新会话一定用新 engine。
+
+⚠️ 如果你要在这里加缓存（engine 结果缓存、连接复用、session 池），
+必须重新论证与热替换的并发安全，否则会出现「配置改了但查询还在打旧库」。
+"""
+
 import logging
 import threading
 import time

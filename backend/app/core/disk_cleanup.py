@@ -124,7 +124,10 @@ def patch_disk_cleanup_config(data: dict) -> dict:
 
 
 def request_disk_cleanup(*, trigger: str = "manual") -> dict:
-    from collector.jobs import JOB_DISK_CLEANUP, enqueue_job, find_active_job
+    from app.core.job_types import JOB_DISK_CLEANUP
+
+    # enqueue/find 属于 Worker 层职责，延迟导入避免 app.core 加载期依赖 collector。
+    from collector.jobs import enqueue_job, find_active_job
 
     active = find_active_job(JOB_DISK_CLEANUP)
     if active:
@@ -265,7 +268,8 @@ def _pg_database_size(engine: Engine) -> dict:
     out = {"ok": False, "bytes": 0, "error": None}
     try:
         with engine.connect() as conn:
-            bytes_ = int(conn.execute(text("SELECT pg_database_size(current_database())")).scalar() or 0)
+            size_sql = text("SELECT pg_database_size(current_database())")
+            bytes_ = int(conn.execute(size_sql).scalar() or 0)
         out["ok"] = True
         out["bytes"] = bytes_
     except Exception as exc:
@@ -647,6 +651,7 @@ def run_cleanup() -> dict:
         if not block.get("ok") and block.get("error") and not block.get("skipped"):
             errors.append(f"images.{key}: {block['error']}")
 
+    # prune_meta_history 属于 Worker 层的任务队列维护，延迟导入。
     from collector.jobs import prune_meta_history
 
     try:

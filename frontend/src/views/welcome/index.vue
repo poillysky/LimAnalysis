@@ -557,11 +557,24 @@ onUnmounted(() => {
 
 <style scoped>
 .home {
-  --home-ink: #15233a;
-  --home-mute: #5c6b7a;
-  --home-paper: #f4f6f8;
-  --home-card: #ffffff;
-  --home-rate: #b42318;
+  --home-ink: var(--la-text-strong);
+  --home-mute: var(--la-text-muted);
+  --home-paper: var(--la-surface-page);
+  --home-card: var(--la-surface-card);
+  --home-rate: var(--la-danger-text);
+
+  /* 通知横幅是整页唯一的大面积深色块 —— 它承担"跳出来"的职责，
+     所以底部四态各自定一套：告警最重、人工次之、空闲最轻。 */
+  --home-banner: #16354f;
+  --home-banner-hover: #1b4262;
+  --home-banner-alert: #6b1d1d;
+  --home-banner-alert-hover: #7a2424;
+  --home-banner-manual: #123a52;
+  --home-banner-manual-hover: #174860;
+  --home-banner-idle: #3a4450;
+  --home-banner-idle-hover: #45515e;
+  --home-banner-text: #f7f8fa;
+
   box-sizing: border-box;
   min-height: calc(100vh - var(--la-chrome-total) - var(--la-content-inset) * 2);
   padding: var(--la-space-xl) var(--la-space-2xl) var(--la-space-3xl);
@@ -577,38 +590,38 @@ onUnmounted(() => {
   margin-bottom: var(--la-space-xl);
   padding: var(--la-space-xl) var(--la-space-2xl) var(--la-space-lg);
   cursor: pointer;
-  color: #f7f8fa;
-  background: var(--home-ink);
-  border-radius: 4px;
-  transition: background 180ms ease;
+  color: var(--home-banner-text);
+  background: var(--home-banner);
+  border-radius: var(--la-radius-md);
+  transition: background 180ms ease-out;
 }
 
 .home-board:hover {
-  background: #1a2c46;
+  background: var(--home-banner-hover);
 }
 
 .home-board.is-alert {
-  background: #6b1d1d;
+  background: var(--home-banner-alert);
 }
 
 .home-board.is-alert:hover {
-  background: #7a2424;
+  background: var(--home-banner-alert-hover);
 }
 
 .home-board.is-manual {
-  background: #16384f;
+  background: var(--home-banner-manual);
 }
 
 .home-board.is-manual:hover {
-  background: #1c4560;
+  background: var(--home-banner-manual-hover);
 }
 
 .home-board.is-idle {
-  background: #3a4450;
+  background: var(--home-banner-idle);
 }
 
 .home-board.is-idle:hover {
-  background: #45515e;
+  background: var(--home-banner-idle-hover);
 }
 
 .home-board__meta {
@@ -617,7 +630,7 @@ onUnmounted(() => {
   align-items: baseline;
   gap: 8px 16px;
   font-size: 13px;
-  color: rgb(247 248 250 / 72%);
+  color: color-mix(in oklab, var(--home-banner-text) 72%, transparent);
   font-variant-numeric: tabular-nums;
 }
 
@@ -707,7 +720,7 @@ onUnmounted(() => {
 }
 
 .home-board__dots i.is-on {
-  background: #f7f8fa;
+  background: var(--home-paper);
 }
 
 .home-board__hint {
@@ -718,7 +731,7 @@ onUnmounted(() => {
 }
 
 .home-board:focus-visible {
-  outline: 2px solid #f7f8fa;
+  outline: 2px solid var(--home-paper);
   outline-offset: 3px;
 }
 
@@ -748,7 +761,7 @@ onUnmounted(() => {
   gap: 16px;
   margin-bottom: 14px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #dde3e8;
+  border-bottom: 1px solid var(--la-border-default);
 }
 
 .home-block__head h2 {
@@ -794,13 +807,13 @@ onUnmounted(() => {
   gap: 10px;
   padding: 18px 18px 16px;
   background: var(--home-card);
-  border: 1px solid #dde3e8;
+  border: 1px solid var(--la-border-default);
   border-radius: 4px;
   transition: border-color 160ms ease;
 }
 
 .home-card:hover {
-  border-color: #b8c2cc;
+  border-color: var(--la-border-strong);
 }
 
 .home-card__head {
@@ -846,7 +859,7 @@ onUnmounted(() => {
   gap: 2px 6px;
   margin: 0;
   padding-top: 10px;
-  border-top: 1px solid #edf1f4;
+  border-top: 1px solid var(--la-border-subtle);
   font-size: 12px;
   line-height: 1.4;
   color: var(--home-ink);
@@ -859,7 +872,7 @@ onUnmounted(() => {
 }
 
 .home-top__sep {
-  color: #a8b3bd;
+  color: var(--la-text-faint);
 }
 
 .home-top__item {
@@ -877,7 +890,7 @@ onUnmounted(() => {
   color: var(--home-mute);
   text-align: center;
   background: transparent;
-  border: 1px dashed #cfd7de;
+  border: 1px dashed var(--la-border-strong);
   border-radius: 4px;
 }
 

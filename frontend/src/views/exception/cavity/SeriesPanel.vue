@@ -80,15 +80,24 @@ const windowSummary = computed(() => {
 
 const latestRow = computed(() => rows.value[rows.value.length - 1] || null);
 
+// 图表配色：ECharts 不能直接吃 CSS 变量，所以启动时从 :root 读一次
+// （token 是视觉单一事实来源，这里只是把值"借"过来，避免两处各写一份色）。
+function cssVar(name: string, fallback: string) {
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return v || fallback;
+}
+
 const CHART = {
-  moss: "#1e4e79",
-  mossDeep: "#163c5c",
-  ink: "#0c3f56",
-  mute: "#6b7c70",
-  line: "#d5ddd6",
-  paper: "#fbfcf9",
-  card: "#ffffff",
-  rust: "#b45309",
+  moss: cssVar("--el-color-primary", "#1e4e79"),
+  mossDeep: cssVar("--el-color-primary-dark-2", "#163c5c"),
+  ink: cssVar("--la-text-strong", "#0c3f56"),
+  mute: cssVar("--la-text-muted", "#6b7c70"),
+  line: cssVar("--la-border-default", "#d5ddd6"),
+  paper: cssVar("--la-surface-sunken", "#fbfcf9"),
+  card: cssVar("--la-surface-card", "#ffffff"),
+  rust: cssVar("--el-color-warning", "#b45309"),
   bar: "rgba(11, 154, 216, 0.16)"
 };
 
@@ -179,7 +188,7 @@ function bindChart() {
         trigger: "axis",
         confine: true,
         backgroundColor: CHART.card,
-        borderColor: "#c6c6c6",
+        borderColor: CHART.line,
         borderWidth: 1,
         padding: [10, 12],
         extraCssText:
@@ -489,11 +498,11 @@ function formatRate(value: number | null) {
 }
 
 const headerCellStyle = {
-  background: "#1e4e79",
-  color: "#fff",
+  background: CHART.moss,
+  color: cssVar("--el-color-white", "#fff"),
   fontWeight: 600,
   fontSize: "12px",
-  borderColor: "#163c5c",
+  borderColor: CHART.mossDeep,
   textAlign: "center" as const,
   padding: "0"
 };
@@ -742,26 +751,26 @@ onUnmounted(() => {
 }
 
 .query-panel--chart {
-  background: #fbfcf9;
-  border: 1px solid #c6c6c6;
+  background: var(--la-surface-sunken);
+  border: 1px solid var(--la-border-default);
   border-radius: 0;
 }
 
 .query-panel--chart .query-panel__head {
   padding: 8px 10px 4px;
-  background: #fff;
-  border-bottom: 1px solid #e4ece6;
+  background: var(--la-surface-card);
+  border-bottom: 1px solid var(--la-border-subtle);
 }
 
 .query-panel--chart .query-panel__head strong::before {
-  background: #1e4e79;
+  background: var(--el-color-primary);
 }
 
 .query-chart {
   flex: 1;
   min-height: 0;
   padding: 0;
-  background: #fbfcf9;
+  background: var(--la-surface-sunken);
 }
 
 .query-empty {
@@ -774,23 +783,23 @@ onUnmounted(() => {
 }
 
 .query-panel--table {
-  background: #fff;
-  border: 1px solid #c6c6c6;
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
   border-radius: 0;
 }
 
 .query-panel--table .query-panel__head {
   padding: 8px 10px 6px;
-  background: #fff;
+  background: var(--la-surface-card);
 }
 
 .query-panel--table :deep(.el-table) {
   flex: 1;
-  --el-table-border-color: #c6c6c6;
-  --el-table-header-bg-color: #1e4e79;
-  --el-table-header-text-color: #fff;
-  --el-table-row-hover-bg-color: #f5f5f5;
-  --el-table-bg-color: #fff;
+  --el-table-border-color: var(--la-border-default);
+  --el-table-header-bg-color: var(--el-color-primary);
+  --el-table-header-text-color: var(--el-color-white);
+  --el-table-row-hover-bg-color: var(--el-fill-color-light);
+  --el-table-bg-color: var(--la-surface-card);
   font-family: Calibri, "Microsoft YaHei", "Segoe UI", sans-serif;
   font-size: 12px;
 }
@@ -804,16 +813,16 @@ onUnmounted(() => {
 .query-panel--table :deep(.el-table__header-wrapper th.el-table__cell) {
   padding: 0;
   height: 30px;
-  background: #1e4e79 !important;
-  color: #fff;
-  border-color: #163c5c;
+  background: var(--el-color-primary) !important;
+  color: var(--el-color-white);
+  border-color: var(--el-color-primary-dark-2);
 }
 
 .query-panel--table :deep(td.el-table__cell) {
   height: 26px;
   padding: 0;
-  border-color: #c6c6c6;
-  background: #fff;
+  border-color: var(--la-border-default);
+  background: var(--la-surface-card);
 }
 
 .query-panel--table :deep(.el-table__cell .cell) {
@@ -822,7 +831,7 @@ onUnmounted(() => {
 }
 
 .query-panel--table :deep(.is-latest td.el-table__cell) {
-  background: #fff2cc;
+  background: var(--la-warning-weak);
   font-weight: 600;
 }
 
@@ -831,9 +840,12 @@ onUnmounted(() => {
   letter-spacing: -0.02em;
 }
 
+/* ── 图像查看区 ──────────────────────────────────────────────────────────
+   刻意用深底：判断注塑件外观缺陷时，浅底会把画面灰度抬高、
+   让对比度下降，看不出真实差异。这是"功能性深色"，不是暗色主题。 */
 .query-panel--photo {
-  background: #0b0c10;
-  border: 1px solid #1f2430;
+  background: var(--la-media-bg);
+  border: 1px solid var(--la-media-border);
   border-radius: 0;
 }
 
@@ -841,21 +853,21 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  background: #12141a;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  color: #f4f4f5;
+  background: var(--la-media-head);
+  border-bottom: 1px solid var(--la-media-divider);
+  color: var(--la-media-text);
 }
 
 .query-panel--photo .query-panel__head strong {
-  color: #f4f4f5;
+  color: var(--la-media-text);
 }
 
 .query-panel--photo .query-panel__head strong::before {
-  background: #69b889;
+  background: var(--el-color-success);
 }
 
 .query-panel--photo .query-panel__head span {
-  color: rgba(244, 244, 245, 0.62);
+  color: var(--la-media-text-dim);
 }
 
 .photo-camera {
@@ -864,13 +876,13 @@ onUnmounted(() => {
 }
 
 .photo-camera :deep(.el-select__wrapper) {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) inset;
+  background: var(--la-media-field);
+  box-shadow: 0 0 0 1px var(--la-media-field-ring) inset;
 }
 
 .photo-camera :deep(.el-select__placeholder),
 .photo-camera :deep(.el-select__selected-item) {
-  color: #f4f4f5;
+  color: var(--la-media-text);
 }
 
 .photo-file {
@@ -885,8 +897,8 @@ onUnmounted(() => {
   flex: none;
   padding: 2px 8px;
   border-radius: 999px;
-  color: #f4f4f5;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--la-media-text);
+  background: var(--la-media-field);
   font-variant-numeric: tabular-nums;
   font-weight: 650;
 }
@@ -898,13 +910,13 @@ onUnmounted(() => {
   padding: 2px 8px;
   border-radius: 6px;
   background: transparent;
-  color: #69b889;
+  color: var(--el-color-success);
   font-size: 12px;
   cursor: pointer;
 }
 
 .photo-reload:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--la-media-hover);
 }
 
 .photo-stage {
@@ -914,7 +926,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   min-height: 0;
-  background: #0b0c10;
+  background: var(--la-media-bg);
 }
 
 .photo-stage img {
@@ -925,7 +937,7 @@ onUnmounted(() => {
 
 .photo-empty {
   margin: 0;
-  color: rgba(244, 244, 245, 0.72);
+  color: var(--la-media-text-dim);
   font-size: 13px;
 }
 
@@ -941,9 +953,9 @@ onUnmounted(() => {
   padding: 0;
   border: 0;
   border-radius: 999px;
-  color: #f4f4f5;
-  background: rgba(18, 20, 26, 0.72);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  color: var(--la-media-text);
+  background: var(--la-media-scrim);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
   cursor: pointer;
   transform: translateY(-50%);
 }

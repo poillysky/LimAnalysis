@@ -75,7 +75,6 @@ def execute_etl(
     all_enabled: bool = False,
     full_refresh: bool = False,
 ) -> dict:
-    from processor.etl_logs import log_line
 
     kind = "full" if full_refresh else "incremental"
     t0 = time.time()

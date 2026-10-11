@@ -66,12 +66,26 @@ const summaryMetrics = computed(() => [
   { value: notices.value.length, label: "待通知" }
 ]);
 
+// 表格表头配色从 token 借值（ECharts / Element Plus 的行内样式拿不到 CSS 变量）
+function cssVar(name: string, fallback: string) {
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return v || fallback;
+}
+
+const CHART = {
+  moss: cssVar("--el-color-primary", "#1e4e79"),
+  mossDeep: cssVar("--el-color-primary-dark-2", "#163c5c"),
+  onPrimary: cssVar("--el-color-white", "#fff")
+};
+
 const headerCellStyle = {
-  background: "#1e4e79",
-  color: "#fff",
+  background: CHART.moss,
+  color: CHART.onPrimary,
   fontWeight: 600,
   fontSize: "12px",
-  borderColor: "#163c5c",
+  borderColor: CHART.mossDeep,
   textAlign: "center" as const,
   padding: "0"
 };
@@ -610,17 +624,17 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-color: #e5e7eb;
-  background: #fafafa;
-  color: #374151;
+  border-color: var(--la-border-default);
+  background: var(--la-surface-sunken);
+  color: var(--la-text-body);
   font-size: 13px;
   font-weight: 650;
 }
 
 .alert-page :deep(.page-metric-bar__end .el-button:hover) {
-  border-color: #1e4e79;
-  color: #1e4e79;
-  background: #f3faf6;
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+  background: var(--la-success-weak);
 }
 
 .alert-duty {
@@ -636,13 +650,13 @@ onUnmounted(() => {
 }
 
 .alert-duty.is-day {
-  color: #8a5a00;
-  background: #fff3d6;
+  color: var(--la-warning-text);
+  background: var(--la-warning-weak);
 }
 
 .alert-duty.is-night {
-  color: #1d4e89;
-  background: #dceafb;
+  color: var(--la-info-text);
+  background: var(--la-info-weak);
 }
 
 .alert-chip {
@@ -650,10 +664,10 @@ onUnmounted(() => {
   align-items: center;
   height: 24px;
   padding: 0 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--la-border-default);
   border-radius: 6px;
-  color: #4b5563;
-  background: #f9fafb;
+  color: var(--la-text-muted);
+  background: var(--la-surface-sunken);
   font-size: 12px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -669,15 +683,15 @@ onUnmounted(() => {
   padding: 8px 12px;
   font-size: 13px;
   line-height: 1.45;
-  color: #374151;
-  background: #fff;
-  border: 1px solid #c6c6c6;
+  color: var(--la-text-body);
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
 }
 
 .alert-banner.warn {
-  color: #92400e;
-  background: #fffbeb;
-  border-color: #f0d48a;
+  color: var(--la-warning-text);
+  background: var(--la-warning-weak);
+  border-color: color-mix(in oklab, var(--el-color-warning) 40%, transparent);
 }
 
 .alert-banner__icon {
@@ -688,15 +702,15 @@ onUnmounted(() => {
   width: 20px;
   height: 20px;
   font-size: 14px;
-  color: #d97706;
+  color: var(--el-color-warning);
 }
 
 .alert-panel {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #fff;
-  border: 1px solid #c6c6c6;
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
 }
 
 .alert-panel__head {
@@ -704,7 +718,7 @@ onUnmounted(() => {
   align-items: baseline;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid #e4ece6;
+  border-bottom: 1px solid var(--la-border-subtle);
 }
 
 .alert-copy {
@@ -712,7 +726,7 @@ onUnmounted(() => {
 }
 
 .alert-panel__head strong {
-  color: #1f3d2e;
+  color: var(--la-success-text);
   font-size: 13px;
   font-weight: 700;
 }
@@ -745,8 +759,8 @@ onUnmounted(() => {
   gap: 2px;
   min-width: 132px;
   padding: 10px 16px;
-  background: color-mix(in srgb, #f56c6c 8%, var(--el-bg-color));
-  border: 1px solid color-mix(in srgb, #f56c6c 24%, var(--el-border-color));
+  background: color-mix(in srgb, var(--el-color-danger) 8%, var(--el-bg-color));
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 24%, var(--el-border-color));
   border-radius: 10px;
   text-align: center;
   cursor: pointer;
@@ -754,14 +768,14 @@ onUnmounted(() => {
 
 .notice-card:hover,
 .notice-card:focus-visible {
-  border-color: color-mix(in srgb, #f56c6c 50%, var(--el-border-color));
-  background: color-mix(in srgb, #f56c6c 12%, var(--el-bg-color));
+  border-color: color-mix(in srgb, var(--el-color-danger) 50%, var(--el-border-color));
+  background: color-mix(in srgb, var(--el-color-danger) 12%, var(--el-bg-color));
   outline: none;
 }
 
 .notice-card.is-active {
-  background: color-mix(in srgb, #f56c6c 18%, var(--el-bg-color));
-  border-color: color-mix(in srgb, #f56c6c 58%, var(--el-border-color));
+  background: color-mix(in srgb, var(--el-color-danger) 18%, var(--el-bg-color));
+  border-color: color-mix(in srgb, var(--el-color-danger) 58%, var(--el-border-color));
 }
 
 .notice-card strong {
@@ -780,10 +794,10 @@ onUnmounted(() => {
 
 .alert-table {
   flex: none;
-  --el-table-border-color: #c6c6c6;
-  --el-table-header-bg-color: #1e4e79;
-  --el-table-header-text-color: #fff;
-  --el-table-row-hover-bg-color: #f5f5f5;
+  --el-table-border-color: var(--la-border-default);
+  --el-table-header-bg-color: var(--el-color-primary);
+  --el-table-header-text-color: var(--el-color-white);
+  --el-table-row-hover-bg-color: var(--el-fill-color-light);
   font-family: Calibri, "Microsoft YaHei", "Segoe UI", sans-serif;
   font-size: 12px;
 }
@@ -795,16 +809,16 @@ onUnmounted(() => {
 .alert-table :deep(.el-table__header-wrapper th.el-table__cell) {
   padding: 0;
   height: 30px;
-  background: #1e4e79 !important;
-  color: #fff;
-  border-color: #163c5c;
+  background: var(--el-color-primary) !important;
+  color: var(--el-color-white);
+  border-color: var(--el-color-primary-dark-2);
 }
 
 .alert-table :deep(td.el-table__cell) {
   height: auto;
   min-height: 26px;
   padding: 0;
-  border-color: #c6c6c6;
+  border-color: var(--la-border-default);
 }
 
 .alert-table :deep(.el-table__cell .cell) {
@@ -846,7 +860,7 @@ onUnmounted(() => {
 }
 
 .is-rate {
-  color: #9c0006;
+  color: var(--la-danger-text);
   font-weight: 700;
 }
 
@@ -860,7 +874,7 @@ onUnmounted(() => {
 
 .photo-dialog__head strong {
   flex: none;
-  color: #f4f4f5;
+  color: var(--la-media-text);
   font-size: 16px;
   font-weight: 650;
   letter-spacing: -0.02em;
@@ -882,7 +896,7 @@ onUnmounted(() => {
   flex: none;
   padding: 2px 8px;
   border-radius: 999px;
-  color: #f4f4f5;
+  color: var(--la-media-text);
   background: rgba(255, 255, 255, 0.1);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -896,7 +910,7 @@ onUnmounted(() => {
   justify-content: center;
   height: calc(90vh - 64px);
   min-height: 560px;
-  background: #0b0c10;
+  background: var(--la-media-bg);
 }
 
 .photo-stage img {
@@ -923,7 +937,7 @@ onUnmounted(() => {
   padding: 0;
   border: 0;
   border-radius: 999px;
-  color: #f4f4f5;
+  color: var(--la-media-text);
   background: rgba(18, 20, 26, 0.72);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   cursor: pointer;
@@ -943,7 +957,7 @@ onUnmounted(() => {
 }
 
 .photo-nav:focus-visible {
-  outline: 2px solid #69b889;
+  outline: 2px solid var(--el-color-success);
   outline-offset: 2px;
 }
 
@@ -960,7 +974,7 @@ onUnmounted(() => {
 
 <style>
 .photo-dialog.el-dialog {
-  --el-dialog-bg-color: #12141a;
+  --el-dialog-bg-color: var(--la-media-head);
   --el-dialog-padding-primary: 0;
   max-width: 1480px;
   margin-top: 3vh !important;

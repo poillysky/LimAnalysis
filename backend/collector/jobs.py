@@ -9,6 +9,22 @@ from datetime import datetime, timedelta
 from sqlalchemy import delete, or_, select, update
 
 from app.core.db import MetaSession
+from app.core.job_types import (
+    AGG_WORKER_TYPES,
+    HEAVY_TYPES,
+    JOB_CRAWL,
+    JOB_DISK_CLEANUP,
+    JOB_ETL_AGG,
+    JOB_ETL_CLEAN,
+    JOB_SYNC_SCHEMA,
+    JOB_UPLOAD,
+    STATUS_CANCELLED,
+    STATUS_FAILED,
+    STATUS_QUEUED,
+    STATUS_RUNNING,
+    STATUS_SUCCESS,
+    WORKER_TYPES,
+)
 from app.core.meta_init import init_meta_store
 from app.core.meta_models import MetaEtlLog, MetaJob, MetaSfcLog
 
@@ -21,28 +37,33 @@ SFC_LOG_KEEP_DAYS = 30
 SFC_LOG_KEEP_MAX = 200
 RESULT_MAX_BYTES = 8_192
 
-JOB_CRAWL = "sfc_crawl"
-JOB_UPLOAD = "sfc_upload"
-JOB_SYNC_SCHEMA = "sfc_sync_schema"
-JOB_ETL_CLEAN = "etl_clean"
-JOB_ETL_AGG = "etl_agg"
-JOB_DISK_CLEANUP = "disk_cleanup"
-
-STATUS_QUEUED = "queued"
-STATUS_RUNNING = "running"
-STATUS_SUCCESS = "success"
-STATUS_FAILED = "failed"
-STATUS_CANCELLED = "cancelled"
-
-HEAVY_TYPES = (
-    JOB_CRAWL,
-    JOB_UPLOAD,
-    JOB_SYNC_SCHEMA,
-    JOB_ETL_CLEAN,
-    JOB_DISK_CLEANUP,
-)
-WORKER_TYPES = HEAVY_TYPES
-AGG_WORKER_TYPES = (JOB_ETL_AGG,)
+# 任务类型 / 状态常量已下沉到 app.core.job_types（架构守卫要求）。
+# 此处 re-export，保持既有 import 路径 collector.jobs 不变。
+__all__ = [
+    "AGG_WORKER_TYPES",
+    "HEAVY_TYPES",
+    "JOB_CRAWL",
+    "JOB_DISK_CLEANUP",
+    "JOB_ETL_AGG",
+    "JOB_ETL_CLEAN",
+    "JOB_SYNC_SCHEMA",
+    "JOB_UPLOAD",
+    "STATUS_CANCELLED",
+    "STATUS_FAILED",
+    "STATUS_QUEUED",
+    "STATUS_RUNNING",
+    "STATUS_SUCCESS",
+    "WORKER_TYPES",
+    "claim_next_job",
+    "enqueue_job",
+    "find_active_job",
+    "finish_job",
+    "get_job",
+    "job_to_dict",
+    "now_str",
+    "prune_meta_history",
+    "requeue_stale_running",
+]
 
 
 def _now() -> str:

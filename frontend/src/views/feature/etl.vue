@@ -620,10 +620,10 @@ function assistTokenStyle() {
     "padding:0 9px 0 7px",
     "height:24px",
     "border-radius:6px",
-    "background:#0f766e",
-    "color:#fff",
-    "border:2px solid #115e59",
-    "box-shadow:0 0 0 1px #99f6e4",
+    "background:var(--la-token-bg)",
+    "color:var(--el-color-white)",
+    "border:2px solid var(--la-token-border)",
+    "box-shadow:0 0 0 1px var(--la-token-ring)",
     "font-size:12px",
     "font-weight:700",
     "line-height:20px",
@@ -640,7 +640,7 @@ function promptToAssistHtml(text: string) {
   while ((match = re.exec(text))) {
     html += escapeAssistHtml(text.slice(last, match.index));
     const name = match[0].slice(1, -1);
-    html += `<span class="etl-assist-token" contenteditable="false" data-field="${escapeAssistHtml(name)}" style="${assistTokenStyle()}"><i class="etl-assist-token__mark" style="width:6px;height:6px;border-radius:50%;background:#5eead4;flex-shrink:0"></i>${escapeAssistHtml(name)}</span>`;
+    html += `<span class="etl-assist-token" contenteditable="false" data-field="${escapeAssistHtml(name)}" style="${assistTokenStyle()}"><i class="etl-assist-token__mark" style="width:6px;height:6px;border-radius:50%;background:var(--la-token-dot);flex-shrink:0"></i>${escapeAssistHtml(name)}</span>`;
     last = match.index + match[0].length;
   }
   html += escapeAssistHtml(text.slice(last));
@@ -719,7 +719,7 @@ function insertChipInEditor(name: string) {
   span.contentEditable = "false";
   span.dataset.field = name;
   span.setAttribute("style", assistTokenStyle());
-  span.innerHTML = `<i class="etl-assist-token__mark" style="width:6px;height:6px;border-radius:50%;background:#5eead4;flex-shrink:0"></i>`;
+  span.innerHTML = `<i class="etl-assist-token__mark" style="width:6px;height:6px;border-radius:50%;background:var(--la-token-dot);flex-shrink:0"></i>`;
   span.append(document.createTextNode(name));
   const space = document.createTextNode(" ");
   const sel = window.getSelection();

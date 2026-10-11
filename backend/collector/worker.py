@@ -20,10 +20,9 @@ import sys
 import time
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+from app.core.log_setup import setup_logging
+
+setup_logging()
 logger = logging.getLogger("collector.worker")
 
 
@@ -252,7 +251,11 @@ def _handle(job: dict) -> None:
             crawl_ok = fail_count == 0
             msg = str(
                 result.get("message")
-                or (f"成功 {ok_count}，失败 {fail_count}" if ok_count or fail_count else "crawl done")
+                or (
+                    f"成功 {ok_count}，失败 {fail_count}"
+                    if ok_count or fail_count
+                    else "crawl done"
+                )
             )[:500]
             finish_job(
                 job_id,

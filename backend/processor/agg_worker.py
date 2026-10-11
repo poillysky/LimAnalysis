@@ -21,10 +21,9 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+from app.core.log_setup import setup_logging
+
+setup_logging()
 logger = logging.getLogger("processor.agg_worker")
 _scheduler: BackgroundScheduler | None = None
 

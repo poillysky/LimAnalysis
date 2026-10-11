@@ -32,8 +32,12 @@ APP_CORE = BACKEND / "app" / "core"
 # app.core 唯一允许的上层依赖目标：都是「延迟导入」豁免，
 # 因为它们在函数体内部而非模块顶层，不构成加载期倒挂。
 ALLOWED_DEFERRED = {
-    # 目前为空 —— 保留这层是为了将来真有正当理由时能有意识地登记，
-    # 而不是直接删守卫。登记时必须写清为什么不能下沉。
+    # 磁盘清理需要投递/查询任务队列，而 enqueue/claim/finish 确实属于 Worker 层
+    # 职责（操作 meta_jobs，不该下沉到 app.core）。这里只在函数体内延迟导入，
+    # 加载期不会把 collector 拉进来，故登记豁免。
+    # 注意：同文件里的纯字符串常量（JOB_* / STATUS_*）已下沉到 app.core.job_types，
+    # 不受豁免保护 —— 常量必须走 app.core，只有队列操作函数才豁免。
+    "app/core/disk_cleanup.py:collector.jobs",
 }
 
 

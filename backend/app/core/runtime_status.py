@@ -8,21 +8,20 @@ from app.core import db as stores
 from app.core.agg_config import load_agg_config
 from app.core.disk_cleanup import load_disk_cleanup_config
 from app.core.etl_config import load_etl_config
+from app.core.job_types import (
+    JOB_CRAWL,
+    JOB_DISK_CLEANUP,
+    JOB_ETL_AGG,
+    JOB_ETL_CLEAN,
+    STATUS_QUEUED,
+    STATUS_RUNNING,
+    STATUS_SUCCESS,
+)
 from app.core.meta_init import init_meta_store
 from app.core.meta_models import MetaJob
 from app.core.sfc_config import load_sfc_config
 from app.core.worker_heartbeat import worker_heartbeat_status
 from app.core.workshop import load_workshop_config
-from collector.jobs import (
-    JOB_CRAWL,
-    JOB_DISK_CLEANUP,
-    JOB_ETL_AGG,
-    JOB_ETL_CLEAN,
-    STATUS_FAILED,
-    STATUS_QUEUED,
-    STATUS_RUNNING,
-    STATUS_SUCCESS,
-)
 
 
 def _latest_jobs(types: tuple[str, ...], limit: int = 1) -> list[dict]:
@@ -93,10 +92,7 @@ def build_runtime_status() -> dict:
 
     stores_ok = all(x["ok"] for x in (meta, raw, dwh, defect))
     workers_ok = all(bool(workers.get(role, {}).get("alive")) for role in ("collector", "agg"))
-    if stores_ok and workers_ok:
-        status = "ok"
-    else:
-        status = "degraded"
+    status = "ok" if stores_ok and workers_ok else "degraded"
 
     return {
         "status": status,

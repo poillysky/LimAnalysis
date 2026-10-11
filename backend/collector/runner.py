@@ -357,7 +357,7 @@ def _run_job(trigger: str) -> dict:
                 lid,
                 status="failed",
                 message="SFC 登录失败",
-                lines=list(login_logs or []) + [line("error", "SFC 登录失败")],
+                lines=[*(login_logs or []), line("error", "SFC 登录失败")],
                 account=account_name,
             )
             run_status = "failed"
@@ -376,8 +376,7 @@ def _run_job(trigger: str) -> dict:
                 lid,
                 status="failed",
                 message="没有启用的项目",
-                lines=list(login_logs or [])
-                + [line("warning", "没有启用的项目")],
+                lines=[*(login_logs or []), line("warning", "没有启用的项目")],
                 account=account_name,
             )
             run_status = "failed"

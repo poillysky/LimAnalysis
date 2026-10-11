@@ -4,23 +4,13 @@
 
 from __future__ import annotations
 
-
-
 import logging
-
 import time
 
-
-
 from collector.jobs import JOB_ETL_AGG, enqueue_job, find_active_job
-
 from processor.agg_executor import execute_all_enabled, execute_model, execute_project
-
 from processor.agg_logs import log_line
-
 from processor.agg_store import assert_model_runnable, get_model, get_model_by_project
-
-
 
 logger = logging.getLogger(__name__)
 

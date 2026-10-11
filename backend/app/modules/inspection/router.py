@@ -15,9 +15,12 @@ from app.core.inspection import (
     warm_appearance_index,
 )
 from app.core.response import fail, ok
+from app.core.tokens import parse_media_ticket
 from app.modules.inspection.schemas import InspectionSettingsIn
 
 router = APIRouter(prefix="/inspection", tags=["inspection"])
+# 图片 GET 不走 Bearer：<img> 无法带 Authorization，改用短时签名票据自证。
+media_router = APIRouter(prefix="/inspection", tags=["inspection"])
 
 
 @router.get("/bootstrap")
@@ -130,8 +133,17 @@ def inspection_appearance_index_warm(project_id: str):
         return JSONResponse(fail(str(exc)), status_code=400)
 
 
-@router.get("/image")
-def inspection_image(rel: str, source: str = "mold"):
+@media_router.get("/image")
+def inspection_image(rel: str, source: str = "mold", ticket: str = ""):
+    """图片二进制。鉴权靠 ticket（绑定 source+rel），不读 Authorization。"""
+    try:
+        ticket_source, ticket_rel = parse_media_ticket(ticket)
+    except PermissionError as exc:
+        return JSONResponse(fail(str(exc)), status_code=401)
+    if ticket_source != str(source or "").strip() or ticket_rel != str(
+        rel or ""
+    ).replace("\\", "/").strip():
+        return JSONResponse(fail("图片凭证无效"), status_code=401)
     try:
         return image_response(rel, source)
     except ValueError as exc:

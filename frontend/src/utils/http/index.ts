@@ -98,6 +98,10 @@ class PureHttp {
                         PureHttp.requests.forEach(cb => cb(token));
                         PureHttp.requests = [];
                       })
+                      .catch(() => {
+                        PureHttp.requests = [];
+                        useUserStoreHook().logOut();
+                      })
                       .finally(() => {
                         PureHttp.isRefreshing = false;
                       });
@@ -140,7 +144,16 @@ class PureHttp {
       (error: PureHttpError) => {
         const $error = error;
         $error.isCancelRequest = Axios.isCancel($error);
-        // 所有的响应异常 区分来源为取消请求/非取消请求
+        const status = $error.response?.status;
+        const url = String($error.config?.url || "");
+        // 登录接口本身的 401 不踢人；其余 401（含 refresh 失败）统一回登录
+        if (
+          status === 401 &&
+          !url.endsWith("/login") &&
+          !$error.isCancelRequest
+        ) {
+          useUserStoreHook().logOut();
+        }
         return Promise.reject($error);
       }
     );

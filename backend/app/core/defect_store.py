@@ -287,9 +287,8 @@ def lookup_raw_profiles(project: dict, sns: list[str]) -> dict[str, dict]:
         stamp = _coerce_server_time(row.get(time_col)) if time_col else None
         prev = out.get(sn)
         # 同 SN 多行时保留较晚的 ServerTime
-        if prev and prev.get("server_time") and stamp:
-            if stamp <= prev["server_time"]:
-                continue
+        if prev and prev.get("server_time") and stamp and stamp <= prev["server_time"]:
+            continue
         out[sn] = {
             "machine": machine,
             "cavity": cavity,

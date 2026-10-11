@@ -107,7 +107,7 @@
 | 处理 | pandas + SQLAlchemy / SQL | |
 | 前端 | Vue3 + ECharts + Element Plus（Pure Admin 精简版） | 不用 Streamlit 做正式 UI |
 | 配置 | 元数据库为主；YAML 仅作启动/密钥与项目种子 | |
-| 日志 | Loguru | |
+| 日志 | 标准库 logging（统一封装 `app/core/log_setup.py`） | 原计划 Loguru，实际落标准库，减少依赖；`LIM_LOG_LEVEL` 可调级别 |
 | 告警 | 企业微信 / 钉钉机器人 | |
 
 ---
@@ -150,7 +150,19 @@ ODS 外观测量、ADS 不良日汇总等示例见你原稿；正式 DDL 待字�
 
 ### 6.4 API
 
-FastAPI 按业务拆路由；统一响应；权限后期加。
+FastAPI 按业务拆路由；统一响应；**鉴权已落地**：除 `auth/login`、`auth/refresh-token`、
+`/api/health` 外，业务接口默认要求有效访问令牌（`app/api/deps.py` 的 `require_user`）。
+`GET /inspection/image` 不走 Bearer：列表签发绑定路径的短时 HMAC `ticket`，供 `<img src>` 使用。
+用户/项目增删改/连接配置与探测/磁盘清理/清库/CSV 导出等敏感接口额外要求 `require_admin`。
+令牌为自研 HMAC-SHA256（`app/core/tokens.py`），无第三方依赖；默认管理员口令首次启动随机生成。
+
+### 6.5 巨型模块拆分
+
+单文件过大的模块已按职责拆分，对外 import 路径保持不变（门面 re-export）：
+- `app/modules/system/router.py`（原 668 行 / 53 路由）→ `system/routes/` 下
+  connections / query / config / db_browser / projects / people 六个子路由。
+- `app/core/inspection.py`（原 1622 行）→ 门面 + `app/core/inspection_parts/`
+  （browse 目录浏览 / dates 日期解析 / filenames 文件名解析 / constants 共享常量）。
 
 ### 6.5 前端
 

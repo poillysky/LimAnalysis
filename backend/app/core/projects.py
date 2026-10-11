@@ -297,7 +297,7 @@ def update_project(project_id: str, data: dict) -> dict | None:
                     prefix=row.prefix or "",
                     project_id=row.project_id or "",
                 )
-                if not current or current == old_name or current == old_auto:
+                if not current or current in (old_name, old_auto):
                     row.sfc_code = ""
         if "enabled" in data and data["enabled"] is not None:
             row.enabled = bool(data["enabled"])

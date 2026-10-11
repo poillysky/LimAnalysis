@@ -91,3 +91,43 @@
 
 
 
+## Q12 鉴权模型（2026-10-10 补齐）
+
+**背景：** 功能基本完成后做架构复盘，发现后端 131 个路由**全部无鉴权**：
+`app/core/tokens.py` 有签发/解析能力，但只有 `/auth/refresh-token` 用到；
+前端 `utils/http` 早已在自动附 `Authorization`。属"登录有壳、接口裸奔"。
+
+**结论：** 统一鉴权落地。
+- 默认全量保护：`app/api/router.py` 为所有业务路由挂 `Depends(require_user)`。
+- 豁免：`POST /auth/login`、`POST /auth/refresh-token`、`GET /auth/routes`、
+  `GET /api/health`；以及 `GET /inspection/image`（见下条，用短时票据自证，不是裸奔）。
+- **图片 URL**：`<img src>` 无法带 `Authorization`。列表接口签发绑定 `source+rel` 的
+  HMAC 短时 `ticket`（`tokens.issue_media_ticket`），图片路由校验票据，不走 Bearer。
+- 角色：`require_admin` 用于用户管理、项目增删改、连接配置/探测、磁盘清理、
+  清空表、CSV 导出等敏感操作。`common` 访问上述接口返回 403。
+- 令牌：沿用自研 HMAC-SHA256（`tokens.py`），无第三方依赖；前端 `Bearer ` 前缀兼容。
+- **默认口令变更**：`seed_default_admin()` 不再硬编码 `admin123`。首次启动随机生成并打印一次；
+  可用环境变量 `LIM_INITIAL_ADMIN_PASSWORD` 指定初始口令。
+- 失败响应统一为 `{success:false,message}` + 401/403，与前端 http 封装约定一致；
+  前端对非登录接口的 401 统一 `logOut` 回登录页。
+- 覆盖测试：`tests/test_auth_deps.py`、`tests/test_media_tickets.py`。
+
+## Q13 日志与模块拆分（2026-10-10）
+
+**日志：** 统一用标准库 logging，集中配置在 `app/core/log_setup.py`（幂等），
+API 与两个 Worker 启动时调用；`LIM_LOG_LEVEL` 可调级别；对 urllib3/requests/apscheduler 降噪。
+**不引入 Loguru**（与设计报告原选型不符，已回写 `03`）。
+
+**模块拆分：**
+- `app/modules/system/router.py`：668 行 / 53 路由 → `system/routes/` 六个子路由，
+  `router.py` 仅做聚合。对外路径与鉴权完全不变（99 接口 / 95 受保护 / 4 豁免，拆分前后一致）。
+- `app/core/inspection.py`：1622 行 → 门面 + `app/core/inspection_parts/`
+  （browse / dates / filenames / constants）。门面 re-export，既有 import 路径不变。
+
+**架构守卫修复：** `test_arch_guard.py` 此前**已在失败**（非本次引入）：`runtime_status.py`
+模块顶层 import `collector.jobs`。修法：把任务类型/状态**纯常量**下沉到 `app/core/job_types.py`，
+`collector/jobs.py` re-export；`disk_cleanup.py` 中确实需要 Worker 层的队列操作函数
+（enqueue/find/prune）登记进守卫的 `ALLOWED_DEFERRED`（函数内延迟导入，无加载期倒挂）。
+
+**测试隔离：** `tests/test_defect_scan_upload.py` 原为裸函数（`unittest discover` 根本收集不到），
+且直连真实 NAS 库。已重写为 `unittest.TestCase` + `unittest.mock`，桩掉项目查询与写库，不碰任何 DB。

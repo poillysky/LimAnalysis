@@ -190,7 +190,7 @@ onUnmounted(() => abort?.abort());
   min-height: calc(100vh - var(--la-chrome-total));
   margin: 0 !important;
   padding: var(--la-page-pad-y) var(--la-page-pad-x) var(--la-space-xl);
-  background: #eef7fb;
+  background: var(--la-surface-page);
 }
 
 .cfg-head {
@@ -202,22 +202,22 @@ onUnmounted(() => abort?.abort());
 
 .cfg-head strong {
   display: block;
-  color: #0c3f56;
+  color: var(--la-text-strong);
   font-size: var(--la-page-title);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 .cfg-head span {
-  color: #5b6b63;
+  color: var(--la-text-muted);
   font-size: var(--la-page-desc);
 }
 
 .cfg-count {
   padding: 4px 10px;
-  color: #1e4e79;
-  background: #fff;
-  border: 1px solid #d5ddd8;
+  color: var(--el-color-primary);
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 650;
@@ -226,9 +226,9 @@ onUnmounted(() => abort?.abort());
 .cfg-banner {
   margin: 0;
   padding: 8px 12px;
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #f0d48a;
+  color: var(--la-warning-text);
+  background: var(--la-warning-weak);
+  border: 1px solid color-mix(in oklab, var(--el-color-warning) 40%, transparent);
   border-radius: 8px;
   font-size: 13px;
 }
@@ -245,14 +245,14 @@ onUnmounted(() => abort?.abort());
   flex-direction: column;
   gap: 8px;
   padding: 14px;
-  background: #fff;
-  border: 1px solid #d5ddd8;
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
   border-radius: 12px;
 }
 
 .cfg-projects > p {
   margin: 0 0 4px;
-  color: #6b7b74;
+  color: var(--la-text-muted);
   font-size: 12px;
 }
 
@@ -265,25 +265,25 @@ onUnmounted(() => abort?.abort());
   padding: 10px 12px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: #f6f8f6;
-  color: #0c3f56;
+  background: var(--la-surface-sunken);
+  color: var(--la-text-strong);
   text-align: left;
   cursor: pointer;
 }
 
 .cfg-project small {
-  color: #7a8a83;
+  color: var(--la-text-faint);
   font-size: 11px;
 }
 
 .cfg-project.on {
-  background: #e0f4fc;
-  border-color: #b7d8c4;
+  background: color-mix(in oklab, var(--el-color-primary) 10%, transparent);
+  border-color: color-mix(in oklab, var(--el-color-primary) 30%, transparent);
   font-weight: 650;
 }
 
 .cfg-muted {
-  color: #8a9a93 !important;
+  color: var(--la-text-faint) !important;
 }
 
 .cfg-sheet {
@@ -291,19 +291,19 @@ onUnmounted(() => abort?.abort());
   flex-direction: column;
   gap: 14px;
   padding: 18px 20px 20px;
-  background: #fff;
-  border: 1px solid #d5ddd8;
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
   border-radius: 12px;
 }
 
 .cfg-sheet__top strong {
   display: block;
-  color: #0c3f56;
+  color: var(--la-text-strong);
   font-size: 16px;
 }
 
 .cfg-sheet__top span {
-  color: #6b7b74;
+  color: var(--la-text-muted);
   font-size: 12px;
 }
 
@@ -316,7 +316,7 @@ onUnmounted(() => abort?.abort());
   margin: 0;
   padding: 0;
   list-style: none;
-  border: 1px solid #dce4de;
+  border: 1px solid var(--la-border-default);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -328,8 +328,8 @@ onUnmounted(() => abort?.abort());
   gap: 8px;
   padding: 0 8px 0 14px;
   min-height: 48px;
-  border-bottom: 1px solid #edf1ee;
-  color: #0c3f56;
+  border-bottom: 1px solid var(--la-border-subtle);
+  color: var(--la-text-strong);
   font-size: 14px;
 }
 
@@ -338,11 +338,11 @@ onUnmounted(() => abort?.abort());
 }
 
 .cfg-list li:nth-child(even) {
-  background: #f8fbf9;
+  background: var(--la-surface-sunken);
 }
 
 .cfg-list i {
-  color: #8aa093;
+  color: var(--la-text-faint);
   font-style: normal;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -356,13 +356,13 @@ onUnmounted(() => abort?.abort());
   padding: 8px 10px;
   border: 0;
   background: transparent;
-  color: #5b6b63;
+  color: var(--la-text-muted);
   font-size: 12px;
   cursor: pointer;
 }
 
 .cfg-ops button:hover:not(:disabled) {
-  color: #0c3f56;
+  color: var(--la-text-strong);
 }
 
 .cfg-ops button:disabled {
@@ -371,7 +371,7 @@ onUnmounted(() => abort?.abort());
 }
 
 .cfg-ops button.danger {
-  color: #b42318;
+  color: var(--la-danger-text);
 }
 
 .cfg-empty {
@@ -382,13 +382,13 @@ onUnmounted(() => abort?.abort());
   gap: 6px;
   min-height: 280px;
   padding: 24px;
-  color: #6b7b74;
+  color: var(--la-text-muted);
   background:
-    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(var(--la-surface-card), var(--la-surface-card)) padding-box,
     repeating-linear-gradient(
       -12deg,
-      #dce4de,
-      #dce4de 6px,
+      var(--la-border-default),
+      var(--la-border-default) 6px,
       transparent 6px,
       transparent 12px
     )
@@ -399,7 +399,7 @@ onUnmounted(() => abort?.abort());
 }
 
 .cfg-empty strong {
-  color: #0c3f56;
+  color: var(--la-text-strong);
   font-size: 15px;
 }
 

@@ -265,9 +265,7 @@ def _needs_reindex(row: AppearanceDirIndex | None, dir_mtime: float, file_count:
         return True
     if abs(float(row.dir_mtime) - dir_mtime) > 1e-6:
         return True
-    if int(row.file_count) != int(file_count):
-        return True
-    return False
+    return int(row.file_count) != int(file_count)
 
 
 def drop_view_dir_index(

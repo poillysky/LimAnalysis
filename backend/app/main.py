@@ -1,18 +1,24 @@
 from contextlib import asynccontextmanager
+import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.deps import AuthError, auth_error_response
 from app.api.router import api_router
 from app.core import db as stores
 from app.core.config import settings
+from app.core.log_setup import setup_logging
 from app.core.meta_init import init_meta_store
 from app.core.runtime_status import build_runtime_status
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # API 只服务请求；重任务调度与执行在独立 Worker（python -m collector.worker）
+    setup_logging()
     init_meta_store()
     stores.refresh_pg_engines()
     try:
@@ -20,7 +26,7 @@ async def lifespan(_app: FastAPI):
 
         ensure_defect_tables()
     except Exception:
-        pass
+        logger.exception("缺陷库表初始化失败（ensure_defect_tables），相关功能可能不可用")
     yield
 
 
@@ -34,6 +40,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(api_router)
+
+    @app.exception_handler(AuthError)
+    async def _auth_error_handler(_request: Request, exc: AuthError):
+        return auth_error_response(exc)
 
     @app.get("/api/health")
     def health():

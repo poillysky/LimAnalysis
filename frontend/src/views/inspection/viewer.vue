@@ -950,13 +950,13 @@ onUnmounted(() => {
       rgb(64 158 255 / 10%),
       transparent 55%
     ),
-    linear-gradient(180deg, #f7f9fc 0%, #eef2f7 100%);
+    linear-gradient(180deg, var(--la-surface-page) 0%, var(--la-surface-sunken) 100%);
 }
 
 .viewer-bar {
   padding: var(--la-space-md) var(--la-space-lg) var(--la-space-lg);
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
   border-radius: var(--la-radius-md);
   box-shadow: var(--la-shadow-sm);
 }
@@ -975,8 +975,8 @@ onUnmounted(() => {
   width: 28px;
   height: 28px;
   font-size: var(--la-text-md);
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--el-color-primary);
+  background: color-mix(in oklab, var(--el-color-primary) 8%, transparent);
   border-radius: var(--la-radius-sm);
 }
 
@@ -985,7 +985,7 @@ onUnmounted(() => {
   font-size: var(--la-page-title);
   font-weight: 650;
   letter-spacing: -0.01em;
-  color: #1f2a37;
+  color: var(--la-text-strong);
 }
 
 .viewer-index-tag {
@@ -1001,7 +1001,7 @@ onUnmounted(() => {
   margin-top: 14px;
   padding: 10px 12px;
   overflow-x: auto;
-  background: #f8fafc;
+  background: var(--la-surface-sunken);
   border-radius: 10px;
 }
 
@@ -1010,28 +1010,28 @@ onUnmounted(() => {
   flex: 0 0 auto;
   gap: 0;
   overflow: hidden;
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--la-border-default);
   border-radius: 8px;
-  background: #fff;
+  background: var(--la-surface-card);
 }
 
 .viewer-dim__btn {
   padding: 7px 12px;
   border: 0;
   background: transparent;
-  color: #4b5563;
+  color: var(--la-text-muted);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .viewer-dim__btn + .viewer-dim__btn {
-  border-left: 1px solid #d0d7de;
+  border-left: 1px solid var(--la-border-default);
 }
 
 .viewer-dim__btn.is-on {
-  color: #fff;
-  background: #1e4e79;
+  color: var(--el-color-white);
+  background: var(--el-color-primary);
 }
 
 .viewer-field {
@@ -1043,7 +1043,7 @@ onUnmounted(() => {
 .viewer-field > span:first-child {
   font-size: 12px;
   font-weight: 600;
-  color: #4b5563;
+  color: var(--la-text-muted);
 }
 
 .viewer-field--qr {
@@ -1054,7 +1054,7 @@ onUnmounted(() => {
 
 .viewer-muted {
   font-size: 13px;
-  color: #4b5563;
+  color: var(--la-text-muted);
 }
 
 .viewer-actions {
@@ -1075,7 +1075,7 @@ onUnmounted(() => {
   gap: 0;
   margin-top: 16px;
   overflow: hidden;
-  background: #0b1220;
+  background: var(--la-media-bg);
   border-radius: 12px;
   box-shadow: 0 10px 28px rgb(15 23 42 / 12%);
 }
@@ -1086,7 +1086,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   min-height: min(58vh, 680px);
-  background: #0b1220;
+  background: var(--la-media-bg);
 }
 
 .viewer-frame > img {
@@ -1105,7 +1105,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  color: #f9fafb;
+  color: var(--la-media-text);
   font-size: 13px;
   background: linear-gradient(
     180deg,
@@ -1142,15 +1142,15 @@ onUnmounted(() => {
   padding: 2px 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #9a3412;
+  color: var(--la-warning-text);
   pointer-events: auto;
-  background: #ffedd5;
+  background: var(--la-warning-weak);
   border-radius: 999px;
 }
 
 .viewer-status.ok {
-  color: #166534;
-  background: #dcfce7;
+  color: var(--la-success-text);
+  background: var(--la-success-weak);
 }
 
 .viewer-nav {
@@ -1164,7 +1164,7 @@ onUnmounted(() => {
   height: 44px;
   padding: 0;
   line-height: 1;
-  color: #fff;
+  color: var(--el-color-white);
   cursor: pointer;
   background: rgb(17 24 39 / 55%);
   border: 0;
@@ -1195,7 +1195,7 @@ onUnmounted(() => {
 }
 
 .viewer-nav:focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid var(--la-ring-focus-color);
   outline-offset: 2px;
 }
 
@@ -1203,14 +1203,14 @@ onUnmounted(() => {
   display: grid;
   gap: 8px;
   padding: 12px 14px 14px;
-  background: #111827;
+  background: var(--la-media-bg);
 }
 
 .viewer-film {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  scrollbar-color: #4b5563 transparent;
+  scrollbar-color: var(--la-media-scroll) transparent;
 }
 
 .viewer-thumb {
@@ -1221,7 +1221,7 @@ onUnmounted(() => {
   padding: 0;
   overflow: hidden;
   cursor: pointer;
-  background: #1f2937;
+  background: var(--la-media-head);
   border: 2px solid transparent;
   border-radius: 8px;
 }
@@ -1240,23 +1240,23 @@ onUnmounted(() => {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   line-height: 16px;
-  color: #fff;
+  color: var(--el-color-white);
   background: rgb(17 24 39 / 72%);
   border-radius: 4px;
 }
 
 .viewer-thumb.active {
-  border-color: #60a5fa;
+  border-color: var(--el-color-primary-light-3);
 }
 
 .viewer-thumb:focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid var(--la-ring-focus-color);
   outline-offset: 2px;
 }
 
 .viewer-keys {
   margin: 0;
-  color: #9ca3af;
+  color: var(--la-text-faint);
   font-size: 12px;
 }
 
@@ -1268,9 +1268,9 @@ onUnmounted(() => {
   gap: 10px;
   min-height: 320px;
   margin-top: 16px;
-  color: #4b5563;
-  background: #fff;
-  border: 1px dashed #d1d5db;
+  color: var(--la-text-muted);
+  background: var(--la-surface-card);
+  border: 1px dashed var(--la-border-strong);
   border-radius: 12px;
 }
 
@@ -1281,8 +1281,8 @@ onUnmounted(() => {
   width: 44px;
   height: 44px;
   font-size: 22px;
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--el-color-primary);
+  background: color-mix(in oklab, var(--el-color-primary) 8%, transparent);
   border-radius: 10px;
 }
 

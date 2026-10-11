@@ -8,7 +8,6 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import inspect, text
 
@@ -30,29 +29,27 @@ from app.core.appearance_index import (
     schedule_quiet_index_job,
 )
 from app.core.db import MetaSession
+from app.core.inspection_parts import browse, dates
+from app.core.inspection_parts import filenames as filename_utils
+from app.core.inspection_parts.constants import (
+    APPEARANCE_DIMS,
+    APPEARANCE_FIXED_SEGMENTS,
+    APPEARANCE_SHOT_DIR,
+    CAVITY_LETTERS,
+    CAVITY_ORDER,
+    IMAGE_SUFFIXES,
+    PHOTO_SOURCES,
+    SOURCE_LABELS,
+    SOURCE_ROOT_KEYS,
+    TZ,
+    VIEWER_STATUSES,
+)
 from app.core.meta_init import INSPECTION_KEY, init_meta_store
 from app.core.meta_models import MetaSetting
 from app.core.projects import get_project, load_projects, load_system_defaults
 from app.core.sql_ident import ident, q, table_name
 
-CAVITY_LETTERS = frozenset("ABCDEFGHJKLMNPQR")
-CAVITY_ORDER = list("ABCDEFGHJKLMNPQR")
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
-TZ = ZoneInfo("Asia/Shanghai")
-VIEWER_STATUSES = ["OK", "定位NG", "底涂不良", "无料NG", "扫码不良", "相机掉线"]
-PHOTO_SOURCES = ("mold", "appearance")
-APPEARANCE_DIMS = ("tester", "mold")
-SOURCE_ROOT_KEYS = {
-    "mold": "mold_root_path",
-    "appearance": "appearance_root_path",
-}
-SOURCE_LABELS = {
-    "mold": "注塑机",
-    "appearance": "自动外观",
-}
 # 真实磁盘：项目 / 测试机 / GVIMAGES / LIM外观检测 / YYYY.MM.DD / 截图 / 视角 / 文件
-APPEARANCE_FIXED_SEGMENTS = ("GVIMAGES", "LIM外观检测")
-APPEARANCE_SHOT_DIR = "截图"
 APPEARANCE_LAYOUT = "project/tester/GVIMAGES/LIM外观检测/date/截图/view"
 # 注塑生产日取 SN；外观可能当天/隔天/多日后才测，按生产日起向后扫
 APPEARANCE_MOLD_LAYOUT = "raw(生产日×机台×穴位→SN) + appearance_sn_index"
@@ -92,7 +89,6 @@ def _session():
 def today_str() -> str:
     return datetime.now(TZ).strftime("%Y%m%d")
 
-
 def load_settings() -> dict:
     db = _session()
     try:
@@ -130,70 +126,23 @@ def save_settings(data: dict) -> dict:
 
 
 def _drive_roots() -> list[Path]:
-    if os.name != "nt":
-        return [Path("/")]
-    roots: list[Path] = []
-    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-        path = Path(f"{letter}:/")
-        try:
-            if path.exists():
-                roots.append(path)
-        except OSError:
-            continue
-    return roots
+    return browse._drive_roots()
 
 
 def _resolve_dir(raw: str) -> Path:
-    path = Path(raw)
-    if not path.is_absolute():
-        from app.core.config import settings as app_settings
-
-        path = app_settings.REPO_ROOT / path
-    return path.resolve()
+    return browse._resolve_dir(raw)
 
 
 def _dir_label(path: Path) -> str:
-    if os.name == "nt" and len(path.parts) <= 1:
-        text = str(path)
-        return text if text.endswith("\\") else f"{text}\\"
-    return path.name or str(path)
+    return browse._dir_label(path)
 
 
 def _is_listed_dir(path: Path) -> bool:
-    name = path.name
-    if name.startswith(".") or name.lower() in SKIP_DIR_NAMES:
-        return False
-    try:
-        return path.is_dir()
-    except OSError:
-        return False
+    return browse._is_listed_dir(path)
 
 
 def list_dir_entries(parent: str | None = None) -> dict:
-    raw = str(parent or "").strip()
-    if not raw:
-        dirs = [
-            {"path": str(item), "name": _dir_label(item)} for item in _drive_roots()
-        ]
-        return {"parent": "", "up": "", "dirs": dirs}
-
-    path = _resolve_dir(raw)
-    if not path.is_dir():
-        raise ValueError(f"目录不存在：{path}")
-    try:
-        children = sorted(
-            (item for item in path.iterdir() if _is_listed_dir(item)),
-            key=lambda item: item.name.lower(),
-        )
-    except OSError as exc:
-        raise ValueError(f"无法列出目录：{path}") from exc
-    parent_dir = path.parent
-    up = "" if parent_dir == path else str(parent_dir)
-    return {
-        "parent": str(path),
-        "up": up,
-        "dirs": [{"path": str(item), "name": _dir_label(item)} for item in children],
-    }
+    return browse.list_dir_entries(parent)
 
 
 def _photo_source(raw: str | None) -> str:
@@ -222,36 +171,11 @@ def _root(source: str = "mold") -> Path:
 
 
 def extract_cavity(filename: str) -> str:
-    """从文件名解析穴位字母（兼容逗号尾缀 / 下划线分段 / 路径片段）。"""
-    stem = Path(filename).stem
-    tail = stem.rsplit(",", 1)[-1].strip().upper()
-    if tail in CAVITY_LETTERS:
-        return tail
-    for part in re.split(r"[,_\-\s/\\]+", stem):
-        token = part.strip().upper()
-        if token in CAVITY_LETTERS:
-            return token
-    matched = re.search(
-        r"(?:^|[,_\-\s])([A-HJ-NP-QR])(?:$|[,_\-\s])",
-        stem,
-        flags=re.IGNORECASE,
-    )
-    if matched:
-        letter = matched.group(1).upper()
-        if letter in CAVITY_LETTERS:
-            return letter
-    return ""
+    return filename_utils.extract_cavity(filename)
 
 
 def extract_status(filename: str) -> str:
-    stem = Path(filename).stem
-    head = stem.split(",", 1)[0].strip()
-    if head in VIEWER_STATUSES:
-        return head
-    for status in VIEWER_STATUSES:
-        if status and status in stem:
-            return status
-    return ""
+    return filename_utils.extract_status(filename)
 
 
 def _resolve_machine_token(token: str, machine_set: set[str]) -> str:
@@ -326,12 +250,16 @@ def _machine_context(root: Path, project: dict, machine: str) -> tuple[Path, str
 
 
 def _to_client_image(item: dict, root: Path, source: str) -> dict | None:
+    from app.core.config import settings
+    from app.core.tokens import issue_media_ticket
+
     raw = Path(str(item.get("path") or ""))
     try:
         resolved = raw.resolve()
         rel = resolved.relative_to(root).as_posix()
     except (OSError, ValueError):
         return None
+    ticket = issue_media_ticket(source, rel)
     return {
         "id": rel,
         "machine": item["machine"],
@@ -343,7 +271,10 @@ def _to_client_image(item: dict, root: Path, source: str) -> dict | None:
         or str(item.get("status") or "").strip(),
         "camera": str(item.get("camera") or item.get("cavity") or ""),
         "view_url": (
-            f"/api/v1/inspection/image?source={source}&rel={quote(rel, safe='')}"
+            f"{settings.api_prefix}/inspection/image"
+            f"?source={quote(source, safe='')}"
+            f"&rel={quote(rel, safe='')}"
+            f"&ticket={quote(ticket, safe='')}"
         ),
     }
 
@@ -430,51 +361,19 @@ def _appearance_session_dir(tester_dir: Path) -> Path:
 
 
 def _appearance_date_sort_key(name: str) -> str:
-    """把 2026.10.07 / 20261007 / 2026-10-07 归一成 YYYYMMDD 便于倒序。"""
-    text = str(name or "").strip()
-    digits = re.sub(r"\D", "", text)
-    if len(digits) >= 8:
-        return digits[:8]
-    return text
+    return dates.appearance_date_sort_key(name)
 
 
 def _appearance_is_date_dir(name: str) -> bool:
-    return bool(re.fullmatch(r"\d{8}", name) or re.fullmatch(r"\d{4}[.\-]\d{2}[.\-]\d{2}", name))
+    return dates.appearance_is_date_dir(name)
 
 
 def _appearance_date_aliases(date_str: str) -> list[str]:
-    raw = str(date_str or "").strip()
-    if not raw:
-        return []
-    aliases = [raw]
-    digits = re.sub(r"\D", "", raw)
-    if len(digits) >= 8:
-        ymd = digits[:8]
-        dotted = f"{ymd[:4]}.{ymd[4:6]}.{ymd[6:8]}"
-        dashed = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]}"
-        for item in (ymd, dotted, dashed):
-            if item not in aliases:
-                aliases.append(item)
-    return aliases
+    return dates.appearance_date_aliases(date_str)
 
 
 def _appearance_resolve_date_dir(session_dir: Path, date_str: str) -> Path | None:
-    if not session_dir.is_dir():
-        return None
-    for name in _appearance_date_aliases(date_str):
-        candidate = session_dir / name
-        if candidate.is_dir():
-            return candidate
-    want = _appearance_date_sort_key(date_str)
-    if not want:
-        return None
-    try:
-        for item in session_dir.iterdir():
-            if item.is_dir() and _appearance_date_sort_key(item.name) == want:
-                return item
-    except OSError:
-        return None
-    return None
+    return dates.appearance_resolve_date_dir(session_dir, date_str)
 
 
 def _appearance_shot_dir(date_dir: Path) -> Path:
@@ -534,7 +433,12 @@ def _appearance_parse_rel(rel: Path) -> tuple[str, str, str]:
     """从项目相对路径解析 (测试机, 日期, 视角)。"""
     parts = rel.parts
     # tester / GVIMAGES / LIM外观检测 / date / 截图 / view / file
-    if len(parts) >= 7 and parts[1:3] == APPEARANCE_FIXED_SEGMENTS and parts[4] == APPEARANCE_SHOT_DIR:
+    is_shot_path = (
+        len(parts) >= 7
+        and parts[1:3] == APPEARANCE_FIXED_SEGMENTS
+        and parts[4] == APPEARANCE_SHOT_DIR
+    )
+    if is_shot_path:
         return parts[0], parts[3], parts[5]
     if len(parts) >= 4:
         return parts[0], parts[2] if len(parts) > 2 else "", parts[1]

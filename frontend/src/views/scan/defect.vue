@@ -22,6 +22,20 @@ defineOptions({
 type ScanMode = "scan" | "file";
 
 const loading = ref(false);
+
+// 表头配色从 token 借值（行内样式拿不到 CSS 变量）
+function cssVar(name: string, fallback: string) {
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return v || fallback;
+}
+
+const CHART = {
+  moss: cssVar("--el-color-primary", "#1e4e79"),
+  mossDeep: cssVar("--el-color-primary-dark-2", "#163c5c"),
+  onPrimary: cssVar("--el-color-white", "#fff")
+};
 const scanning = ref(false);
 const hint = ref("");
 const mode = ref<ScanMode>("scan");
@@ -320,11 +334,11 @@ onUnmounted(() => {
         border
         empty-text="还没有操作记录"
         :header-cell-style="{
-          background: '#1e4e79',
-          color: '#fff',
+          background: CHART.moss,
+          color: CHART.onPrimary,
           fontWeight: 600,
           fontSize: '12px',
-          borderColor: '#163c5c',
+          borderColor: CHART.mossDeep,
           textAlign: 'center'
         }"
       >
@@ -371,47 +385,47 @@ onUnmounted(() => {
   min-height: calc(100vh - var(--la-chrome-total));
   margin: 0 !important;
   padding: 12px 16px 16px;
-  background: #eef7fb;
+  background: var(--la-surface-page);
 }
 
 .scan-head {
   padding: var(--la-space-md) var(--la-space-lg);
-  background: #fff;
-  border: 1px solid #d5ddd8;
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
   border-radius: var(--la-radius-md);
 }
 
 .scan-head strong {
   display: block;
-  color: #0c3f56;
+  color: var(--la-text-strong);
   font-size: var(--la-page-title);
   font-weight: 650;
 }
 
 .scan-head span {
-  color: #5b6b63;
+  color: var(--la-text-muted);
   font-size: var(--la-page-desc);
 }
 
 .scan-banner {
   margin: 0;
   padding: 8px 12px;
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #f0d48a;
+  color: var(--la-warning-text);
+  background: var(--la-warning-weak);
+  border: 1px solid color-mix(in oklab, var(--el-color-warning) 40%, transparent);
   border-radius: 8px;
   font-size: 13px;
 }
 
 .scan-link {
   margin-left: 8px;
-  color: #1e4e79;
+  color: var(--el-color-primary);
   font-weight: 650;
 }
 
 .scan-sheet {
-  background: #fff;
-  border: 1px solid #d5ddd8;
+  background: var(--la-surface-card);
+  border: 1px solid var(--la-border-default);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -427,7 +441,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  color: #4d5d56;
+  color: var(--la-text-muted);
   font-size: 12px;
 }
 
@@ -446,7 +460,7 @@ onUnmounted(() => {
 
 .scan-checks-empty {
   margin: 0;
-  color: #8a9a93;
+  color: var(--la-text-faint);
   font-size: 13px;
   line-height: 32px;
 }
@@ -470,18 +484,18 @@ onUnmounted(() => {
   gap: 12px;
   min-height: 64px;
   padding: 10px 14px;
-  border: 1px solid #d5ddd8;
+  border: 1px solid var(--la-border-default);
   border-radius: 10px;
-  background: #f6f8f6;
-  color: #0c3f56;
+  background: var(--la-surface-sunken);
+  color: var(--la-text-strong);
   text-align: left;
   cursor: pointer;
 }
 
 .scan-modes button.on {
-  background: #e0f4fc;
-  border-color: #1e4e79;
-  box-shadow: 0 0 0 1px #1e4e79 inset;
+  background: color-mix(in oklab, var(--el-color-primary) 10%, transparent);
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
 }
 
 .scan-modes__icon {
@@ -492,14 +506,14 @@ onUnmounted(() => {
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  background: #fff;
-  color: #1e4e79;
+  background: var(--la-surface-card);
+  color: var(--el-color-primary);
   font-size: 20px;
 }
 
 .scan-modes button.on .scan-modes__icon {
-  background: #1e4e79;
-  color: #fff;
+  background: var(--el-color-primary);
+  color: var(--el-color-white);
 }
 
 .scan-modes__text {
@@ -514,7 +528,7 @@ onUnmounted(() => {
 }
 
 .scan-modes__text small {
-  color: #6b7b74;
+  color: var(--la-text-muted);
   font-size: 12px;
 }
 
@@ -523,7 +537,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: #6b7b74;
+  color: var(--la-text-muted);
   font-size: 13px;
 }
 
@@ -549,23 +563,23 @@ onUnmounted(() => {
   justify-content: center;
   width: 44px;
   height: 44px;
-  color: #1e4e79;
+  color: var(--el-color-primary);
   font-size: 28px;
 }
 
 .scan-drop strong {
-  color: #0c3f56;
+  color: var(--la-text-strong);
   font-size: 14px;
 }
 
 .scan-drop p {
   margin: 0;
-  color: #6b7b74;
+  color: var(--la-text-muted);
   font-size: 12px;
 }
 
 .scan-gun > em {
-  color: #1e4e79;
+  color: var(--el-color-primary);
   font-style: normal;
   font-size: 13px;
   font-weight: 650;
@@ -580,12 +594,12 @@ onUnmounted(() => {
 
 .scan-toolbar strong {
   flex: 1;
-  color: #0c3f56;
+  color: var(--la-text-strong);
   font-size: 14px;
 }
 
 .scan-table {
-  --el-table-border-color: #c6c6c6;
+  --el-table-border-color: var(--la-border-default);
   font-family: Calibri, "Microsoft YaHei", "Segoe UI", sans-serif;
   font-size: 12px;
 }
@@ -595,15 +609,15 @@ onUnmounted(() => {
 }
 
 .scan-table :deep(.el-table__header-wrapper th.el-table__cell) {
-  background: #1e4e79 !important;
-  color: #fff;
+  background: var(--el-color-primary) !important;
+  color: var(--el-color-white);
   padding: 0 8px;
   height: 32px;
 }
 
 .scan-table :deep(th.scan-table__fill),
 .scan-table :deep(td.scan-table__fill) {
-  border-left-color: #c6c6c6;
+  border-left-color: var(--la-border-default);
   pointer-events: none;
 }
 

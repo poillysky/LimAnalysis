@@ -1,16 +1,22 @@
 import hashlib
 import hmac
+import logging
 import os
 import re
+import secrets
+import string
 
 from sqlalchemy import func, select
 
 from app.core.db import MetaSession
 from app.core.meta_models import MetaUser
 
+logger = logging.getLogger(__name__)
+
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{2,50}$")
 _ROLES = {"admin", "common"}
 _PBKDF2_ROUNDS = 120_000
+_INITIAL_PASSWORD_ENV = "LIM_INITIAL_ADMIN_PASSWORD"
 
 
 def _session():
@@ -73,21 +79,44 @@ def _count_enabled_admins(db, exclude_username: str | None = None) -> int:
     return int(db.scalar(stmt) or 0)
 
 
+def _generate_password(length: int = 12) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
 def seed_default_admin() -> None:
+    """首次启动创建管理员账号。
+
+    口令来源优先级：环境变量 LIM_INITIAL_ADMIN_PASSWORD > 随机生成。
+    随机生成时打印到日志一次，提示尽快登录后修改；不再使用固定弱口令。
+    """
     db = MetaSession()
     try:
         if db.scalar(select(func.count()).select_from(MetaUser)):
             return
+        initial = (os.environ.get(_INITIAL_PASSWORD_ENV) or "").strip()
+        generated = not initial
+        if generated:
+            initial = _generate_password()
         db.add(
             MetaUser(
                 username="admin",
                 nickname="管理员",
-                password_hash=hash_password("admin123"),
+                password_hash=hash_password(initial),
                 role="admin",
                 enabled=True,
             )
         )
         db.commit()
+        if generated:
+            logger.warning(
+                "已创建默认管理员账号 admin，初始随机口令：%s （请登录后立即修改；"
+                "也可设置 %s 指定初始口令）",
+                initial,
+                _INITIAL_PASSWORD_ENV,
+            )
+        else:
+            logger.info("已使用 %s 创建默认管理员账号 admin", _INITIAL_PASSWORD_ENV)
     except Exception:
         db.rollback()
         raise

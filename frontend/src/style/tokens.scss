@@ -81,6 +81,64 @@
   --la-leading-loose: 1.7; // 表格单元格（上下两行时用）
 }
 
+// ── 图像查看区（功能性深色）───────────────────────────────────────────────
+// 与暗色主题无关：判断注塑件外观缺陷时必须在深底上看图，
+// 浅底会抬高画面灰度、压缩对比度。所以单独定义一套，两套主题下都用它。
+:root {
+  --la-media-bg: #0b0c10;
+  --la-media-head: #12141a;
+  --la-media-border: #1f2430;
+  --la-media-divider: rgb(255 255 255 / 8%);
+  --la-media-text: #f4f4f5;
+  --la-media-text-dim: rgb(244 244 245 / 66%);
+  --la-media-field: rgb(255 255 255 / 8%);
+  --la-media-field-ring: rgb(255 255 255 / 14%);
+  --la-media-hover: rgb(255 255 255 / 6%);
+  --la-media-scrim: rgb(18 20 26 / 72%);
+  --la-media-scroll: #4b5563;
+}
+
+// ── 公式字段 token（ETL 配置里的可拖拽胶囊）─────────────────────────────
+// 用主色派生而不是写死青色：写死色在其他主题下会与主色打架。
+:root {
+  --la-token-bg: var(--el-color-primary);
+  --la-token-border: var(--el-color-primary-dark-2);
+  --la-token-ring: color-mix(
+    in oklab,
+    var(--el-color-primary) 30%,
+    transparent
+  );
+  --la-token-dot: var(--el-color-primary-light-5);
+}
+
+// ── 焦点环的实色版本 ─────────────────────────────────────────────────────
+:root {
+  --la-ring-focus-color: color-mix(
+    in oklab,
+    var(--el-color-primary) 55%,
+    #fff
+  );
+}
+
+// ── 文字色刻度 ───────────────────────────────────────────────────────────
+// 为什么不用 Element Plus 的 --el-text-color-*：
+//   那套只有 primary/regular/secondary/placeholder 四档，且值偏灰，
+//   在车间亮屏 + 长时间盯数据的场景下对比度不够。
+//   这里额外补两档：strong（标题/关键值，接近但不到纯黑）与 body（正文）。
+:root {
+  --la-text-strong: #1f2733; // 标题、KPI 数值
+  --la-text-body: #364152; // 正文
+  --la-text-muted: #667085; // 次要说明、表头
+  --la-text-faint: #98a2b3; // 占位、禁用
+}
+
+html.dark {
+  --la-text-strong: #f0f2f5;
+  --la-text-body: #cdd3dd;
+  --la-text-muted: #98a2b3;
+  --la-text-faint: #667085;
+}
+
 // ── 表面与描边 ───────────────────────────────────────────────────────────
 // 不用纯白纯黑：纯白在亮屏上会"发光"，纯黑会显脏。
 // 中性色带一点冷调，与项目主色（藏青）同族，整体更协调。
