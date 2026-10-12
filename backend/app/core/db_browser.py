@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import io
+import json
 import os
 import re
 import tempfile
@@ -89,18 +90,61 @@ def _time_expr(qcol: str, dialect: str) -> str:
     return f"NULLIF(BTRIM(({qcol})::text), '')::timestamptz"
 
 
-def _time_filter(
+def normalize_filters(raw: str | dict | None) -> dict[str, str]:
+    """把 HTTP 传来的筛选条件规范成 {列名: 值}。
+
+    接受 JSON 字符串或已是 dict；值为 None / 空串的一律丢弃（= 不筛选）。
+    格式不对直接报错，避免前端拼错参数后被静默忽略、拿到"没筛过"的全量数据。
+    """
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("筛选条件不是合法 JSON") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("筛选条件必须是 {列名: 值} 对象")
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        name = str(key).strip()
+        text = "" if value is None else str(value).strip()
+        if name and text:
+            out[name] = text
+    return out
+
+
+def _eq_clause(
+    columns: list[str], filters: dict[str, str], dialect: str
+) -> tuple[list[str], dict]:
+    """等值筛选 → SQL 片段 + 绑定参数。
+
+    列不在表里就报错。这里刻意不做"忽略未知列"的容错：静默忽略会让导出结果
+    看起来成功、实则没筛，排查成本远高于直接失败。
+    """
+    clauses: list[str] = []
+    params: dict = {}
+    for index, col in enumerate(sorted(filters)):
+        if col not in columns:
+            raise ValueError(f"表没有「{col}」列，无法按此筛选")
+        key = f"f{index}"
+        clauses.append(f"{_quote_ident(col, dialect)} = :{key}")
+        params[key] = filters[col]
+    return clauses, params
+
+
+def _time_clause(
     columns: list[str],
     dialect: str,
     time_from: str | None,
     time_to: str | None,
-) -> tuple[str, dict, str | None]:
-    """返回 (WHERE 子句或空串, 绑定参数, 时间列名)。"""
+) -> tuple[list[str], dict, str | None]:
+    """返回 (条件片段, 绑定参数, 时间列名)。"""
     col = _pick_server_time(columns)
     t0 = _parse_dt(time_from)
     t1 = _parse_dt(time_to)
     if t0 is None and t1 is None:
-        return "", {}, col
+        return [], {}, col
     if col is None:
         raise ValueError("当前表无 ServerTime 列，无法按时间筛选")
     if t0 is not None and t1 is not None and t0 > t1:
@@ -114,7 +158,25 @@ def _time_filter(
     if t1 is not None:
         clauses.append(f"{expr} <= :time_to")
         params["time_to"] = t1
-    return " WHERE " + " AND ".join(clauses), params, col
+    return clauses, params, col
+
+
+def _where_clause(
+    columns: list[str],
+    dialect: str,
+    *,
+    filters: dict[str, str] | None = None,
+    time_from: str | None = None,
+    time_to: str | None = None,
+) -> tuple[str, dict, str | None]:
+    """把「列筛选 + 时间范围」拼成一个 WHERE；两者可任意组合。"""
+    time_parts, time_params, time_col = _time_clause(
+        columns, dialect, time_from, time_to
+    )
+    eq_parts, eq_params = _eq_clause(columns, filters or {}, dialect)
+    parts = [*time_parts, *eq_parts]
+    where = (" WHERE " + " AND ".join(parts)) if parts else ""
+    return where, {**time_params, **eq_params}, time_col
 
 
 def list_tables(target: str) -> list[dict]:
@@ -148,6 +210,7 @@ def table_preview(
     offset: int = 0,
     time_from: str | None = None,
     time_to: str | None = None,
+    filters: dict[str, str] | None = None,
 ) -> dict:
     engine = _engine(target)
     dialect = engine.dialect.name
@@ -164,8 +227,9 @@ def table_preview(
     offset = max(0, int(offset or 0))
     qtable = _quote_ident(table, dialect)
     columns = [c["name"] for c in inspector.get_columns(table)]
-    where_sql, params, time_col = _time_filter(
-        columns, dialect, time_from, time_to
+    used = normalize_filters(filters)
+    where_sql, params, time_col = _where_clause(
+        columns, dialect, filters=used, time_from=time_from, time_to=time_to
     )
     order_sql = ""
     if time_col:
@@ -210,7 +274,55 @@ def table_preview(
         "time_column": time_col,
         "time_from": time_from or None,
         "time_to": time_to or None,
+        "filters": used,
     }
+
+
+def column_values(
+    target: str,
+    table: str,
+    column: str,
+    *,
+    filters: dict[str, str] | None = None,
+    limit: int = 200,
+) -> list[str]:
+    """取某列的去重值（升序），供前端下拉使用。
+
+    可带其它列的筛选以实现级联（如按项目过滤后再列次品相）；
+    传入的 filters 里若包含本列会被剔除，否则级联会把自己锁死。
+    """
+    engine = _engine(target)
+    dialect = engine.dialect.name
+    name = str(table or "").strip()
+    if not name:
+        raise ValueError("请选择表")
+    inspector = inspect(engine)
+    existing = set(inspector.get_table_names())
+    with contextlib.suppress(Exception):
+        existing.update(inspector.get_view_names())
+    if name not in existing:
+        raise ValueError("表不存在")
+    col = str(column or "").strip()
+    columns = [c["name"] for c in inspector.get_columns(name)]
+    if col not in columns:
+        raise ValueError(f"表没有「{col}」列")
+
+    used = {k: v for k, v in normalize_filters(filters).items() if k != col}
+    where_sql, params, _ = _where_clause(columns, dialect, filters=used)
+    conditions = []
+    if where_sql:
+        conditions.append(where_sql[len(" WHERE "):])
+    qcol = _quote_ident(col, dialect)
+    conditions.append(f"{qcol} IS NOT NULL")
+    conditions.append(f"CAST({qcol} AS text) <> ''")
+    limit = max(1, min(int(limit or 200), 1000))
+    sql = (
+        f"SELECT DISTINCT {qcol} AS v FROM {_quote_ident(name, dialect)}"
+        f" WHERE {' AND '.join(conditions)} ORDER BY 1 LIMIT :limit"
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(text(sql), {**params, "limit": limit}).scalars().all()
+    return [str(value) for value in rows]
 
 
 def target_info(target: str) -> dict:
@@ -260,11 +372,12 @@ def _write_table_csv(
     time_from: str | None = None,
     time_to: str | None = None,
     columns: list[str] | None = None,
+    filters: dict[str, str] | None = None,
 ) -> bytes:
     qtable = _quote_ident(table, dialect)
     cols = columns or []
-    where_sql, params, time_col = _time_filter(
-        cols, dialect, time_from, time_to
+    where_sql, params, time_col = _where_clause(
+        cols, dialect, filters=filters, time_from=time_from, time_to=time_to
     )
     order_sql = ""
     if time_col:
@@ -330,8 +443,9 @@ def prepare_table_download(
     *,
     time_from: str | None = None,
     time_to: str | None = None,
+    filters: dict[str, str] | None = None,
 ) -> dict:
-    """导出指定表为 CSV 文件；有 ServerTime 时可按时间范围导出。"""
+    """导出指定表为 CSV 文件；支持「列筛选 + ServerTime 范围」任意组合。"""
     ensure_engines(target)
     if target == "dwh":
         raise ValueError("ETL 库禁止下载表")
@@ -344,10 +458,15 @@ def prepare_table_download(
     dialect = engine.dialect.name
     columns = [c["name"] for c in inspect(engine).get_columns(name)]
     time_col = _pick_server_time(columns)
+    used = normalize_filters(filters)
     t0 = _parse_dt(time_from)
     t1 = _parse_dt(time_to)
-    if time_col and (t0 is None or t1 is None):
-        raise ValueError("请选择 ServerTime 起止时间后再下载")
+    # 时间只给一端基本是操作失误，直接拦住比导出一份"看着对"的错数据好
+    if time_col and ((t0 is None) != (t1 is None)):
+        raise ValueError("ServerTime 起止时间需要同时填写")
+    # 既没时间也没列筛选：保留原有保护，避免误点把整张表拉走
+    if time_col and t0 is None and t1 is None and not used:
+        raise ValueError("请选择 ServerTime 起止时间或至少一项筛选条件后再下载")
     if time_col is None and (t0 is not None or t1 is not None):
         raise ValueError("当前表无 ServerTime 列，无法按时间筛选")
 
@@ -362,6 +481,7 @@ def prepare_table_download(
                 time_from=time_from,
                 time_to=time_to,
                 columns=columns,
+                filters=used,
             )
         Path(tmp_path).write_bytes(data)
     except Exception:
@@ -369,12 +489,16 @@ def prepare_table_download(
             os.unlink(tmp_path)
         raise
 
+    def _tag(text: str) -> str:
+        return re.sub(r"[^\w.\-]+", "_", str(text))[:40].strip("_") or "x"
+
     safe = re.sub(r"[^\w.\-]+", "_", name) or "table"
-    suffix = ""
+    # 文件名带上筛选值，避免下载目录里多个 CSV 分不清哪份是哪份
+    suffix = "".join(f"_{_tag(value)}" for _, value in sorted(used.items()))
     if t0 is not None and t1 is not None:
         a = t0.strftime("%Y%m%d%H%M%S")
         b = t1.strftime("%Y%m%d%H%M%S")
-        suffix = f"_{a}_{b}"
+        suffix += f"_{a}_{b}"
     return {
         "path": tmp_path,
         "filename": f"{safe}{suffix}.csv",

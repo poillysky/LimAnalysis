@@ -46,7 +46,8 @@ from app.core.inspection_parts.constants import (
 )
 from app.core.meta_init import INSPECTION_KEY, init_meta_store
 from app.core.meta_models import MetaSetting
-from app.core.projects import get_project, load_projects, load_system_defaults
+from app.core.projects import get_project, load_projects
+from app.core.sn_column import pick_col, pick_sn_column
 from app.core.sql_ident import ident, q, table_name
 
 # 真实磁盘：项目 / 测试机 / GVIMAGES / LIM外观检测 / YYYY.MM.DD / 截图 / 视角 / 文件
@@ -464,15 +465,7 @@ def _appearance_dim(raw: str | None) -> str:
 
 
 def _pick_raw_col(columns: list[str], *names: str) -> str | None:
-    exact = {name: name for name in columns}
-    lower = {name.lower(): name for name in columns}
-    for name in names:
-        if name in exact:
-            return exact[name]
-        hit = lower.get(name.lower())
-        if hit:
-            return hit
-    return None
+    return pick_col(columns, *names)
 
 
 def _raw_table_for_project(project: dict) -> str:
@@ -493,9 +486,7 @@ def _raw_layout_cols(project: dict) -> dict:
     columns = [
         str(col["name"]) for col in inspect(stores.raw_engine).get_columns(table)
     ]
-    defaults = load_system_defaults()
-    pk_name = str((defaults.get("unique_key") or {}).get("column") or "FCoverSN").strip()
-    sn_col = _pick_raw_col(columns, pk_name, "FCoverSN", "前盖码", "SN", "sn")
+    sn_col = pick_sn_column(columns, project)
     machine_col = _pick_raw_col(columns, "机台")
     cavity_col = _pick_raw_col(columns, "模穴", "模具模穴")
     time_col = _pick_raw_col(columns, *RAW_TIME_COL_CANDIDATES)

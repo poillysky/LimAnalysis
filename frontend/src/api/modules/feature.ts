@@ -20,6 +20,12 @@ export type ProjectOwners = {
   pm: number[];
 };
 
+/** CSV 原列名 → 入库列名，如 BCoverSN → FCoverSN */
+export type ColumnMapItem = {
+  source: string;
+  target: string;
+};
+
 export type ProjectItem = {
   project_id: string;
   display_name: string;
@@ -29,6 +35,7 @@ export type ProjectItem = {
   prefix?: string;
   machines?: string[];
   owners?: ProjectOwners;
+  column_map?: ColumnMapItem[];
 };
 
 export type ProjectListResult = {

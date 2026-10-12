@@ -556,10 +556,12 @@ def _sync_project_schema_unlocked(project_id: str, content: bytes) -> dict:
     if project is None:
         raise ValueError("项目不存在")
     prefix = str(project.get("prefix") or project_id)
-    frame = parse_csv(decode_csv(content))
+    from app.core.column_map import apply_column_map
+
+    frame = apply_column_map(parse_csv(decode_csv(content)), project)
     if frame.empty and len(frame.columns) == 0:
         raise ValueError("CSV 无表头")
-    pk_src = unique_column(frame)
+    pk_src = unique_column(frame, project)
     sql_cols = unique_idents([str(c) for c in frame.columns])
     rename = dict(zip((str(s) for s in frame.columns), sql_cols, strict=True))
     if pk_src not in rename:

@@ -150,7 +150,7 @@ def remove_logs(force: bool = False):
 def purge_empty_rows(project_id: str = Form(...)):
     """轻量清理：空唯一键行。仍在 API 执行（秒级）。"""
     from app.core import db as stores
-    from app.core.projects import load_projects, load_system_defaults
+    from app.core.projects import load_projects
     from collector.raw_loader import purge_empty_pk_rows, table_name
 
     project_id = str(project_id or "").strip()
@@ -159,11 +159,9 @@ def purge_empty_rows(project_id: str = Form(...)):
     if project is None:
         return JSONResponse(fail("项目不存在"), status_code=400)
 
-    pk = str(
-        (project.get("unique_key") or {}).get("column")
-        or (load_system_defaults().get("unique_key") or {}).get("column")
-        or "FCoverSN"
-    ).strip() or "FCoverSN"
+    from app.core.sn_column import resolve_unique_key_name
+
+    pk = resolve_unique_key_name(project)
     prefix = str(project.get("prefix") or project_id)
     table = table_name(prefix, project_id)
     try:

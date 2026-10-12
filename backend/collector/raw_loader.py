@@ -87,20 +87,15 @@ def _cell_text(value) -> str | None:
     return text
 
 
-def unique_column(frame: pd.DataFrame) -> str:
-    from app.core.projects import load_system_defaults
+def unique_column(frame: pd.DataFrame, project: dict | None = None) -> str:
+    """CSV 唯一键列：配置名 / *CoverSN / 否则退回第一列。"""
+    from app.core.sn_column import pick_sn_column
 
-    defaults = load_system_defaults()
-    configured = str((defaults.get("unique_key") or {}).get("column") or "").strip()
     columns = [str(col) for col in frame.columns]
-    lower_map = {col.lower(): col for col in columns}
-    if configured:
-        if configured in columns:
-            return configured
-        hit = lower_map.get(configured.lower())
-        if hit:
-            return hit
-    return columns[0]
+    if not columns:
+        raise ValueError("CSV 没有列")
+    hit = pick_sn_column(columns, project)
+    return hit or columns[0]
 
 
 def _existing_columns(engine, table: str) -> list[str]:
@@ -456,7 +451,17 @@ def upsert_dataframe(frame: pd.DataFrame, prefix: str, project_id: str) -> dict:
     empty = {"total": 0, "unique": 0, "rows_inserted": 0, "rows_updated": 0}
     if frame.empty:
         return empty
-    pk_src = unique_column(frame)
+    project = None
+    try:
+        from app.core.projects import get_project
+
+        project = get_project(project_id)
+    except Exception:
+        project = None
+    from app.core.column_map import apply_column_map
+
+    frame = apply_column_map(frame, project)
+    pk_src = unique_column(frame, project)
     frame = frame.copy()
     # 先丢掉空白唯一键，再 ffill，避免文件开头空行被填成脏数据
     pk_series = frame[pk_src].astype(str).str.strip()

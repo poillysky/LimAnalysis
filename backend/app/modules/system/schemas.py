@@ -14,6 +14,8 @@ class ProjectCreate(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     machines: list[str] = Field(default_factory=list)
     owners: dict[str, Any] = Field(default_factory=dict)
+    # CSV 原列名 → 入库列名，如 BCoverSN → FCoverSN
+    column_map: list[dict[str, str]] = Field(default_factory=list)
 
 
 class ProjectUpdate(BaseModel):
@@ -26,6 +28,7 @@ class ProjectUpdate(BaseModel):
     config: dict[str, Any] | None = None
     machines: list[str] | None = None
     owners: dict[str, Any] | None = None
+    column_map: list[dict[str, str]] | None = None
 
 
 class DefaultsUpdate(BaseModel):

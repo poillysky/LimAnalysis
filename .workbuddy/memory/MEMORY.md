@@ -83,31 +83,71 @@ import 它等于**真的启动 worker + 调度器**。已踩过一次（幸好 `
 ### 架构约束
 `app/core` 是最底层，**不允许** import `collector` / `processor`。
 SQL 标识符工具在 `app/core/sql_ident.py`（零依赖，只准 `import re`）。
+任务类型/状态**纯常量**在 `app/core/job_types.py`（`collector/jobs.py` re-export）；
+队列操作函数（enqueue/claim/finish/prune）留在 `collector/jobs.py`，
+`app/core/disk_cleanup.py` 里对它们的调用是**函数内延迟导入**，已登记进守卫的
+`ALLOWED_DEFERRED`（无加载期倒挂）。
 由 `tests/test_arch_guard.py` 三条用例强制守卫。
+
+### 鉴权模型（2026-10-10 起）
+- 所有业务路由**默认要求登录**：`app/api/router.py` 统一挂 `Depends(require_user)`。
+- 豁免仅 4 个：`/auth/login`、`/auth/refresh-token`、`/auth/routes`、`/api/health`。
+- `app/api/deps.py`：`require_user`（HTTPBearer）/ `require_admin`（403）。
+- 敏感接口（用户管理、连接配置、磁盘清理、清空表）额外 `require_admin`。
+- 新增受保护接口**无需**手写鉴权，自动继承（除非显式豁免）。
+- 默认管理员口令：首次启动**随机生成并打印一次**；`LIM_INITIAL_ADMIN_PASSWORD` 可指定。
+
+### 日志
+统一标准库 logging，集中配置 `app/core/log_setup.py#setup_logging()`（幂等），
+API 与两个 worker 入口调用；`LIM_LOG_LEVEL` 调级别。**不引入 Loguru。**
 
 ## 四、检查入口
 
 ```bash
-cd backend && .venv/Scripts/python.exe scripts/check.py        # lint + 测试
-cd backend && .venv/Scripts/python.exe scripts/check.py lint    # 只 lint
-cd backend && .venv/Scripts/python.exe scripts/check.py test    # 只测试
+cd backend && HTTP_PROXY= HTTPS_PROXY= .venv/Scripts/python.exe scripts/check.py  # lint + 测试
+cd backend && HTTP_PROXY= HTTPS_PROXY= .venv/Scripts/python.exe scripts/check.py lint    # 只 lint
+cd backend && HTTP_PROXY= HTTPS_PROXY= .venv/Scripts/python.exe scripts/check.py test    # 只测试
 ```
-- 当前基线：ruff 0 问题 / 148 个 unittest 全过
+- 当前基线（2026-10-12 刷新）：**ruff 0 问题 / 230 个 unittest 全过**
+  （2026-10-10 记的 179 已过时。注意：2026-10-12 之前 `check.py` 其实是**红的** ——
+  `app/main.py` 导入顺序 + `test_column_map.py` / `test_sn_column.py` 的 RUF012/SIM117，
+  同日已修。**不要相信"上次是全绿的"，跑一遍再下结论。**）
 - 前端：
-  - `pnpm typecheck:strict` —— 业务 0 错 / 模板层 415 基线
+  - `pnpm typecheck:strict` —— **业务 0 错 / 模板层 414（基线 415）**
   - `pnpm verify:css <改前目录> <改后目录>` —— CSS 产物规则级比对（忽略顺序、归一化 scoped hash）
   - `pnpm verify:dedup` —— **当前跑不起来**，见下方遗留
+- **跑起来 ≠ 生效**：本机后端不一定带 `--reload`。改了路由后用
+  「新路由返回 404、已存在路由返回 401」来判别是否需要重启（PID 4020 / :8000 曾未重载）。
+
+## 四·二、数据浏览（功能管理 → 数据浏览）约定
+
+- 接口前缀 `/api/v1`（写 `/api/...` 会 404）；`/api/v1/system/db/{target}/...`，
+  target ∈ `meta | raw | dwh | defect`。
+- **筛选参数统一是 `filters`，值为 JSON 字符串**，如
+  `?filters={"project_id":"eagle_rcvr","defect_item":"烟囱溢胶"}`，按等值 AND。
+  新增可筛选维度时：前端往 `FILTER_DIMS` 加一项即可，**列的筛选值域由
+  `/tables/{table}/values?column=..` 从真实数据取**，不写死枚举。
+- 核心在 `app/core/db_browser.py`：`normalize_filters` / `_eq_clause` /
+  `_time_clause` / `_where_clause`（预览与导出共用同一套 WHERE，别再各写一份）。
+- 两条刻意的行为，别"顺手优化"掉：
+  1. **未知列报错而不是忽略** —— 静默忽略会导出"看着对、实则没筛"的数据。
+  2. 下载时「无时间范围且无任何筛选」才拒绝 —— 这是防误点拉整表的保护。
+- 页面 `views/feature/db-browser.vue` 的筛选条只在**当前表真有该列**时渲染。
+
 
 ## 五、已知遗留
 
-- 测试覆盖仅 9/85 业务模块；`app/core/users.py` / `tokens.py` / `secret_box.py` /
-  `processor/agg_executor.py` / `collector/runner.py` 等关键路径无测试
+- 测试覆盖仍偏薄（多数业务模块无测试）；`processor/agg_executor.py` / `collector/runner.py`
+  等关键路径仍无隔离测试。`app/api/deps.py`（鉴权）与 `inspection_parts` 本次已补测。
 - 无 CI（`.github/workflows` 不存在），上述命令仍需人肉记得跑
 - `deploy/docker-compose*.yml` 里 `POSTGRES_PASSWORD: lim` 是硬编码明文
-- 前端模板层 375 个 strict 类型错误待逐步消
+- 前端模板层还有 414 个 strict 类型错误（基线 415，只准降不准升）待逐步消
 - **`pnpm verify:dedup` 已失效**：它要读外部 `LIM_SNAP_DIR` 快照目录，
   而那是阶段一的一次性产物（临时目录已清理）。要么重建快照，
   要么把脚本改成自包含（把旧实现内联进去，不依赖外部快照）。
+- 其他偏大文件（本次未拆，可后续按同样手法处理）：
+  `app/core/ads_query.py`(785) / `defect_store.py`(725) / `disk_cleanup.py`(714) /
+  `appearance_index.py`(662) / `processor/models_store.py`(616)。
 
 ## 六、样式相关约定
 

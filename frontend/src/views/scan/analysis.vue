@@ -239,7 +239,8 @@ const bodyPivotRows = computed(() =>
 const summary = computed(() =>
   pivotKeptTotals(
     rows.value.map(row => ({
-      entity: row.machine,
+      // machine 可能为空（该行没有机台归属），统一成空串再进透视表
+      entity: String(row.machine || ""),
       cavity: row.cavity,
       qty: row.qty,
       ng: row.ng

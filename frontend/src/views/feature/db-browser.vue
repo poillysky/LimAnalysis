@@ -5,8 +5,10 @@ import { listConnections } from "@/api/modules/connections";
 import {
   clearDbTable,
   downloadDbTable,
+  getDbColumnValues,
   getDbTableRows,
   getDbTables,
+  type DbFilters,
   type DbTableItem,
   type DbTarget,
   type DbTargetInfo
@@ -41,6 +43,15 @@ const TARGETS: { key: DbTarget; label: string; hint: string }[] = [
   }
 ];
 
+/**
+ * 可筛选的维度。只有当前表**真的有这一列**时才会渲染出下拉框，
+ * 所以放到别的库（比如原始库）页面上不会出现「项目 / 次品项」。
+ */
+const FILTER_DIMS: { key: string; label: string; placeholder: string }[] = [
+  { key: "project_id", label: "项目", placeholder: "全部项目" },
+  { key: "defect_item", label: "次品项", placeholder: "全部次品项" }
+];
+
 const active = ref<DbTarget>("meta");
 const loadingTables = ref(false);
 const loadingRows = ref(false);
@@ -63,20 +74,27 @@ const timeTo = ref("");
 /** 已应用到列表查询的范围 */
 const appliedTimeFrom = ref("");
 const appliedTimeTo = ref("");
+/** 列筛选（项目 / 次品项）：选中即生效 */
+const filterValues = ref<Record<string, string>>({});
+/** 每一维的可选值（来自当前库真实数据，可级联） */
+const filterOptions = ref<Record<string, string[]>>({});
+const loadingOptions = ref(false);
 let tablesAbort: AbortController | null = null;
 let rowsAbort: AbortController | null = null;
+let optionsAbort: AbortController | null = null;
 
 const targetTabs = computed(() =>
   TARGETS.map(item => {
-    const live = item.key === active.value && info.value;
+    // 先收窄成局部变量，否则 TS 无法确定 info.value 在同一表达式里非空
+    const current = item.key === active.value ? info.value : null;
     return {
       value: item.key,
       label: item.label,
-      hint: live ? info.value.endpoint : item.hint,
-      status: live
+      hint: current ? current.endpoint : item.hint,
+      status: current
         ? {
-            ok: Boolean(info.value.ok),
-            label: info.value.ok ? "已连通" : "不可用"
+            ok: Boolean(current.ok),
+            label: current.ok ? "已连通" : "不可用"
           }
         : undefined
     };
@@ -109,6 +127,31 @@ const showTimeFilter = computed(() => {
     c => c === "ServerTime" || c.toLowerCase() === "servertime"
   );
 });
+
+/** 当前表真的有这些列时才显示对应筛选（原始库没有 project_id，就不会出现） */
+const visibleFilterDims = computed(() =>
+  FILTER_DIMS.filter(dim => columns.value.includes(dim.key))
+);
+
+/** 实际生效的筛选条件：只保留选了值的维度 */
+const activeFilters = computed<DbFilters>(() => {
+  const out: DbFilters = {};
+  for (const dim of visibleFilterDims.value) {
+    const value = (filterValues.value[dim.key] || "").trim();
+    if (value) out[dim.key] = value;
+  }
+  return out;
+});
+
+const filterCount = computed(() => Object.keys(activeFilters.value).length);
+
+/** 筛选条件的中文描述，用于提示语 */
+const filterSummary = computed(() =>
+  visibleFilterDims.value
+    .filter(dim => activeFilters.value[dim.key])
+    .map(dim => `${dim.label}=${activeFilters.value[dim.key]}`)
+    .join("、")
+);
 
 function rangeParams(
   from: string,
@@ -215,6 +258,8 @@ async function loadTables() {
   rows.value = [];
   total.value = 0;
   info.value = null;
+  filterValues.value = {};
+  filterOptions.value = {};
   try {
     const res = await getDbTables(active.value, signal);
     const data = res?.data;
@@ -239,7 +284,75 @@ async function selectTable(name: string) {
   timeTo.value = "";
   appliedTimeFrom.value = "";
   appliedTimeTo.value = "";
+  filterValues.value = {};
+  filterOptions.value = {};
   await loadRows();
+  // columns 要等行数据回来才知道，所以下拉选项在 loadRows 之后再拉
+  await loadFilterOptions();
+}
+
+/** 拉取每个筛选维度的可选值；查某一维时带上其它维度已选值做级联 */
+async function loadFilterOptions() {
+  optionsAbort?.abort();
+  optionsAbort = new AbortController();
+  const signal = optionsAbort.signal;
+  const dims = visibleFilterDims.value;
+  if (!selectedTable.value || !dims.length) {
+    filterOptions.value = {};
+    return;
+  }
+  loadingOptions.value = true;
+  try {
+    const results = await Promise.all(
+      dims.map(async dim => {
+        const others: DbFilters = { ...activeFilters.value };
+        // 不能把自己也塞进筛选条件，否则一旦选了值，可选列表就只剩它自己
+        delete others[dim.key];
+        const res = await getDbColumnValues(
+          active.value,
+          selectedTable.value,
+          dim.key,
+          others,
+          signal
+        );
+        return [dim.key, res?.data?.values || []] as const;
+      })
+    );
+    const next: Record<string, string[]> = {};
+    for (const [key, values] of results) next[key] = values as string[];
+    filterOptions.value = next;
+    // 切换上级维度后，原来的下级取值可能已不存在 —— 清掉，免得筛出空表
+    for (const dim of dims) {
+      const chosen = (filterValues.value[dim.key] || "").trim();
+      if (chosen && !(next[dim.key] || []).includes(chosen)) {
+        filterValues.value[dim.key] = "";
+      }
+    }
+  } catch (error) {
+    if (isAbortError(error)) return;
+    filterOptions.value = {};
+    errorHint.value = backendErrorHint(error);
+  } finally {
+    loadingOptions.value = false;
+  }
+}
+
+async function onFilterChange() {
+  page.value = 1;
+  // 先级联刷新选项（可能顺带清掉已失效的取值），再按最终条件查数据
+  await loadFilterOptions();
+  await loadRows();
+}
+
+function resetFilters() {
+  filterValues.value = {};
+  timeFrom.value = "";
+  timeTo.value = "";
+  appliedTimeFrom.value = "";
+  appliedTimeTo.value = "";
+  page.value = 1;
+  loadFilterOptions();
+  loadRows();
 }
 
 async function loadRows() {
@@ -257,7 +370,8 @@ async function loadRows() {
       {
         limit: pageSize.value,
         offset,
-        ...timeParams()
+        ...timeParams(),
+        filters: activeFilters.value
       },
       signal
     );
@@ -302,6 +416,8 @@ function switchTarget(key: string) {
   timeTo.value = "";
   appliedTimeFrom.value = "";
   appliedTimeTo.value = "";
+  filterValues.value = {};
+  filterOptions.value = {};
   loadTables();
 }
 
@@ -327,21 +443,30 @@ async function onDownloadTable() {
     return;
   }
   const range = rangeParams(timeFrom.value, timeTo.value);
-  if (showTimeFilter.value && (!range.time_from || !range.time_to)) {
-    ElMessage.warning("请先选择 ServerTime 起止时间");
-    return;
+  if (showTimeFilter.value) {
+    if ((range.time_from && !range.time_to) || (!range.time_from && range.time_to)) {
+      ElMessage.warning("ServerTime 起止时间需要同时填写");
+      return;
+    }
+    // 无时间且无任何列筛选时后端会拒绝（防止误点把整张表拉走），这里提前提示
+    if (!range.time_from && !range.time_to && !filterCount.value) {
+      ElMessage.warning("请先选择 ServerTime 起止时间，或至少选择一个筛选条件");
+      return;
+    }
   }
   downloading.value = true;
   try {
     await downloadDbTable(
       active.value,
       selectedTable.value,
-      showTimeFilter.value ? range : undefined
+      showTimeFilter.value ? range : undefined,
+      activeFilters.value
     );
+    const scope = filterSummary.value ? `（${filterSummary.value}）` : "";
     ElMessage.success(
       showTimeFilter.value
-        ? `已按时间范围下载「${selectedTable.value}」`
-        : `已开始下载「${selectedTable.value}」`
+        ? `已按当前筛选下载「${selectedTable.value}」${scope}`
+        : `已开始下载「${selectedTable.value}」${scope}`
     );
   } catch (error) {
     ElMessage.error(
@@ -365,10 +490,14 @@ async function onClearTable() {
     ElMessage.warning("当前库不可用，无法清空");
     return;
   }
+  // 清空走的是 TRUNCATE/DELETE，不吃筛选条件；有筛选时必须说清楚是全表
+  const scopeNote = filterCount.value
+    ? `\n注意：清空是对整张表生效，不会只清「${filterSummary.value}」的这部分数据。`
+    : "";
   try {
     await ElMessageBox.confirm(
-      `将清空表「${selectedTable.value}」全部数据（保留表结构）。此操作不可撤销。`,
-      "清空当前表",
+      `将清空表「${selectedTable.value}」全部数据（保留表结构）。此操作不可撤销。${scopeNote}`,
+      filterCount.value ? "清空整张表（含筛选外的数据）" : "清空当前表",
       {
         type: "warning",
         confirmButtonText: "确认清空",
@@ -409,6 +538,7 @@ onMounted(async () => {
 onUnmounted(() => {
   tablesAbort?.abort();
   rowsAbort?.abort();
+  optionsAbort?.abort();
 });
 </script>
 
@@ -475,41 +605,11 @@ onUnmounted(() => {
           <div class="db-main__meta">
             <strong>{{ selectedTable || "未选择表" }}</strong>
             <span v-if="selectedTable">共 {{ total.toLocaleString() }} 行</span>
+            <span v-if="filterCount && selectedTable" class="db-main__badge">
+              {{ filterSummary }}
+            </span>
           </div>
           <div v-if="selectedTable" class="db-main__actions">
-            <el-date-picker
-              v-if="showTimeFilter"
-              v-model="timeFrom"
-              type="datetime"
-              size="small"
-              clearable
-              placeholder="起"
-              format="YYYY-MM-DD HH:mm:ss"
-              value-format="YYYY-MM-DDTHH:mm:ss"
-              class="db-main__time"
-            />
-            <el-date-picker
-              v-if="showTimeFilter"
-              v-model="timeTo"
-              type="datetime"
-              size="small"
-              clearable
-              placeholder="止"
-              format="YYYY-MM-DD HH:mm:ss"
-              value-format="YYYY-MM-DDTHH:mm:ss"
-              class="db-main__time"
-            />
-            <el-button
-              v-if="showTimeFilter"
-              size="small"
-              type="primary"
-              plain
-              :loading="loadingRows"
-              :disabled="!info?.ok"
-              @click="onQueryByTime"
-            >
-              查询
-            </el-button>
             <el-button
               v-if="active !== 'dwh'"
               size="small"
@@ -517,7 +617,7 @@ onUnmounted(() => {
               :disabled="!info?.ok"
               @click="onDownloadTable"
             >
-              {{ showTimeFilter ? "下载" : "下载本表" }}
+              下载当前筛选
             </el-button>
             <el-button
               v-if="active !== 'meta'"
@@ -531,6 +631,85 @@ onUnmounted(() => {
               清空本表
             </el-button>
           </div>
+        </div>
+
+        <div
+          v-if="selectedTable && (visibleFilterDims.length || showTimeFilter)"
+          class="db-main__filters"
+        >
+          <div
+            v-for="dim in visibleFilterDims"
+            :key="dim.key"
+            class="db-main__field"
+          >
+            <span class="db-main__field-label">{{ dim.label }}</span>
+            <el-select
+              v-model="filterValues[dim.key]"
+              :placeholder="dim.placeholder"
+              size="small"
+              clearable
+              filterable
+              :loading="loadingOptions"
+              class="db-main__select"
+              @change="onFilterChange"
+            >
+              <el-option
+                v-for="value in filterOptions[dim.key] || []"
+                :key="value"
+                :label="value"
+                :value="value"
+              />
+            </el-select>
+          </div>
+
+          <div
+            v-if="showTimeFilter && visibleFilterDims.length"
+            class="db-main__sep"
+            aria-hidden="true"
+          />
+
+          <div v-if="showTimeFilter" class="db-main__field db-main__field--time">
+            <span class="db-main__field-label">时间</span>
+            <el-date-picker
+              v-model="timeFrom"
+              type="datetime"
+              size="small"
+              clearable
+              placeholder="起"
+              format="YYYY-MM-DD HH:mm"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              class="db-main__time"
+            />
+            <span class="db-main__tilde">–</span>
+            <el-date-picker
+              v-model="timeTo"
+              type="datetime"
+              size="small"
+              clearable
+              placeholder="止"
+              format="YYYY-MM-DD HH:mm"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              class="db-main__time"
+            />
+            <el-button
+              size="small"
+              type="primary"
+              :loading="loadingRows"
+              :disabled="!info?.ok"
+              @click="onQueryByTime"
+            >
+              查询
+            </el-button>
+          </div>
+
+          <button
+            v-if="filterCount || appliedTimeFrom || appliedTimeTo"
+            type="button"
+            class="db-main__reset"
+            @click="resetFilters"
+          >
+            重置
+          </button>
         </div>
 
         <el-table
@@ -712,10 +891,121 @@ onUnmounted(() => {
 }
 
 .db-main__time.el-date-editor {
-  --el-date-editor-width: 178px;
+  --el-date-editor-width: 148px;
   box-sizing: border-box;
-  width: 178px;
+  width: 148px;
   flex: none;
+}
+
+/* 已生效的筛选条件回显（放在 meta 行里，字体要比普通说明更醒目） */
+.db-main__bar .db-main__badge {
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 12%, transparent);
+  border-radius: 999px;
+}
+
+.db-main__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+}
+
+.db-main__field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.db-main__field--time {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+}
+
+.db-main__field-label {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--el-text-color-secondary);
+  letter-spacing: 0.02em;
+}
+
+.db-main__select {
+  width: 128px;
+  flex: none;
+}
+
+.db-main__filters :deep(.el-select__wrapper),
+.db-main__filters :deep(.el-input__wrapper),
+.db-main__filters :deep(.el-date-editor.el-input__wrapper) {
+  min-height: 26px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-shadow: 0 0 0 1px var(--el-border-color) inset;
+  background: var(--el-bg-color);
+}
+
+.db-main__filters :deep(.el-select__wrapper.is-focused),
+.db-main__filters :deep(.el-input__wrapper.is-focus),
+.db-main__filters :deep(.el-date-editor.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+}
+
+.db-main__filters :deep(.el-select__selection),
+.db-main__filters :deep(.el-select__placeholder),
+.db-main__filters :deep(.el-input__inner) {
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.db-main__filters :deep(.el-button) {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.db-main__sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--el-border-color);
+}
+
+.db-main__tilde {
+  flex: none;
+  width: 10px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--el-text-color-placeholder);
+  text-align: center;
+}
+
+.db-main__reset {
+  flex: none;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 26px;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+}
+
+.db-main__reset:hover {
+  color: var(--el-color-primary);
+}
+
+.db-main__reset:active {
+  transform: scale(0.97);
 }
 
 .db-main__actions {

@@ -30,6 +30,7 @@ export type DbTablePreview = {
   time_column?: string | null;
   time_from?: string | null;
   time_to?: string | null;
+  filters?: Record<string, string>;
 };
 
 export type DbTableClearResult = {
@@ -43,6 +44,26 @@ export type DbTimeRange = {
   time_to?: string;
 };
 
+/** 列筛选：{列名: 值}，空值请先剔除 */
+export type DbFilters = Record<string, string>;
+
+export type DbQueryParams = {
+  limit?: number;
+  offset?: number;
+} & DbTimeRange & {
+    filters?: DbFilters;
+  };
+
+/** 后端 filters 是 JSON 字符串参数；空对象不发，避免出现 filters={} */
+function withFilters(params: Record<string, unknown>, filters?: DbFilters) {
+  const clean: DbFilters = {};
+  for (const [key, value] of Object.entries(filters || {})) {
+    if (String(value ?? "").trim()) clean[key] = String(value).trim();
+  }
+  if (Object.keys(clean).length) params.filters = JSON.stringify(clean);
+  return params;
+}
+
 export const getDbTables = (target: DbTarget, signal?: AbortSignal) => {
   return http.request<{
     success: boolean;
@@ -53,13 +74,41 @@ export const getDbTables = (target: DbTarget, signal?: AbortSignal) => {
 export const getDbTableRows = (
   target: DbTarget,
   table: string,
-  params?: { limit?: number; offset?: number } & DbTimeRange,
+  params?: DbQueryParams,
   signal?: AbortSignal
 ) => {
+  const query: Record<string, unknown> = {};
+  if (params?.limit != null) query.limit = params.limit;
+  if (params?.offset != null) query.offset = params.offset;
+  if (params?.time_from) query.time_from = params.time_from;
+  if (params?.time_to) query.time_to = params.time_to;
+  withFilters(query, params?.filters);
   return http.request<{ success: boolean; data: DbTablePreview }>(
     "get",
     `${API_PREFIX}/system/db/${target}/tables/${encodeURIComponent(table)}`,
-    { params, signal }
+    { params: query, signal }
+  );
+};
+
+/** 某列的去重取值，用于筛选下拉；可传其它列做级联 */
+export const getDbColumnValues = (
+  target: DbTarget,
+  table: string,
+  column: string,
+  filters?: DbFilters,
+  signal?: AbortSignal
+) => {
+  const query: Record<string, unknown> = { column };
+  withFilters(query, filters);
+  return http.request<{
+    success: boolean;
+    data: { column: string; values: string[] };
+  }>(
+    "get",
+    `${API_PREFIX}/system/db/${target}/tables/${encodeURIComponent(
+      table
+    )}/values`,
+    { params: query, signal }
   );
 };
 
@@ -73,11 +122,12 @@ export const clearDbTable = (target: DbTarget, table: string) => {
   });
 };
 
-/** 下载当前表为 CSV（可带 ServerTime 范围） */
+/** 下载当前表为 CSV（可带 ServerTime 范围与列筛选） */
 export async function downloadDbTable(
   target: DbTarget,
   table: string,
-  range?: DbTimeRange
+  range?: DbTimeRange,
+  filters?: DbFilters
 ): Promise<void> {
   const token = getToken();
   const headers: Record<string, string> = {};
@@ -87,6 +137,11 @@ export async function downloadDbTable(
   const qs = new URLSearchParams();
   if (range?.time_from) qs.set("time_from", range.time_from);
   if (range?.time_to) qs.set("time_to", range.time_to);
+  const clean: DbFilters = {};
+  for (const [key, value] of Object.entries(filters || {})) {
+    if (String(value ?? "").trim()) clean[key] = String(value).trim();
+  }
+  if (Object.keys(clean).length) qs.set("filters", JSON.stringify(clean));
   const query = qs.toString();
   const res = await fetch(
     `${API_PREFIX}/system/db/${target}/tables/${encodeURIComponent(table)}/export${

@@ -153,7 +153,16 @@ def bootstrap(project_id: str | None = None) -> dict:
     }
 
 
-_SN_HEADERS = {"sn", "二维码", "条码", "序列号", "fcoversn", "code"}
+_SN_HEADERS = {
+    "sn",
+    "二维码",
+    "条码",
+    "序列号",
+    "fcoversn",
+    "bcoversn",
+    "ccoversn",
+    "code",
+}
 _BATCH_LIMIT = 2000
 
 

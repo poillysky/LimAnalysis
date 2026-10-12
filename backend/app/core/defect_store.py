@@ -23,7 +23,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core import db as stores
-from app.core.projects import get_project, load_system_defaults
+from app.core.projects import get_project
+from app.core.sn_column import pick_col, pick_sn_column
 from app.core.sql_ident import ident, q, table_name
 
 logger = logging.getLogger(__name__)
@@ -219,15 +220,7 @@ def op_to_dict(row: DefectUploadOp) -> dict:
 
 
 def _pick_col(columns: list[str], *names: str) -> str | None:
-    exact = {name: name for name in columns}
-    lower = {name.lower(): name for name in columns}
-    for name in names:
-        if name in exact:
-            return exact[name]
-        hit = lower.get(name.lower())
-        if hit:
-            return hit
-    return None
+    return pick_col(columns, *names)
 
 
 def _body_from_sn(sn: str) -> str:
@@ -250,9 +243,7 @@ def lookup_raw_profiles(project: dict, sns: list[str]) -> dict[str, dict]:
     elif not inspector.has_table(table):
         return {}
     columns = [str(col["name"]) for col in inspector.get_columns(table)]
-    defaults = load_system_defaults()
-    pk_name = str((defaults.get("unique_key") or {}).get("column") or "FCoverSN").strip()
-    sn_col = _pick_col(columns, pk_name, "FCoverSN", "前盖码", "SN", "sn")
+    sn_col = pick_sn_column(columns, project)
     if not sn_col:
         return {}
     machine_col = _pick_col(columns, "机台")
@@ -433,9 +424,7 @@ def _raw_layout(project: dict) -> dict | None:
     elif not inspector.has_table(table):
         return None
     columns = [str(col["name"]) for col in inspector.get_columns(table)]
-    defaults = load_system_defaults()
-    pk_name = str((defaults.get("unique_key") or {}).get("column") or "FCoverSN").strip()
-    sn_col = _pick_col(columns, pk_name, "FCoverSN", "前盖码", "SN", "sn")
+    sn_col = pick_sn_column(columns, project)
     time_col = _pick_col(columns, "ServerTime", "ingested_at", "检测时间", "时间")
     if not sn_col or not time_col:
         return None

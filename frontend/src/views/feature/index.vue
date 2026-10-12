@@ -6,6 +6,7 @@ import {
   deleteProject,
   listProjects,
   updateProject,
+  type ColumnMapItem,
   type MachineGroup,
   type ProjectItem,
   type ProjectOwners,
@@ -97,8 +98,33 @@ const form = reactive({
   display_name: "",
   enabled: true,
   machines: [] as string[],
-  owners: emptyOwners()
+  owners: emptyOwners(),
+  column_map: [] as ColumnMapItem[]
 });
+
+function cloneColumnMap(raw?: ColumnMapItem[] | null): ColumnMapItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(item => ({
+      source: String(item?.source || "").trim(),
+      target: String(item?.target || "").trim()
+    }))
+    .filter(item => item.source || item.target);
+}
+
+function columnMapSummary(row: ProjectItem) {
+  const items = cloneColumnMap(row.column_map);
+  if (!items.length) return "";
+  return items.map(item => `${item.source}→${item.target}`).join("  ");
+}
+
+function addColumnMapRow() {
+  form.column_map.push({ source: "", target: "" });
+}
+
+function removeColumnMapRow(index: number) {
+  form.column_map.splice(index, 1);
+}
 
 function ownerSummary(row: ProjectItem) {
   const count = collectOwnerIds(row.owners).length;
@@ -226,6 +252,7 @@ function resetForm() {
   form.enabled = true;
   form.machines = [];
   form.owners = emptyOwners();
+  form.column_map = [];
 }
 
 function openCreate() {
@@ -240,6 +267,7 @@ function openEdit(row: ProjectItem) {
   form.enabled = row.enabled;
   form.machines = [...(row.machines || [])];
   form.owners = cloneOwners(row.owners);
+  form.column_map = cloneColumnMap(row.column_map);
   dialogVisible.value = true;
 }
 
@@ -248,11 +276,15 @@ async function submit() {
     ElMessage.warning("请填写名称");
     return;
   }
+  const column_map = cloneColumnMap(form.column_map).filter(
+    item => item.source && item.target && item.source !== item.target
+  );
   const payload = {
     display_name: form.display_name.trim(),
     enabled: form.enabled,
     machines: [...form.machines],
-    owners: cloneOwners(form.owners)
+    owners: cloneOwners(form.owners),
+    column_map
   };
   try {
     if (editingId.value) {
@@ -339,6 +371,14 @@ onMounted(load);
             <span v-else class="cell-muted">未配置</span>
           </template>
         </el-table-column>
+        <el-table-column label="列映射" min-width="160">
+          <template #default="{ row }">
+            <span v-if="columnMapSummary(row)" class="machine-list">
+              {{ columnMapSummary(row) }}
+            </span>
+            <span v-else class="cell-muted">无</span>
+          </template>
+        </el-table-column>
         <el-table-column label="启用" width="80">
           <template #default="{ row }">
             <el-switch
@@ -356,10 +396,45 @@ onMounted(load);
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="640px">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="680px">
       <el-form label-width="72px">
         <el-form-item label="名称" required>
           <el-input v-model="form.display_name" placeholder="例如 Eelspkr" />
+        </el-form-item>
+        <el-form-item label="列映射">
+          <div class="column-map-board">
+            <div
+              v-for="(item, index) in form.column_map"
+              :key="index"
+              class="column-map-row"
+            >
+              <el-input
+                v-model="item.source"
+                placeholder="CSV 原列名"
+                size="small"
+              />
+              <span class="column-map-arrow">→</span>
+              <el-input
+                v-model="item.target"
+                placeholder="入库列名"
+                size="small"
+              />
+              <el-button
+                type="danger"
+                link
+                size="small"
+                @click="removeColumnMapRow(index)"
+              >
+                删除
+              </el-button>
+            </div>
+            <div class="column-map-actions">
+              <el-button size="small" @click="addColumnMapRow">添加映射</el-button>
+              <span class="machine-hint">
+                例：BCoverSN → FCoverSN，采集/上传时改名入库
+              </span>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="机台">
           <div class="machine-board">
@@ -500,6 +575,32 @@ onMounted(load);
 </template>
 
 <style scoped>
+.column-map-board {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.column-map-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.column-map-arrow {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.column-map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .machine-board {
   display: flex;
   flex-direction: column;

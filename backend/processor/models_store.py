@@ -8,7 +8,7 @@ from sqlalchemy import inspect, select, text
 
 from app.core.db import MetaSession
 from app.core.meta_models import MetaEtlModel, MetaEtlModelField
-from app.core.projects import load_projects, load_system_defaults
+from app.core.projects import load_projects
 from app.core.sql_ident import ident, q
 from processor.field_types import (
     FIELD_TYPES,
@@ -29,13 +29,9 @@ def _project_map() -> dict[str, dict]:
 
 
 def _default_unique_key(project: dict) -> str:
-    uk = project.get("unique_key") if isinstance(project.get("unique_key"), dict) else {}
-    col = str((uk or {}).get("column") or "").strip()
-    if col:
-        return ident(col)
-    defaults = load_system_defaults()
-    col = str((defaults.get("unique_key") or {}).get("column") or "FCoverSN").strip()
-    return ident(col or "FCoverSN")
+    from app.core.sn_column import resolve_unique_key_name
+
+    return ident(resolve_unique_key_name(project))
 
 
 def _tables_for_project(project: dict) -> tuple[str, str]:

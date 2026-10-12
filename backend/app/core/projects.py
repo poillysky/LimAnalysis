@@ -2,6 +2,7 @@ import re
 
 from sqlalchemy import select
 
+from app.core.column_map import normalize_column_map
 from app.core.db import MetaSession
 from app.core.meta_init import (
     DEFAULT_MACHINE_CATALOG,
@@ -57,6 +58,9 @@ def _to_dict(row: MetaProject, defaults: dict) -> dict:
             "prefix": row.prefix,
             "machines": list((row.config or {}).get("machines") or []),
             "owners": _normalize_owners((row.config or {}).get("owners")),
+            "column_map": normalize_column_map(
+                (row.config or {}).get("column_map")
+            ),
         }
     )
     return item
@@ -172,6 +176,12 @@ def _merge_project_config(data: dict, existing: dict | None = None) -> dict:
         config["owners"] = _normalize_owners(data["owners"])
     else:
         config["owners"] = _normalize_owners(config.get("owners"))
+    if "column_map" in data and data["column_map"] is not None:
+        config["column_map"] = normalize_column_map(data["column_map"])
+    elif "column_map" in config:
+        config["column_map"] = normalize_column_map(config.get("column_map"))
+    else:
+        config["column_map"] = []
     return config
 
 
@@ -313,6 +323,7 @@ def update_project(project_id: str, data: dict) -> dict | None:
             or ("machines" in data and data["machines"] is not None)
             or ("owners" in data and data["owners"] is not None)
             or ("appearance_folder" in data and data["appearance_folder"] is not None)
+            or ("column_map" in data and data["column_map"] is not None)
         ):
             row.config = _merge_project_config(data, row.config)
         db.commit()
