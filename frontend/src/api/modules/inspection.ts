@@ -171,7 +171,8 @@ export const getViewerImages = (params: {
 export const searchViewerImages = (
   projectId: string,
   query: string,
-  source: PhotoSource = "mold"
+  source: PhotoSource = "mold",
+  dim?: AppearanceDim
 ) => {
   return http.request<{
     success: boolean;
@@ -180,9 +181,15 @@ export const searchViewerImages = (
       total_count: number;
       query: string;
       hint?: string;
+      dim?: AppearanceDim;
     };
   }>("get", `${API_PREFIX}/inspection/viewer/search`, {
-    params: { project_id: projectId, q: query, source },
+    params: {
+      project_id: projectId,
+      q: query,
+      source,
+      ...(source === "appearance" && dim ? { dim } : {})
+    },
     timeout: 120000
   });
 };

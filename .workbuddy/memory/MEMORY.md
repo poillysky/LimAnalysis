@@ -108,8 +108,9 @@ cd backend && HTTP_PROXY= HTTPS_PROXY= .venv/Scripts/python.exe scripts/check.py
 cd backend && HTTP_PROXY= HTTPS_PROXY= .venv/Scripts/python.exe scripts/check.py lint    # 只 lint
 cd backend && HTTP_PROXY= HTTPS_PROXY= .venv/Scripts/python.exe scripts/check.py test    # 只测试
 ```
-- 当前基线（2026-10-12 刷新）：**ruff 0 问题 / 230 个 unittest 全过**
-  （2026-10-10 记的 179 已过时。注意：2026-10-12 之前 `check.py` 其实是**红的** ——
+- 当前基线（2026-10-12 晚 刷新）：**ruff 0 问题 / 243 个 unittest 全过**
+  （2026-10-10 记的 179、当日下午记的 230 均已过时 —— 新增 `tests/test_metabase_embed.py` 13 个。
+  注意：2026-10-12 之前 `check.py` 其实是**红的** ——
   `app/main.py` 导入顺序 + `test_column_map.py` / `test_sn_column.py` 的 RUF012/SIM117，
   同日已修。**不要相信"上次是全绿的"，跑一遍再下结论。**）
 - 前端：
@@ -134,6 +135,23 @@ cd backend && HTTP_PROXY= HTTPS_PROXY= .venv/Scripts/python.exe scripts/check.py
   2. 下载时「无时间范围且无任何筛选」才拒绝 —— 这是防误点拉整表的保护。
 - 页面 `views/feature/db-browser.vue` 的筛选条只在**当前表真有该列**时渲染。
 
+
+## 四·三、看板 iframe 地址的来源（2026-10-12 改）
+
+- 看板页 `views/exception/monitor/index.vue` 的 `<iframe :src>` **完全来自后端**
+  `GET /api/v1/system/metabase/board` 返回的 `current.embed_url`，前端不做任何拼接。
+- 后端 `app/core/metabase_embed.py#board_for_project(project_id, board, request_host)`：
+  用「外部连接」里那**一个** Metabase 地址做**服务端**调用（登录 / 列画布 / 开嵌入），
+  但下发 `embed_url` 时把**主机名换成浏览器当前用的主机**（协议与端口沿用配置），
+  由 `_embed_base()` 实现。**NAS 双网口（办公网 / 生产网）就靠这个自动适配**，
+  不需要（也无法）在配置里填两个 IP —— 那个字段只有一个。
+- 开关：环境变量 `LIM_MB_EMBED_FOLLOW_HOST`（默认开；置 `0` 退回写死地址）。
+- 因此「外部连接」里的地址**只需服务端可达**即可（如 `http://192.168.2.38:13000`
+  或容器内的 `http://host.docker.internal:13000`），浏览器侧会自动跟随。
+- 改这里要**重新构建镜像**（`deploy/docker-compose.limana.yml` 用的是
+  `poillysky/limanalysis:V1.0.x` 预构建一体镜像）。
+- 遗留：`views/feature/connections.vue` 的「打开 Metabase」按钮仍直接用配置地址
+  `window.open(metabaseUrl)`，生产网下点它会打不开（页面本身不受影响）。
 
 ## 五、已知遗留
 

@@ -16,10 +16,10 @@ import argparse
 import logging
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.log_setup import setup_logging
 
@@ -28,11 +28,7 @@ logger = logging.getLogger("processor.agg_worker")
 _scheduler: BackgroundScheduler | None = None
 
 
-def _hour_key(value: datetime | None = None) -> str:
-    return (value or datetime.now()).strftime("%Y-%m-%d %H")
-
-
-def _tick_agg(*, catchup: bool = False) -> None:
+def _tick_agg() -> None:
     from app.core.agg_config import load_agg_config, patch_agg_config
     from collector.jobs import JOB_ETL_AGG, find_active_job
     from processor.agg_runner import request_agg
@@ -43,15 +39,16 @@ def _tick_agg(*, catchup: bool = False) -> None:
     if find_active_job(JOB_ETL_AGG):
         return
     last = str(config.get("last_run_time") or "").strip()
+    interval = int(config.get("run_interval") or 60)
     if last:
         try:
             last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
-            if _hour_key(last_dt) == _hour_key():
+            if datetime.now() - last_dt < timedelta(minutes=interval):
                 return
         except ValueError:
             pass
 
-    logger.info("定时投递聚合（整点，回算窗口按各模型配置%s）", "，补跑" if catchup else "")
+    logger.info("定时投递聚合（间隔 %s 分钟，回算窗口按各模型配置）", interval)
     try:
         result = request_agg(trigger="auto")
     except ValueError as exc:
@@ -92,18 +89,14 @@ def start_agg_scheduler() -> None:
     _scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
     _scheduler.add_job(
         _tick_agg,
-        CronTrigger(minute=0, timezone="Asia/Shanghai"),
-        id="etl_agg_hourly",
+        IntervalTrigger(minutes=1),
+        id="etl_agg_check",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
     )
     _scheduler.start()
-    logger.info("聚合调度器已启动（每小时整点投递 etl_agg，回算 12 小时）")
-    try:
-        _tick_agg(catchup=True)
-    except Exception:
-        logger.exception("聚合补跑失败")
+    logger.info("聚合调度器已启动（按配置间隔投递 etl_agg，每分钟检查）")
 
 
 def _handle(job: dict) -> None:

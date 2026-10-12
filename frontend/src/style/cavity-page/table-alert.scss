@@ -1,0 +1,17 @@
+// 交叉表预警格红色（模穴预警 / 扫码次品分析共用）。
+//
+// 必须非 scoped：el-table 固定列会克隆一份 DOM，且 td 上的 class
+// 经 cell-class-name 注入；放进各页 scoped 时偶发两边编译结果不一致。
+// 选择器全部挂在 .cavity-table 下，不泄漏到其他页面。
+
+.cavity-table td.el-table__cell.is-alert {
+  // 深红数字 + 略加深底色，比全局 --la-danger-weak 更醒目
+  background: color-mix(in oklab, var(--el-color-danger) 18%, #fff) !important;
+  color: #9c0006 !important;
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 #c41e1e;
+}
+
+.cavity-table td.el-table__cell.is-alert .num {
+  color: #9c0006;
+}

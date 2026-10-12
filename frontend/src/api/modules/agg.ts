@@ -65,6 +65,7 @@ export type AggProjectRow = {
 export type AggScheduler = {
   is_active: boolean;
   mode?: string;
+  run_interval?: number;
   backfill_hours?: number;
   last_run_time: string;
   last_run_status: string;
@@ -139,7 +140,10 @@ export const clearAggLogs = () => {
   );
 };
 
-export const saveAggScheduler = (payload: { is_active?: boolean }) => {
+export const saveAggScheduler = (payload: {
+  is_active?: boolean;
+  run_interval?: number;
+}) => {
   return http.request<{ success: boolean; data: AggScheduler }>(
     "put",
     `${API_PREFIX}/agg/scheduler`,

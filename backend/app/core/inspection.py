@@ -541,6 +541,67 @@ def _filename_has_sn(filename: str, sns: set[str]) -> str:
     return ""
 
 
+def lookup_raw_meta_by_sns(
+    project: dict, sns: set[str] | list[str]
+) -> dict[str, dict]:
+    """SN → {machine, cavity, date_str}；同 SN 多行取最新生产时间。"""
+    sn_list = sorted({str(s).strip() for s in sns if str(s).strip()})
+    if not sn_list:
+        return {}
+    try:
+        layout = _raw_layout_cols(project)
+    except ValueError:
+        return {}
+    sn_sql = q(ident(layout["sn"]))
+    machine_sql = q(ident(layout["machine"]))
+    cavity_sql = q(ident(layout["cavity"]))
+    time_col = layout.get("time")
+    time_sql = q(ident(time_col)) if time_col else "NULL"
+    letter_sql = _cavity_letter_sql(cavity_sql)
+    out: dict[str, dict] = {}
+    chunk = 400
+    with stores.raw_engine.connect() as conn:
+        for offset in range(0, len(sn_list), chunk):
+            part = sn_list[offset : offset + chunk]
+            params = {f"sn{i}": sn for i, sn in enumerate(part)}
+            placeholders = ", ".join(f":sn{i}" for i in range(len(part)))
+            day_expr = (
+                f"to_char(({time_sql})::timestamp, 'YYYYMMDD')"
+                if time_col
+                else "''"
+            )
+            order = (
+                f"({time_sql})::timestamp DESC NULLS LAST"
+                if time_col
+                else "1"
+            )
+            sql = text(
+                f"SELECT BTRIM(({sn_sql})::text) AS sn, "
+                f"BTRIM(({machine_sql})::text) AS machine, "
+                f"{letter_sql} AS letter, "
+                f"{day_expr} AS d "
+                f"FROM {q(ident(layout['table']))} "
+                f"WHERE BTRIM(({sn_sql})::text) IN ({placeholders}) "
+                f"AND BTRIM(({sn_sql})::text) <> '' "
+                f"ORDER BY {order}"
+            )
+            for row in conn.execute(sql, params).fetchall():
+                sn = str(row[0] or "").strip()
+                if not sn or sn in out:
+                    continue
+                machine = str(row[1] or "").strip()
+                letter = str(row[2] or "").strip().upper()
+                day = str(row[3] or "").strip()
+                if not machine or letter not in CAVITY_LETTERS:
+                    continue
+                out[sn] = {
+                    "machine": machine,
+                    "cavity": letter,
+                    "date_str": day if len(day) == 8 else "",
+                }
+    return out
+
+
 def list_sns_for_machine_cavity(
     project: dict,
     machine: str,
@@ -1099,17 +1160,23 @@ def list_appearance_images(
     }
 
 
-def search_appearance_images(project_id: str, query: str, limit: int = 80) -> dict:
+def search_appearance_images(
+    project_id: str, query: str, limit: int = 80, *, dim: str = "tester"
+) -> dict:
+    """外观页扫码。dim=tester：回填外观机/视角/截图日；dim=mold：用 SN 反查注塑机台/穴位/生产日。"""
     needle = _filename_needle(query)
     if not needle:
         raise ValueError("请扫码或输入文件名")
+    dim_kind = str(dim or "tester").strip().lower()
+    if dim_kind not in APPEARANCE_DIMS:
+        dim_kind = "tester"
     project = _enabled_project(project_id)
     root = _root("appearance")
     project_dir = _appearance_project_dir(root, project)
     project_key = str(project["project_id"])
     # 扫码只查索引；空则后台点火，绝不在请求里等扫盘
     _kick_appearance_index_if_empty(project_key, project_dir)
-    hits = query_files_by_needle(project_key, needle, limit=limit)
+    hits = query_files_by_needle(project_key, needle, limit=max(limit * 3, limit))
     raw_items: list[dict] = []
     missing_rels: list[str] = []
     for hit in hits:
@@ -1125,28 +1192,61 @@ def search_appearance_images(project_id: str, query: str, limit: int = 80) -> di
             if rel:
                 missing_rels.append(rel)
             continue
+        view = str(hit.get("view") or "").strip()
         raw_items.append(
             {
-                "machine": hit["tester"],
-                "cavity": hit["view"],
-                "camera": hit["view"],
+                "tester": str(hit.get("tester") or "").strip(),
+                "machine": str(hit.get("tester") or "").strip(),
+                "cavity": view,
+                "camera": view,
                 "filename": hit["filename"],
                 "date_str": hit["date_str"],
                 "path": str(abs_path),
                 "mtime": hit["mtime"],
-                "sn": hit.get("sn") or "",
+                "sn": str(hit.get("sn") or "").strip(),
             }
         )
     if missing_rels:
         drop_files_by_rel_paths(project_key, missing_rels)
     raw_items.sort(key=lambda item: (-item["mtime"], item["filename"].lower()))
+
+    hint = ""
+    if dim_kind == "mold":
+        sn_set = {str(item.get("sn") or "").strip() for item in raw_items}
+        sn_set.discard("")
+        meta_by_sn = lookup_raw_meta_by_sns(project, sn_set) if sn_set else {}
+        enriched: list[dict] = []
+        for item in raw_items:
+            sn = str(item.get("sn") or "").strip()
+            meta = meta_by_sn.get(sn) if sn else None
+            if not meta:
+                continue
+            enriched.append(
+                {
+                    "machine": meta["machine"],
+                    "cavity": meta["cavity"],
+                    "camera": item["camera"],
+                    "filename": item["filename"],
+                    "date_str": meta["date_str"] or item["date_str"],
+                    "path": item["path"],
+                    "mtime": item["mtime"],
+                    "sn": sn,
+                    "tester": item.get("tester") or "",
+                }
+            )
+        if raw_items and not enriched:
+            hint = (
+                "扫到了外观图，但原始库没有对应 SN 的注塑机台/穴位，"
+                "无法按注塑机维度定位（请切到「外观机」维度扫码）"
+            )
+        raw_items = enriched
+
     images = []
     for item in raw_items[:limit]:
         client = _to_client_image(item, root, "appearance")
         if client:
             images.append(client)
-    hint = ""
-    if not images and (
+    if not images and not hint and (
         is_appearance_index_building(project_key)
         or not appearance_index_has_rows(project_key)
     ):
@@ -1154,6 +1254,7 @@ def search_appearance_images(project_id: str, query: str, limit: int = 80) -> di
     return {
         "project_id": project["project_id"],
         "project_name": project["display_name"],
+        "dim": dim_kind,
         "query": needle,
         "hint": hint,
         "total_count": len(images),
@@ -1369,7 +1470,12 @@ def _filename_needle(query: str) -> str:
 
 
 def search_viewer_images(
-    project_id: str, query: str, limit: int = 80, source: str = "mold"
+    project_id: str,
+    query: str,
+    limit: int = 80,
+    source: str = "mold",
+    *,
+    dim: str = "tester",
 ) -> dict:
     needle = _filename_needle(query)
     if not needle:
@@ -1377,7 +1483,7 @@ def search_viewer_images(
     project = _enabled_project(project_id)
     kind = _photo_source(source)
     if kind == "appearance":
-        return search_appearance_images(project_id, query, limit)
+        return search_appearance_images(project_id, query, limit, dim=dim)
     root = _root(kind)
     machines = [str(code).strip() for code in (project.get("machines") or []) if str(code).strip()]
     machine_set = set(machines)

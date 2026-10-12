@@ -161,3 +161,8 @@ class DiskCleanupUpdate(BaseModel):
 
 class WorkshopUpdate(BaseModel):
     offline: bool | None = None
+
+
+class PipelineLinkageUpdate(BaseModel):
+    enabled: bool | None = None
+    delay_seconds: int | None = Field(default=None, ge=1, le=3600)

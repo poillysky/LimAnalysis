@@ -108,9 +108,10 @@ def inspection_viewer_search(
     project_id: str,
     q: str = Query(default=""),
     source: str = "mold",
+    dim: str = "tester",
 ):
     try:
-        return ok(search_viewer_images(project_id, q, source=source))
+        return ok(search_viewer_images(project_id, q, source=source, dim=dim))
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
 

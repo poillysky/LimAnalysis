@@ -22,6 +22,10 @@ import {
   type AggRunLog,
   type AggScheduler
 } from "@/api/modules/agg";
+import {
+  getPipelineLinkage,
+  savePipelineLinkage
+} from "@/api/modules/pipelineLinkage";
 import { backendErrorHint } from "@/api/http";
 import type { SourceColumn } from "@/api/modules/etl";
 import PageTabs from "@/components/PageTabs/index.vue";
@@ -48,10 +52,13 @@ const logs = ref<AggRunLog[]>([]);
 const logsLoading = ref(false);
 const scheduler = reactive<AggScheduler>({
   is_active: false,
+  run_interval: 60,
   last_run_time: "",
   last_run_status: "",
   last_run_message: ""
 });
+/** 与清洗页共用：SFC 成功 → 清洗 → 聚合 */
+const linkageEnabled = ref(false);
 
 const editorOpen = ref(false);
 const editorLoading = ref(false);
@@ -264,6 +271,7 @@ function finishRunBar(ok: boolean, text: string) {
 
 function assignScheduler(data?: Partial<AggScheduler> | null) {
   scheduler.is_active = Boolean(data?.is_active);
+  scheduler.run_interval = Number(data?.run_interval) || 60;
   scheduler.last_run_time = data?.last_run_time || "";
   scheduler.last_run_status = data?.last_run_status || "";
   scheduler.last_run_message = data?.last_run_message || "";
@@ -273,9 +281,13 @@ async function load(silent = false) {
   if (!silent) loading.value = true;
   hint.value = "";
   try {
-    const res = await aggOverview();
+    const [res, linkage] = await Promise.all([
+      aggOverview(),
+      getPipelineLinkage().catch(() => null)
+    ]);
     rows.value = res.data?.projects || [];
     assignScheduler(res.data?.scheduler);
+    if (linkage?.data) linkageEnabled.value = Boolean(linkage.data.enabled);
     const job = res.data?.active_job;
     activeJobId.value =
       job && (job.status === "queued" || job.status === "running")
@@ -335,6 +347,7 @@ function modeLabel(mode: string) {
 function triggerLabel(trigger: string) {
   if (trigger === "auto") return "自动";
   if (trigger === "manual") return "手动";
+  if (trigger === "chain") return "联动";
   return trigger || "—";
 }
 
@@ -353,11 +366,23 @@ function onTabChange(name: string | number) {
 async function onSaveScheduler() {
   schedulerSaving.value = true;
   try {
-    const res = await saveAggScheduler({
-      is_active: scheduler.is_active
-    });
+    const [res, linkage] = await Promise.all([
+      saveAggScheduler({
+        is_active: scheduler.is_active,
+        run_interval: scheduler.run_interval
+      }),
+      savePipelineLinkage({ enabled: linkageEnabled.value })
+    ]);
     assignScheduler(res.data);
-    ElMessage.success("已保存自动聚合");
+    if (linkage?.data) linkageEnabled.value = Boolean(linkage.data.enabled);
+    const parts: string[] = [];
+    parts.push(
+      scheduler.is_active
+        ? `自动聚合每 ${scheduler.run_interval} 分钟`
+        : "自动聚合已关闭"
+    );
+    parts.push(linkageEnabled.value ? "联动模式已开启" : "联动模式已关闭");
+    ElMessage.success(parts.join("；"));
   } catch (error) {
     ElMessage.error(backendErrorHint(error));
   } finally {
@@ -840,7 +865,11 @@ onUnmounted(stopRunTimers);
         </div>
         <div class="etl-stat">
           <span class="etl-stat__label">自动节奏</span>
-          <strong>整点 / 按配置</strong>
+          <strong>{{
+            scheduler.is_active
+              ? `每 ${scheduler.run_interval} 分钟`
+              : "已关闭"
+          }}</strong>
         </div>
       </section>
 
@@ -859,8 +888,21 @@ onUnmounted(stopRunTimers);
         </div>
         <div class="etl-schedule__form">
           <div class="etl-schedule__item">
-            <span>启用整点自动聚合</span>
+            <span>启用自动聚合</span>
             <el-switch v-model="scheduler.is_active" />
+          </div>
+          <div class="etl-schedule__item">
+            <span>间隔（分钟）</span>
+            <el-input-number
+              v-model="scheduler.run_interval"
+              :min="1"
+              :max="1440"
+              :step="5"
+            />
+          </div>
+          <div class="etl-schedule__item">
+            <span>联动模式</span>
+            <el-switch v-model="linkageEnabled" />
           </div>
           <el-button
             type="primary"
@@ -871,6 +913,9 @@ onUnmounted(stopRunTimers);
             保存调度
           </el-button>
         </div>
+        <p class="etl-schedule__hint muted">
+          联动：SFC 上传完成后约 1 分钟自动清洗；清洗完成后约 1 分钟自动聚合（与间隔调度互不替代）
+        </p>
         <div
           v-if="scheduler.last_run_time || scheduler.last_run_message"
           class="etl-schedule__meta"
@@ -1017,7 +1062,9 @@ onUnmounted(stopRunTimers);
                   running || activeJobId ? "聚合中" : "空闲"
                 }}</strong>
                 <span class="etl-stat__hint">{{
-                  scheduler.is_active ? "整点自动" : "定时关闭"
+                  scheduler.is_active
+                    ? `定时每 ${scheduler.run_interval} 分钟`
+                    : "定时关闭"
                 }}</span>
               </div>
               <div class="etl-stat">
@@ -1065,7 +1112,7 @@ onUnmounted(stopRunTimers);
             <div v-if="!logs.length" class="etl-logs-empty">
               <div class="etl-logs-empty__title">还没有运行记录</div>
               <div class="etl-logs-empty__desc">
-                发起一轮聚合，或开启整点自动后，这里会列出每次结果
+                发起一轮聚合，或开启自动聚合后，这里会列出每次结果
               </div>
               <div class="etl-logs-empty__actions">
                 <el-button

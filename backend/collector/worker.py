@@ -224,6 +224,10 @@ def _handle(job: dict) -> None:
                             ),
                         }
                     )
+                if ok:
+                    from app.core.pipeline_chain import schedule_after_etl_success
+
+                    schedule_after_etl_success()
                 logger.info(
                     "job #%s etl_clean ok mode=%s rows=%s full_refresh=%s",
                     job_id,
@@ -263,6 +267,10 @@ def _handle(job: dict) -> None:
                 message=msg,
                 result=result,
             )
+            if crawl_ok:
+                from app.core.pipeline_chain import schedule_after_sfc_success
+
+                schedule_after_sfc_success()
             logger.info(
                 "job #%s crawl ok=%s projects=%s fails=%s logs=%s",
                 job_id,
@@ -291,6 +299,9 @@ def _handle(job: dict) -> None:
                 message=f"upload {result.get('rows', 0)} rows",
                 result=result,
             )
+            from app.core.pipeline_chain import schedule_after_sfc_success
+
+            schedule_after_sfc_success()
             logger.info(
                 "job #%s upload ok rows=%s table=%s",
                 job_id,

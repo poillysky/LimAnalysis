@@ -22,6 +22,7 @@ SFC_CRAWLER_KEY = "sfc_crawler"
 AI_MODEL_KEY = "ai_model"
 ETL_SCHEDULER_KEY = "etl_scheduler"
 AGG_SCHEDULER_KEY = "agg_scheduler"
+PIPELINE_LINKAGE_KEY = "pipeline_linkage"
 MACHINE_CATALOG_KEY = "machine_catalog"
 DUTY_ROSTER_KEY = "duty_roster"
 MANUAL_NOTICES_KEY = "manual_notices"
@@ -108,11 +109,18 @@ DEFAULT_ETL_SCHEDULER = {
 
 DEFAULT_AGG_SCHEDULER = {
     "is_active": False,
-    "mode": "hourly",
+    "mode": "interval",
+    "run_interval": 60,
     "backfill_hours": 12,
     "last_run_time": "",
     "last_run_status": "",
     "last_run_message": "",
+}
+
+# SFC 成功 → 延迟清洗；清洗成功 → 延迟聚合（与各自间隔调度互不替代）
+DEFAULT_PIPELINE_LINKAGE = {
+    "enabled": False,
+    "delay_seconds": 60,
 }
 
 _MACHINE_SERIES = (("D", 13), ("N", 14), ("M", 12), ("K", 6), ("H", 6), ("I", 6))
@@ -179,6 +187,8 @@ def init_meta_store() -> None:
             db.add(MetaSetting(key=ETL_SCHEDULER_KEY, value=DEFAULT_ETL_SCHEDULER))
         if db.get(MetaSetting, AGG_SCHEDULER_KEY) is None:
             db.add(MetaSetting(key=AGG_SCHEDULER_KEY, value=DEFAULT_AGG_SCHEDULER))
+        if db.get(MetaSetting, PIPELINE_LINKAGE_KEY) is None:
+            db.add(MetaSetting(key=PIPELINE_LINKAGE_KEY, value=DEFAULT_PIPELINE_LINKAGE))
         if db.get(MetaSetting, DISK_CLEANUP_KEY) is None:
             db.add(MetaSetting(key=DISK_CLEANUP_KEY, value=DEFAULT_DISK_CLEANUP))
         if db.get(MetaSetting, WORKSHOP_KEY) is None:

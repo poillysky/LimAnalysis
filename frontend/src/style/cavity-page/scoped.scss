@@ -361,17 +361,7 @@
   white-space: nowrap;
 }
 
-.cavity-table :deep(td.el-table__cell.is-alert) {
-  // 预警格：深红数字 + 略加深底色，比全局 --la-danger-weak 更醒目
-  background: color-mix(in oklab, var(--el-color-danger) 18%, #fff) !important;
-  color: #9c0006 !important;
-  font-weight: 700;
-  box-shadow: inset 3px 0 0 #c41e1e;
-}
-
-.cavity-table :deep(td.el-table__cell.is-alert .num) {
-  color: #9c0006;
-}
+// 预警格红色 → table-alert.scss（非 scoped，两页同一份）
 
 .cavity-table :deep(td.el-table__cell.is-series) {
   cursor: pointer;

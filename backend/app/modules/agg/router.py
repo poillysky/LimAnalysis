@@ -18,6 +18,7 @@ class AggRunBody(BaseModel):
 
 class AggSchedulerUpdate(BaseModel):
     is_active: bool | None = None
+    run_interval: int | None = Field(default=None, description="分钟")
 
 
 class AggFieldItem(BaseModel):
@@ -128,13 +129,10 @@ def get_scheduler():
 def put_scheduler(body: AggSchedulerUpdate):
     from app.core.agg_config import save_agg_config
 
-    return ok(
-        save_agg_config(
-            {
-                "is_active": body.is_active,
-            }
-        )
-    )
+    try:
+        return ok(save_agg_config(body.model_dump(exclude_unset=True)))
+    except Exception as exc:
+        return JSONResponse(fail(f"保存失败: {exc}"), status_code=400)
 
 
 @router.post("/models")

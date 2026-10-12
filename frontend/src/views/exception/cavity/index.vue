@@ -72,18 +72,18 @@ const projectTabs = computed(() =>
   }))
 );
 const ready = ref(false);
-const hours = ref(3);
+const hours = ref(6);
 const metric = ref("appearance");
 const metrics = ref<QueryMetric[]>([]);
 const WINDOW_OPTIONS = [
   { value: 1, label: "近 1 小时" },
-  { value: 3, label: "近 3 小时" },
+  { value: 6, label: "近 6 小时" },
   { value: 24, label: "近 1 天" },
   { value: 72, label: "近 3 天" }
 ];
 const windowName = computed(
   () =>
-    WINDOW_OPTIONS.find(item => item.value === hours.value)?.label || "近 3 小时"
+    WINDOW_OPTIONS.find(item => item.value === hours.value)?.label || "近 6 小时"
 );
 const metricName = computed(() => {
   const item = metrics.value.find(row => row.key === metric.value);
@@ -132,12 +132,6 @@ const summary = computed(() =>
   )
 );
 
-const droppedCavityHint = computed(() => {
-  const dropped = summary.value.droppedQty;
-  if (!(dropped > 0)) return "";
-  return `有 ${formatQty(dropped)} 产量的模穴无法归入 A–R（已跳过 I/O；请检查模穴是否含空格/全角/非字母），未计入交叉表与上方合计`;
-});
-
 const bodyKept = computed(() =>
   pivotKeptTotals(
     bodyRows.value.map(row => ({
@@ -172,7 +166,12 @@ const summaryMetrics = computed(() => [
   },
   { value: formatQty(summary.value.qty) || "0", label: "产量" },
   { value: formatQty(summary.value.ng) || "0", label: "不良" },
-  { value: summary.value.machines, label: "机台" }
+  { value: summary.value.machines, label: "机台" },
+  {
+    value: formatQty(summary.value.droppedQty) || "0",
+    label: "未计入",
+    alert: summary.value.droppedQty > 0
+  }
 ]);
 
 function buildPivot(
@@ -713,13 +712,6 @@ onUnmounted(() => {
       :closable="false"
       :title="hint"
     />
-    <el-alert
-      v-if="droppedCavityHint"
-      class="cavity-hint"
-      type="warning"
-      :closable="false"
-      :title="droppedCavityHint"
-    />
 
     <section class="cavity-panel">
       <div class="cavity-panel__head">
@@ -1038,4 +1030,5 @@ onUnmounted(() => {
 
 <style lang="scss">
 @use "@/style/cavity-page/popper.scss" as *;
+@use "@/style/cavity-page/table-alert.scss" as *;
 </style>

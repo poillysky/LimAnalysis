@@ -863,4 +863,5 @@ onUnmounted(() => {
 
 <style lang="scss">
 @use "@/style/cavity-page/popper.scss" as *;
+@use "@/style/cavity-page/table-alert.scss" as *;
 </style>

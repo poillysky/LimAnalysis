@@ -12,12 +12,14 @@ from app.core.disk_cleanup import (
     save_disk_cleanup_config,
     status_payload,
 )
+from app.core.linkage_config import load_linkage_config, save_linkage_config
 from app.core.projects import load_system_defaults, save_system_defaults
 from app.core.response import fail, ok
 from app.core.workshop import load_workshop_config, save_workshop_config
 from app.modules.system.schemas import (
     DefaultsUpdate,
     DiskCleanupUpdate,
+    PipelineLinkageUpdate,
     WorkshopUpdate,
 )
 
@@ -74,6 +76,22 @@ def disk_cleanup_logs_clear(_admin: dict = Depends(require_admin)):
     from app.core.disk_cleanup_logs import clear_disk_cleanup_logs
 
     return ok(clear_disk_cleanup_logs())
+
+
+@router.get("/pipeline-linkage")
+def pipeline_linkage_get():
+    try:
+        return ok(load_linkage_config())
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
+
+
+@router.put("/pipeline-linkage")
+def pipeline_linkage_put(body: PipelineLinkageUpdate):
+    try:
+        return ok(save_linkage_config(body.model_dump(exclude_unset=True)))
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
 
 
 @router.get("/defaults")

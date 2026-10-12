@@ -4,7 +4,7 @@
 每个子路由保留 /system 前缀，由 system/router.py 统一 include。
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.api.deps import require_admin
 from app.core import db as stores
@@ -114,5 +114,17 @@ def connections_metabase_test(
 
 
 @router.get("/metabase/board")
-def metabase_board(project_id: str | None = None, board: str | None = None):
-    return ok(board_for_project(project_id, board))
+def metabase_board(
+    request: Request,
+    project_id: str | None = None,
+    board: str | None = None,
+):
+    return ok(
+        board_for_project(
+            project_id,
+            board,
+            request_host=(
+                request.headers.get("x-forwarded-host") or request.headers.get("host")
+            ),
+        )
+    )

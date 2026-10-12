@@ -6,14 +6,20 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import time
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from app.core.connections import load_metabase
 from app.core.projects import load_projects
 
 _TIMEOUT = 20
+
+# 嵌入 URL 是否跟随浏览器当前使用的主机名/IP（NAS 双网口场景必需）。
+# 置 0 可退回「只用连接管理里写死的那一个地址」。
+_FOLLOW_HOST_ENV = "LIM_MB_EMBED_FOLLOW_HOST"
 
 
 def _b64url(raw: bytes) -> str:
@@ -193,6 +199,34 @@ def _pick_dashboard(hits: list[dict], kind: str | None) -> dict | None:
     return hits[0]
 
 
+def _follow_request_host() -> bool:
+    raw = (os.environ.get(_FOLLOW_HOST_ENV) or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _embed_base(base: str, request_host: str | None) -> str:
+    """把 Metabase 地址里的主机名换成浏览器此刻访问用的主机。
+
+    看板 iframe 的地址由本模块下发。若只写死连接管理里的那一个 IP，
+    NAS 双网口（办公网 / 生产网）场景下，另一条路径上的浏览器根本够不到它，
+    表现为「一个 IP 能显示、另一个空白」。这里保留配置里的协议与端口，
+    只跟随请求的 Host —— 两个网口自然各走各的，配置无需改动。
+    """
+    if not _follow_request_host():
+        return base
+    host = (request_host or "").split(",")[0].strip()
+    parsed = urlsplit(base)
+    if not host or not parsed.hostname:
+        return base
+    req_host = urlsplit(f"//{host}").hostname or ""
+    if not req_host:
+        return base
+    if ":" in req_host:
+        req_host = f"[{req_host}]"
+    netloc = req_host if parsed.port is None else f"{req_host}:{parsed.port}"
+    return f"{parsed.scheme}://{netloc}{parsed.path}".rstrip("/")
+
+
 def _enable_dashboard_embed(base: str, token: str, dashboard_id: int) -> None:
     code, current = _call(base, "GET", f"/api/dashboard/{dashboard_id}", token)
     if code >= 400 or not isinstance(current, dict):
@@ -212,7 +246,11 @@ def _enable_dashboard_embed(base: str, token: str, dashboard_id: int) -> None:
     )
 
 
-def board_for_project(project_id: str | None = None, board: str | None = None) -> dict:
+def board_for_project(
+    project_id: str | None = None,
+    board: str | None = None,
+    request_host: str | None = None,
+) -> dict:
     stored = load_metabase()
     base = str(stored.get("url") or "").rstrip("/")
     username = str(stored.get("username") or "").strip()
@@ -297,7 +335,7 @@ def board_for_project(project_id: str | None = None, board: str | None = None) -
         }
         jwt = _jwt_hs256(payload, secret)
         embed_url = (
-            f"{base}/embed/dashboard/{jwt}"
+            f"{_embed_base(base, request_host)}/embed/dashboard/{jwt}"
             f"#bordered=false&titled=false&downloads=false"
         )
         return {

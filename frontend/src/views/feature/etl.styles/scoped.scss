@@ -238,6 +238,13 @@
   color: var(--el-text-color-secondary);
 }
 
+.etl-schedule__hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--el-text-color-secondary);
+}
+
 .etl-flow {
   display: flex;
   align-items: center;

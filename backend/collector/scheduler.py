@@ -138,6 +138,11 @@ def _tick_disk_cleanup() -> None:
     logger.info("enqueue disk_cleanup: %s", result.get("message"))
 
 
+def get_scheduler() -> BackgroundScheduler | None:
+    """供联动链式延迟入队挂一次性任务；未 start 时返回 None。"""
+    return _scheduler
+
+
 def start_scheduler() -> None:
     global _scheduler
     if _scheduler and _scheduler.running:

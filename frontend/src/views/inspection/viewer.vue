@@ -33,7 +33,7 @@ const pageIcon = computed(() =>
   photoSource.value === "appearance" ? "ri/eye-line" : "ri/image-line"
 );
 const isAppearance = computed(() => photoSource.value === "appearance");
-/** 仅外观页：tester=外观测试机维度，mold=注塑机维度 */
+/** 仅外观页：tester=外观机维度，mold=注塑机维度 */
 const queryDim = ref<AppearanceDim>("tester");
 const isMoldDim = computed(
   () => isAppearance.value && queryDim.value === "mold"
@@ -85,7 +85,7 @@ const machineChoices = computed(() => {
 });
 const machineFieldLabel = computed(() => {
   if (!isAppearance.value) return "机台";
-  return isMoldDim.value ? "注塑机台" : "测试机";
+  return isMoldDim.value ? "注塑机台" : "外观机";
 });
 const dateFieldLabel = computed(() =>
   isAppearance.value && isMoldDim.value ? "生产日" : "日期"
@@ -420,6 +420,7 @@ watch(queryDim, () => {
   started.value = false;
   machine.value = "";
   camera.value = "";
+  machineExtras.value = [];
   void loadAppearanceMeta().then(() => loadAppearanceViews());
 });
 
@@ -481,7 +482,7 @@ async function startCheck() {
       isMoldDim.value
         ? "请选择项目、注塑机台、穴位、视角和生产日"
         : isAppearance.value
-          ? "请选择项目、测试机、视角和日期"
+          ? "请选择项目、外观机、视角和日期"
           : "请选择项目、机台、穴位和日期"
     );
     return;
@@ -596,7 +597,8 @@ async function searchByName() {
     const res = await searchViewerImages(
       projectId.value,
       query,
-      photoSource.value
+      photoSource.value,
+      isAppearance.value ? queryDim.value : undefined
     );
     images.value = res?.data?.images || [];
     index.value = 0;
@@ -605,7 +607,7 @@ async function searchByName() {
     } else {
       locating.value = true;
       const hit = images.value[0];
-      // 先按命中结果校正机台/穴位/相机，再拉日期列表，最后再校正一次防覆盖
+      // 后端已按当前维度返回字段：外观机→tester；注塑机→raw 机台/穴位/生产日
       locateFromImage(hit);
       if (isAppearance.value) await loadAppearanceViews();
       await loadDates(hit.date_str || "");
@@ -711,7 +713,7 @@ onUnmounted(() => {
             :class="{ 'is-on': queryDim === 'tester' }"
             @click="queryDim = 'tester'"
           >
-            外观测试机
+            外观机
           </button>
           <button
             type="button"

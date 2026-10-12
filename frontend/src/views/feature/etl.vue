@@ -31,6 +31,10 @@ import {
   type EtlSourceField,
   type SourceColumn
 } from "@/api/modules/etl";
+import {
+  getPipelineLinkage,
+  savePipelineLinkage
+} from "@/api/modules/pipelineLinkage";
 import { backendErrorHint } from "@/api/http";
 import { switchValue } from "@/utils/switchValue";
 import PageTabs from "@/components/PageTabs/index.vue";
@@ -62,6 +66,8 @@ const scheduler = reactive<EtlScheduler>({
   last_run_status: "",
   last_run_message: ""
 });
+/** 与聚合页共用：SFC 成功 → 清洗 → 聚合 */
+const linkageEnabled = ref(false);
 
 const enabledCount = computed(
   () => rows.value.filter(r => r.is_model_enabled && r.can_run).length
@@ -335,10 +341,14 @@ async function load(silent = false) {
   if (!silent) loading.value = true;
   hint.value = "";
   try {
-    const res = await etlOverview();
+    const [res, linkage] = await Promise.all([
+      etlOverview(),
+      getPipelineLinkage().catch(() => null)
+    ]);
     rows.value = res?.data?.projects || [];
     activeJobId.value = res?.data?.active_job?.id ?? null;
     applyScheduler(res?.data?.scheduler);
+    if (linkage?.data) linkageEnabled.value = Boolean(linkage.data.enabled);
     if (activeTab.value === "logs") await loadLogs(true);
   } catch (error) {
     if (!silent) hint.value = backendErrorHint(error);
@@ -393,6 +403,7 @@ function modeLabel(mode: string) {
 function triggerLabel(trigger: string) {
   if (trigger === "auto") return "自动";
   if (trigger === "manual") return "手动";
+  if (trigger === "chain") return "联动";
   return trigger || "—";
 }
 
@@ -412,16 +423,23 @@ function onTabChange(name: string | number) {
 async function onSaveScheduler() {
   schedulerSaving.value = true;
   try {
-    const res = await saveEtlScheduler({
-      is_active: scheduler.is_active,
-      run_interval: scheduler.run_interval
-    });
+    const [res, linkage] = await Promise.all([
+      saveEtlScheduler({
+        is_active: scheduler.is_active,
+        run_interval: scheduler.run_interval
+      }),
+      savePipelineLinkage({ enabled: linkageEnabled.value })
+    ]);
     applyScheduler(res.data);
-    ElMessage.success(
+    if (linkage?.data) linkageEnabled.value = Boolean(linkage.data.enabled);
+    const parts: string[] = [];
+    parts.push(
       scheduler.is_active
-        ? `已开启自动清洗，每 ${scheduler.run_interval} 分钟投递已启用模型`
-        : "已关闭自动清洗"
+        ? `自动清洗每 ${scheduler.run_interval} 分钟`
+        : "自动清洗已关闭"
     );
+    parts.push(linkageEnabled.value ? "联动模式已开启" : "联动模式已关闭");
+    ElMessage.success(parts.join("；"));
   } catch (error) {
     ElMessage.error(backendErrorHint(error));
   } finally {
@@ -1563,6 +1581,10 @@ onUnmounted(() => {
               :step="5"
             />
           </div>
+          <div class="etl-schedule__item">
+            <span>联动模式</span>
+            <el-switch v-model="linkageEnabled" />
+          </div>
           <el-button
             type="primary"
             plain
@@ -1572,6 +1594,9 @@ onUnmounted(() => {
             保存调度
           </el-button>
         </div>
+        <p class="etl-schedule__hint muted">
+          联动：SFC 上传完成后约 1 分钟自动清洗；清洗完成后约 1 分钟自动聚合（与各自间隔调度互不替代）
+        </p>
         <div v-if="scheduler.last_run_time || scheduler.last_run_message" class="etl-schedule__meta">
           <el-tag
             v-if="scheduler.last_run_status"

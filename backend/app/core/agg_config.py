@@ -21,7 +21,11 @@ def load_agg_config() -> dict:
         stored = dict(row.value) if row and isinstance(row.value, dict) else {}
         merged = {**DEFAULT_AGG_SCHEDULER, **stored}
         merged["is_active"] = bool(merged.get("is_active"))
-        merged["mode"] = "hourly"
+        merged["mode"] = "interval"
+        # 旧配置可能只有 hourly、无 run_interval → 默认 60 分钟
+        merged["run_interval"] = max(
+            1, min(24 * 60, int(merged.get("run_interval") or 60))
+        )
         merged["backfill_hours"] = AUTO_BACKFILL_HOURS
         return merged
     finally:
@@ -32,7 +36,9 @@ def save_agg_config(data: dict) -> dict:
     current = load_agg_config()
     if "is_active" in data and data["is_active"] is not None:
         current["is_active"] = bool(data["is_active"])
-    current["mode"] = "hourly"
+    if "run_interval" in data and data["run_interval"] is not None:
+        current["run_interval"] = max(1, min(24 * 60, int(data["run_interval"])))
+    current["mode"] = "interval"
     current["backfill_hours"] = AUTO_BACKFILL_HOURS
     if "last_run_time" in data and data["last_run_time"] is not None:
         current["last_run_time"] = str(data["last_run_time"] or "")
