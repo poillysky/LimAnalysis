@@ -176,6 +176,48 @@ class A2bHeartbeatTests(unittest.TestCase):
         self.assertEqual(len(status["unregistered"]), 1)
         self.assertEqual(status["unregistered"][0]["machine"], "Z9")
 
+    def test_unregistered_offline_hidden(self) -> None:
+        """未登记区：在线时显示，超过 stale 变离线后卡片消失。"""
+        from datetime import datetime, timedelta
+
+        from app.core.a2b_heartbeat import build_a2b_status, upsert_heartbeat
+        from app.core.meta_models import MetaA2bClientHeartbeat
+
+        upsert_heartbeat(
+            {
+                "clientId": "Z-OFF",
+                "mode": "mold",
+                "machine": "Z-OFF",
+                "clientStatus": "监控中",
+            }
+        )
+        projects = [
+            {
+                "project_id": "eel",
+                "display_name": "Eelspkr",
+                "enabled": True,
+                "machines": ["D1"],
+                "appearance_machines": [],
+            }
+        ]
+        online = build_a2b_status(mode="mold", stale_seconds=90, projects=projects)
+        self.assertEqual(len(online["unregistered"]), 1)
+        self.assertEqual(online["unregistered"][0]["machine"], "Z-OFF")
+
+        old = (datetime.now() - timedelta(seconds=120)).strftime("%Y-%m-%d %H:%M:%S")
+        db = self.Session()
+        try:
+            row = db.get(MetaA2bClientHeartbeat, "Z-OFF")
+            assert row is not None
+            row.last_seen_at = old
+            db.commit()
+        finally:
+            db.close()
+
+        offline = build_a2b_status(mode="mold", stale_seconds=90, projects=projects)
+        self.assertEqual(len(offline["unregistered"]), 0)
+        self.assertEqual(offline["summary"]["unregistered"], 0)
+
     def test_merge_appearance_slots(self) -> None:
         from app.core.a2b_heartbeat import build_a2b_status, upsert_heartbeat
 

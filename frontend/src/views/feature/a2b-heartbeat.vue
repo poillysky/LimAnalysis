@@ -371,24 +371,31 @@ onUnmounted(stopPoll);
             :class="[`machine--${card.tone}`, { 'machine--dual': mode === 'appearance' }]"
           >
             <div class="machine__head">
-              <strong class="machine__name">{{ card.machine }}</strong>
+              <div class="machine__title">
+                <span
+                  class="machine__dot"
+                  :class="`is-${card.tone}`"
+                  aria-hidden="true"
+                />
+                <strong class="machine__name">{{ card.machine }}</strong>
+              </div>
               <span
-                v-if="mode === 'appearance'"
-                class="machine__ratio"
-                :class="{ 'is-full': card.healthy, 'is-bad': !card.healthy }"
+                class="machine__badge"
+                :class="
+                  mode === 'appearance'
+                    ? { 'is-ok': card.healthy, 'is-bad': !card.healthy }
+                    : `is-${card.tone}`
+                "
               >
-                {{ appearanceRatioText(card) }}
-              </span>
-              <span
-                v-else
-                class="machine__presence"
-                :class="`is-${card.tone}`"
-              >
-                {{ presenceLabel(card.stations[0]?.presence) }}
+                {{
+                  mode === "appearance"
+                    ? appearanceRatioText(card)
+                    : stationStatusText(card.stations[0])
+                }}
               </span>
             </div>
 
-            <!-- 外观：两工站监控灯 -->
+            <!-- 外观：两工站 -->
             <div v-if="mode === 'appearance'" class="lamps">
               <div
                 v-for="slot in card.stations"
@@ -408,46 +415,41 @@ onUnmounted(stopPoll);
             </div>
 
             <!-- 注塑：单机详情 -->
-            <template v-else>
-              <div class="machine__status">
-                <span class="lamp__dot" :class="`is-${card.tone}`" aria-hidden="true" />
-                <strong>{{ stationStatusText(card.stations[0]) }}</strong>
+            <dl v-else class="machine__meta">
+              <div>
+                <dt>心跳</dt>
+                <dd>{{ card.stations[0]?.last_seen_at || "—" }}</dd>
               </div>
-              <dl class="machine__meta">
-                <div>
-                  <dt>最近心跳</dt>
-                  <dd>{{ card.stations[0]?.last_seen_at || "—" }}</dd>
-                </div>
-                <div>
-                  <dt>成功 / 失败</dt>
-                  <dd>
-                    {{ card.stations[0]?.ok_count ?? 0 }} /
-                    {{ card.stations[0]?.fail_count ?? 0 }}
-                  </dd>
-                </div>
-                <div>
-                  <dt>源</dt>
-                  <dd :title="card.stations[0]?.source">
-                    {{ shortPath(card.stations[0]?.source || "") }}
-                  </dd>
-                </div>
-                <div>
-                  <dt>目标</dt>
-                  <dd :title="card.stations[0]?.target">
-                    {{ shortPath(card.stations[0]?.target || "") }}
-                  </dd>
-                </div>
-                <div>
-                  <dt>主机</dt>
-                  <dd>
-                    {{ card.stations[0]?.host_name || "—" }}
-                    <template v-if="card.stations[0]?.client_version">
-                      · {{ card.stations[0].client_version }}
-                    </template>
-                  </dd>
-                </div>
-              </dl>
-            </template>
+              <div>
+                <dt>成败</dt>
+                <dd>
+                  {{ card.stations[0]?.ok_count ?? 0 }}
+                  <span class="machine__sep">/</span>
+                  {{ card.stations[0]?.fail_count ?? 0 }}
+                </dd>
+              </div>
+              <div>
+                <dt>源</dt>
+                <dd :title="card.stations[0]?.source">
+                  {{ shortPath(card.stations[0]?.source || "") || "—" }}
+                </dd>
+              </div>
+              <div>
+                <dt>目标</dt>
+                <dd :title="card.stations[0]?.target">
+                  {{ shortPath(card.stations[0]?.target || "") || "—" }}
+                </dd>
+              </div>
+              <div>
+                <dt>主机</dt>
+                <dd>
+                  {{ card.stations[0]?.host_name || "—" }}
+                  <template v-if="card.stations[0]?.client_version">
+                    · {{ card.stations[0].client_version }}
+                  </template>
+                </dd>
+              </div>
+            </dl>
           </article>
         </div>
       </section>
@@ -468,7 +470,9 @@ onUnmounted(stopPoll);
           <h3 class="a2b-group__title">未登记</h3>
           <span class="a2b-group__count">{{ unregistered.length }}</span>
         </header>
-        <p class="a2b-group__hint">有心跳上报，但不在当前项目配置中</p>
+        <p class="a2b-group__hint">
+          有心跳上报但不在项目配置中；离线后自动消失
+        </p>
         <div class="a2b-grid">
           <article
             v-for="slot in unregistered"
@@ -477,29 +481,31 @@ onUnmounted(stopPoll);
             :class="`machine--${statusTone(slot)}`"
           >
             <div class="machine__head">
-              <strong class="machine__name">{{ slot.title }}</strong>
-              <span class="machine__presence" :class="`is-${statusTone(slot)}`">
-                {{ presenceLabel(slot.presence) }}
-              </span>
-            </div>
-            <div class="machine__status">
+              <div class="machine__title">
+                <span
+                  class="machine__dot"
+                  :class="`is-${statusTone(slot)}`"
+                  aria-hidden="true"
+                />
+                <strong class="machine__name">{{ slot.title }}</strong>
+              </div>
               <span
-                class="lamp__dot"
+                class="machine__badge"
                 :class="`is-${statusTone(slot)}`"
-                aria-hidden="true"
-              />
-              <strong>{{ slot.client_status || "—" }}</strong>
+              >
+                {{ slot.client_status || presenceLabel(slot.presence) }}
+              </span>
             </div>
             <dl class="machine__meta">
               <div>
-                <dt>项目 / 机台</dt>
+                <dt>配置</dt>
                 <dd>
                   {{ slot.project_name || "—" }} · {{ slot.machine || "—" }}
                   <template v-if="slot.station"> · 工站{{ slot.station }}</template>
                 </dd>
               </div>
               <div>
-                <dt>最近心跳</dt>
+                <dt>心跳</dt>
                 <dd>{{ slot.last_seen_at || "—" }}</dd>
               </div>
               <div>
@@ -710,23 +716,35 @@ onUnmounted(stopPoll);
 }
 
 .machine {
+  --machine-accent: var(--la-text-faint, #98a2b3);
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   padding: 14px 14px 12px;
   border-radius: 12px;
-  border: 1px solid var(--la-border-default, #d0d5dd);
+  border: 1px solid var(--la-border-subtle, #e4e7ec);
   background: var(--la-surface-card, #fff);
-  box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
+  transition: border-color 0.16s ease;
+}
+
+.machine::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 14px;
+  left: 14px;
+  height: 1px;
+  background: color-mix(in srgb, var(--machine-accent) 55%, transparent);
+  border-radius: 1px;
 }
 
 .machine:hover {
-  border-color: color-mix(in srgb, var(--el-color-primary) 28%, var(--la-border-default, #d0d5dd));
-  box-shadow: 0 6px 18px rgb(16 24 40 / 7%);
+  border-color: color-mix(
+    in srgb,
+    var(--machine-accent) 28%,
+    var(--la-border-subtle, #e4e7ec)
+  );
 }
 
 .machine--ok {
@@ -747,96 +765,122 @@ onUnmounted(stopPoll);
 
 .machine--never {
   --machine-accent: var(--la-text-faint, #98a2b3);
+  background: color-mix(in srgb, var(--la-surface-sunken, #f2f4f7) 55%, #fff);
 }
 
 .machine--unreg {
-  background: color-mix(in srgb, var(--el-color-warning) 5%, var(--la-surface-card, #fff));
+  background: color-mix(in srgb, var(--el-color-warning) 4%, var(--la-surface-card, #fff));
 }
 
 .machine__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 
-.machine__name {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--la-text-strong, #1f2733);
-}
-
-.machine__ratio,
-.machine__presence {
-  flex: none;
-  font-size: 11px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  color: var(--la-text-muted, #667085);
-}
-
-.machine__ratio.is-full {
-  color: var(--el-color-success);
-}
-
-.machine__ratio.is-bad {
-  color: var(--el-color-danger);
-}
-
-.machine__presence.is-ok,
-.machine__presence.is-sync {
-  color: var(--el-color-success);
-}
-
-.machine__presence.is-warn {
-  color: var(--el-color-warning);
-}
-
-.machine__presence.is-off {
-  color: var(--el-color-danger);
-}
-
-.machine__status {
+.machine__title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  color: var(--la-text-body, #364152);
+  min-width: 0;
 }
 
-.machine__status strong {
+.machine__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--machine-accent);
+}
+
+.machine__name {
+  overflow: hidden;
+  font-size: 15px;
   font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--la-text-strong, #1f2733);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.machine__badge {
+  flex: none;
+  max-width: 46%;
+  overflow: hidden;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  color: var(--la-text-muted, #667085);
+  background: var(--la-surface-sunken, #f2f4f7);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.machine__badge.is-ok,
+.machine__badge.is-sync {
+  color: var(--el-color-success);
+  background: color-mix(in srgb, var(--el-color-success) 10%, transparent);
+}
+
+.machine__badge.is-warn {
+  color: var(--el-color-warning-dark-2, #b54708);
+  background: color-mix(in srgb, var(--el-color-warning) 12%, transparent);
+}
+
+.machine__badge.is-off,
+.machine__badge.is-bad {
+  color: var(--el-color-danger);
+  background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
+}
+
+.machine__badge.is-never {
+  color: var(--la-text-muted, #667085);
+  background: color-mix(in srgb, var(--la-text-faint, #98a2b3) 14%, transparent);
 }
 
 .machine__meta {
   margin: 0;
   display: grid;
-  gap: 5px;
+  gap: 6px;
+  padding-top: 2px;
+  border-top: 1px solid var(--la-border-subtle, #eef0f3);
 }
 
 .machine__meta > div {
   display: grid;
-  grid-template-columns: 64px 1fr;
-  gap: 6px;
-  font-size: 11px;
-  line-height: 1.35;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .machine__meta dt {
   margin: 0;
-  color: var(--la-text-muted, #667085);
+  color: var(--la-text-faint, #98a2b3);
+  font-size: 11px;
 }
 
 .machine__meta dd {
   margin: 0;
   overflow: hidden;
   color: var(--la-text-body, #364152);
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* —— 外观双工站灯 —— */
+.machine__sep {
+  margin: 0 2px;
+  color: var(--la-text-faint, #98a2b3);
+}
+
+/* —— 外观双工站 —— */
 .lamps {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -844,38 +888,30 @@ onUnmounted(stopPoll);
 }
 
 .lamp {
+  --lamp-color: var(--la-text-faint, #98a2b3);
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-start;
-  min-height: 72px;
+  min-height: 64px;
   padding: 10px;
   border-radius: 10px;
   background: var(--la-surface-sunken, #f2f4f7);
-  border: 1px solid transparent;
 }
 
 .lamp--ok {
   --lamp-color: var(--el-color-success);
-  background: color-mix(in srgb, var(--el-color-success) 9%, var(--la-surface-card, #fff));
-  border-color: color-mix(in srgb, var(--el-color-success) 22%, transparent);
 }
 
 .lamp--sync {
   --lamp-color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--la-surface-card, #fff));
-  border-color: color-mix(in srgb, var(--el-color-primary) 22%, transparent);
 }
 
 .lamp--warn {
   --lamp-color: var(--el-color-warning);
-  background: color-mix(in srgb, var(--el-color-warning) 10%, var(--la-surface-card, #fff));
-  border-color: color-mix(in srgb, var(--el-color-warning) 28%, transparent);
 }
 
 .lamp--off {
   --lamp-color: var(--el-color-danger);
-  background: color-mix(in srgb, var(--el-color-danger) 8%, var(--la-surface-card, #fff));
-  border-color: color-mix(in srgb, var(--el-color-danger) 22%, transparent);
 }
 
 .lamp--never {
@@ -884,42 +920,16 @@ onUnmounted(stopPoll);
 
 .lamp__dot {
   flex: none;
-  width: 12px;
-  height: 12px;
-  margin-top: 3px;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
   border-radius: 50%;
-  background: var(--lamp-color, var(--la-text-faint, #98a2b3));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-color, #98a2b3) 22%, transparent);
-}
-
-.lamp__dot.is-ok,
-.lamp__dot.is-sync {
-  --lamp-color: var(--el-color-success);
   background: var(--lamp-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-color) 22%, transparent);
-}
-
-.lamp__dot.is-warn {
-  --lamp-color: var(--el-color-warning);
-  background: var(--lamp-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-color) 22%, transparent);
-}
-
-.lamp__dot.is-off {
-  --lamp-color: var(--el-color-danger);
-  background: var(--lamp-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-color) 22%, transparent);
-}
-
-.lamp__dot.is-never {
-  --lamp-color: var(--la-text-faint, #98a2b3);
-  background: var(--lamp-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-color) 18%, transparent);
 }
 
 .lamp--ok .lamp__dot,
 .lamp--sync .lamp__dot {
-  animation: a2b-pulse 2.2s ease-out infinite;
+  animation: a2b-pulse 2.8s ease-out infinite;
 }
 
 .lamp__body {
@@ -931,21 +941,21 @@ onUnmounted(stopPoll);
 
 .lamp__label {
   font-size: 11px;
-  font-weight: 600;
-  color: var(--la-text-muted, #667085);
+  font-weight: 500;
+  color: var(--la-text-faint, #98a2b3);
 }
 
 .lamp__state {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 650;
   letter-spacing: -0.01em;
   color: var(--la-text-strong, #1f2733);
 }
 
 .lamp__meta {
   overflow: hidden;
-  font-size: 10px;
-  color: var(--la-text-faint, #98a2b3);
+  font-size: 11px;
+  color: var(--la-text-muted, #667085);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -963,10 +973,10 @@ onUnmounted(stopPoll);
 @keyframes a2b-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-color) 22%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--lamp-color) 0%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--lamp-color) 8%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--lamp-color) 16%, transparent);
   }
 }
 

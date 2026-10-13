@@ -1,0 +1,8 @@
+build/
+dist/
+*.spec
+config.json
+logs/
+__pycache__/
+*.pyc
+startup_error.log

@@ -404,6 +404,7 @@ def build_a2b_status(
                         )
                     )
 
+    # 未登记区只展示仍在线的心跳；离线后卡片直接消失（正式槽位的离线/从未仍保留）
     unregistered: list[dict] = []
     for hb in mode_hbs:
         cid = hb.get("client_id") or ""
@@ -412,6 +413,8 @@ def build_a2b_status(
         presence = _presence(
             hb.get("last_seen_at") or "", stale_seconds=timeout, now=clock
         )
+        if presence.get("presence") != "online":
+            continue
         unregistered.append(
             {
                 "slot_key": f"unreg:{cid}",

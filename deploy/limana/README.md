@@ -1,6 +1,6 @@
 # LimAnalysis 应用单独部署（`/vol1/1000/Docker/limana`）
 
-一体镜像：`poillysky/limanalysis:V1.0.12`（前端 + API + Worker + cleanup）  
+一体镜像：`poillysky/limanalysis:V1.0.13`（前端 + API + Worker + cleanup）  
 Compose：[`../docker-compose.limana.yml`](../docker-compose.limana.yml)  
 三库仍用 [`../docker-compose.nas.yml`](../docker-compose.nas.yml)。
 

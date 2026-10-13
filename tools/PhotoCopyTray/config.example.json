@@ -1,0 +1,18 @@
+{
+  "mode": "mold",
+  "machine": "M01",
+  "project": "",
+  "source_dir": "D:\\Capture",
+  "target_root": "\\\\NAS\\Photos\\Mold",
+  "exclude_dirs": ["temp", "cache", "Thumbs"],
+  "exclude_globs": ["*.tmp", "*.temp", "*.part", "*.pctmp"],
+  "poll_seconds": 5,
+  "file_settle_seconds": 2.0,
+  "retry_count": 3,
+  "retry_interval": 2.0,
+  "speed_limit_kbps": 0,
+  "log_keep_days": 14,
+  "auto_start": false,
+  "compare_mode": "fast",
+  "paused": false
+}

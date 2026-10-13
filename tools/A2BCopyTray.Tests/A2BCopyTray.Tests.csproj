@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>A2BCopyTray.Tests</AssemblyName>
+    <RootNamespace>A2BCopyTray.Tests</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <SonarQubeExclude>true</SonarQubeExclude>
+  </PropertyGroup>
+
+  <!-- 直接编译主工程里与界面无关的核心源文件，保证测的就是线上那份逻辑 -->
+  <ItemGroup>
+    <Compile Include="Harness.cs" />
+    <Compile Include="..\A2BCopyTray\AppConfig.cs" />
+    <Compile Include="..\A2BCopyTray\AppLogger.cs" />
+    <Compile Include="..\A2BCopyTray\AppPaths.cs" />
+    <Compile Include="..\A2BCopyTray\ConfigStore.cs" />
+    <Compile Include="..\A2BCopyTray\HeartbeatReporter.cs" />
+    <Compile Include="..\A2BCopyTray\ShortcutManager.cs" />
+    <Compile Include="..\A2BCopyTray\SyncEngine.cs" />
+    <Compile Include="..\A2BCopyTray\SyncSnapshot.cs" />
+    <Compile Include="..\A2BCopyTray\SyncStatus.cs" />
+    <Compile Include="..\A2BCopyTray\UiState.cs" />
+  </ItemGroup>
+
+</Project>

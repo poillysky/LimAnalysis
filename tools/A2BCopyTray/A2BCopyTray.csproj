@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <AssemblyName>A2BCopyTray</AssemblyName>
+    <RootNamespace>A2BCopyTray</RootNamespace>
+    <Version>1.7.4</Version>
+    <Product>A2B 增量复制托盘程序</Product>
+    <Description>注塑机/外观机站点图片增量复制（对齐 LimAnalysis 目录结构）</Description>
+    <!-- Publish: self-contained single EXE, no runtime install on target PC -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <!-- 发布目录里只需要那一个 EXE。默认会附带一个 .pdb 符号文件，
+       现场看到会以为"这也是要拷的"，干脆不生成（运行日志只记消息，不需要行号） -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <!-- 同一份 app.ico 再嵌一份到程序集里：运行时用它取图标，
+       不依赖 shell 从 EXE 回抽（单文件发布下更稳，也能挑到合适尺寸的那一帧） -->
+  <ItemGroup>
+    <EmbeddedResource Include="app.ico">
+      <LogicalName>A2BCopyTray.app.ico</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>
