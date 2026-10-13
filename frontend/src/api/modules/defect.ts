@@ -12,12 +12,11 @@ export type YieldAlertContact = {
   phone: string;
 };
 
+/** 机台级良率预警（按 LIM 机台线阈值；一条机台一行） */
 export type YieldAlertRow = {
   project_id?: string;
   project_name?: string;
   machine: string;
-  cavity?: string;
-  cavity_raw?: string;
   qty: number;
   ng: number;
   rate_pct: number | null;
@@ -57,10 +56,12 @@ export type YieldAlertResult = {
     from_hour: string;
     to_hour: string;
     rules: {
-      cavity_rate_above_pct: number;
-      cavity_min_qty: number;
+      lim_machine_rate_above_pct?: number;
+      lim_machine_min_qty?: number;
       machine_rate_above_pct: number;
       machine_min_qty: number;
+      cavity_rate_above_pct?: number;
+      cavity_min_qty?: number;
     };
     alerts: YieldAlertRow[];
     notices: YieldNotice[];

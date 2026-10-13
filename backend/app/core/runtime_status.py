@@ -17,6 +17,7 @@ from app.core.job_types import (
     STATUS_RUNNING,
     STATUS_SUCCESS,
 )
+from app.core.linkage_config import load_linkage_config
 from app.core.meta_init import init_meta_store
 from app.core.meta_models import MetaJob
 from app.core.sfc_config import load_sfc_config
@@ -83,6 +84,8 @@ def build_runtime_status() -> dict:
     etl = load_etl_config()
     agg = load_agg_config()
     cleanup = load_disk_cleanup_config()
+    # 联动与 ETL/ADS 定时互斥；任一开启都算调度“在跑”
+    linkage_on = bool(load_linkage_config().get("enabled"))
     workers = worker_heartbeat_status()
 
     crawl_job = _job_summary(JOB_CRAWL)
@@ -117,6 +120,7 @@ def build_runtime_status() -> dict:
             },
             "etl": {
                 "is_active": bool(etl.get("is_active")),
+                "linkage_enabled": linkage_on,
                 "last_run_time": etl.get("last_run_time") or "",
                 "last_run_status": etl.get("last_run_status") or "",
                 "last_run_message": etl.get("last_run_message") or "",
@@ -124,6 +128,7 @@ def build_runtime_status() -> dict:
             },
             "agg": {
                 "is_active": bool(agg.get("is_active")),
+                "linkage_enabled": linkage_on,
                 "last_run_time": agg.get("last_run_time") or "",
                 "last_run_status": agg.get("last_run_status") or "",
                 "last_run_message": agg.get("last_run_message") or "",

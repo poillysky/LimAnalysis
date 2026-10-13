@@ -1,7 +1,8 @@
-"""近 N 小时 LIM 机台×模穴标红 → 按当前班次从排班表找人。
+"""近 N 小时 LIM 机台汇总标红 → 按当前班次从排班表找人。
 
-主数据与模穴页 LIM 交叉表同一入口：query_machine_cavity(appearance)。
-不良项明细仅由 query_machine_cavity_breakdown 挂到已标红穴位。
+主数据与模穴页 LIM 交叉表同一入口：query_machine_cavity(appearance)，
+先按有效模穴字母汇总到机台，再用 lim_machine_* 阈值判红（与交叉表「机台」线一致）。
+不良项明细由 breakdown 挂到该机台下各穴位后合并。
 """
 
 from __future__ import annotations
@@ -294,8 +295,9 @@ def list_yield_alerts(
         except ValueError:
             defect_by = {}
 
-        red_rows = []
+        # 与交叉表同口径：只计有效模穴字母，再汇总到机台
         machine_tot: dict[str, dict[str, float]] = {}
+        machine_cavities: dict[str, list[str]] = {}
         for row in cavity.get("rows") or []:
             machine = str(row.get("machine") or "").strip()
             cavity_raw = str(row.get("cavity") or "").strip()
@@ -304,42 +306,59 @@ def list_yield_alerts(
                 continue
             qty = float(row.get("qty") or 0)
             ng = float(row.get("ng") or 0)
-            rate = row.get("rate_pct")
-            if rate is None:
-                rate = _rate_pct(qty, ng)
+            if qty <= 0:
+                continue
             prev = machine_tot.get(machine) or {"qty": 0.0, "ng": 0.0}
             machine_tot[machine] = {
                 "qty": prev["qty"] + qty,
                 "ng": prev["ng"] + ng,
             }
-            if not _is_alert(
-                rate,
-                qty,
-                rate_above=rules["lim_cavity_rate_above_pct"],
-                min_qty=rules["lim_cavity_min_qty"],
-            ):
-                continue
-            red_rows.append(
-                {
-                    "machine": machine,
-                    "cavity": cavity_raw,
-                    "cavity_letter": letter,
-                    "qty": qty,
-                    "ng": ng,
-                    "rate_pct": rate,
-                    "defects": defect_by.get((machine, cavity_raw)) or [],
-                }
-            )
+            machine_cavities.setdefault(machine, []).append(cavity_raw)
 
-        contacts_of: dict[str, list[dict]] = {}
-        for machine in sorted(
-            {item["machine"] for item in red_rows},
-            key=lambda m: (len(m), m),
-        ):
-            tot = machine_tot.get(machine) or {"qty": 0.0, "ng": 0.0}
+        red_machines = []
+        for machine, tot in machine_tot.items():
             qty = tot["qty"]
             ng = tot["ng"]
             rate = _rate_pct(qty, ng)
+            if not _is_alert(
+                rate,
+                qty,
+                rate_above=rules["lim_machine_rate_above_pct"],
+                min_qty=rules["lim_machine_min_qty"],
+            ):
+                continue
+            defect_tot: dict[tuple[str, str], dict] = {}
+            for cavity_raw in machine_cavities.get(machine) or []:
+                for defect in defect_by.get((machine, cavity_raw)) or []:
+                    item = str(defect.get("item") or "")
+                    label = str(defect.get("label") or "")
+                    key = (item, label)
+                    prev = defect_tot.get(key)
+                    add_ng = float(defect.get("ng") or 0)
+                    if prev is None:
+                        defect_tot[key] = {
+                            "item": item,
+                            "label": label,
+                            "ng": add_ng,
+                        }
+                    else:
+                        prev["ng"] = float(prev.get("ng") or 0) + add_ng
+            red_machines.append(
+                {
+                    "machine": machine,
+                    "qty": qty,
+                    "ng": ng,
+                    "rate_pct": rate,
+                    "defects": list(defect_tot.values()),
+                }
+            )
+
+        red_machines.sort(key=lambda item: (len(item["machine"]), item["machine"]))
+        for item in red_machines:
+            machine = item["machine"]
+            qty = float(item["qty"])
+            ng = float(item["ng"])
+            rate = item["rate_pct"]
             contacts = []
             seen = set()
             machine_payload = {
@@ -381,37 +400,24 @@ def list_yield_alerts(
                     },
                 )
                 notice["machines"].append(dict(machine_payload))
-            contacts_of[machine] = contacts
-
-        red_rows.sort(
-            key=lambda item: (
-                item.get("machine") or "",
-                item.get("cavity_letter") or "",
-            )
-        )
-        for item in red_rows:
-            machine = item["machine"]
-            tot = machine_tot.get(machine) or {"qty": 0.0, "ng": 0.0}
             defects = item.get("defects") or []
             alerts.append(
                 {
                     "project_id": project["project_id"],
                     "project_name": display_name,
                     "machine": machine,
-                    "cavity": item.get("cavity_letter") or "",
-                    "cavity_raw": str(item.get("cavity") or ""),
-                    "qty": float(item.get("qty") or 0),
-                    "ng": float(item.get("ng") or 0),
-                    "rate_pct": item.get("rate_pct"),
+                    "qty": qty,
+                    "ng": ng,
+                    "rate_pct": rate,
                     "reasons": [
                         str(d.get("label") or d.get("item") or "")
                         for d in defects
                     ],
                     "defects": defects,
-                    "machine_qty": tot["qty"],
-                    "machine_ng": tot["ng"],
-                    "machine_rate_pct": _rate_pct(tot["qty"], tot["ng"]),
-                    "contacts": contacts_of.get(machine) or [],
+                    "machine_qty": qty,
+                    "machine_ng": ng,
+                    "machine_rate_pct": rate,
+                    "contacts": contacts,
                 }
             )
 
@@ -420,7 +426,6 @@ def list_yield_alerts(
             row["project_name"],
             len(row["machine"]),
             row["machine"],
-            row.get("cavity") or "",
         )
     )
     notices = sorted(notice_map.values(), key=lambda n: n["name"])

@@ -22,6 +22,7 @@ import {
 } from "@/utils/pivotTable";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import PageMetricBar from "@/components/PageMetricBar/index.vue";
+import ZoomableImage from "@/components/ZoomableImage/index.vue";
 
 defineOptions({
   name: "DefectAnalysis"
@@ -59,13 +60,13 @@ const unassigned = computed(() => {
   return rows;
 });
 
-const redCavityCount = computed(() => alerts.value.length);
+const redMachineCount = computed(() => alerts.value.length);
 
 const summaryMetrics = computed(() => [
   {
-    value: redCavityCount.value,
-    label: "异常模穴",
-    alert: redCavityCount.value > 0
+    value: redMachineCount.value,
+    label: "异常机台",
+    alert: redMachineCount.value > 0
   },
   { value: notices.value.length, label: "待通知" }
 ]);
@@ -138,17 +139,13 @@ const CAMERA_ITEMS = new Set([
   "硅胶短边"
 ]);
 
-function cavityIssueText(row: YieldAlertRow) {
-  const letter = String(row.cavity || "").trim();
-  const raw = String(row.cavity_raw || "").trim();
-  const hole = letter ? `${letter}穴` : raw;
+function machineIssueText(row: YieldAlertRow) {
   const defects = (row.defects || []).filter(item => {
     const name = String(item.label || item.item || "").trim();
     return name && !CAMERA_ITEMS.has(name);
   });
-  let detail = "";
   if (defects.length) {
-    detail = defects
+    return defects
       .map(item => {
         const count = Number(item.ng || 0);
         const label = item.label || item.item;
@@ -157,66 +154,108 @@ function cavityIssueText(row: YieldAlertRow) {
           : label;
       })
       .join("、");
-  } else {
-    const reasons = (row.reasons || []).filter(
-      name => name && !CAMERA_ITEMS.has(String(name).trim())
-    );
-    if (reasons.length) {
-      detail = reasons.join("、");
-    } else if (Number(row.ng || 0) > 0) {
-      detail = `外观不良 ${Number(row.ng).toLocaleString()}pcs`;
-    } else {
-      detail = "窗口内无分项不良";
-    }
   }
-  return hole ? `${hole}：${detail}` : detail;
+  const reasons = (row.reasons || []).filter(
+    name => name && !CAMERA_ITEMS.has(String(name).trim())
+  );
+  if (reasons.length) return reasons.join("、");
+  if (Number(row.ng || 0) > 0) {
+    return `外观不良 ${Number(row.ng).toLocaleString()}pcs`;
+  }
+  return "窗口内无分项不良";
 }
 
 const photoOpen = ref(false);
 const photoLoading = ref(false);
 const photoHint = ref("");
 const photoTitle = ref("");
+const photoSource = ref<PhotoSource>("mold");
+const photoProjectId = ref("");
+const photoMachine = ref("");
+const photoCavity = ref("");
+const photoCavities = ref<string[]>([]);
+const photoCameras = ref<string[]>([]);
+const photoCamera = ref("");
 const photoImages = ref<InspectionImage[]>([]);
 const photoIndex = ref(0);
 const photoCurrent = computed(
   () => photoImages.value[photoIndex.value] || null
 );
 
-async function collectImages(
-  projectId: string,
-  machine: string,
-  cavity: string,
-  source: PhotoSource
-) {
-  const images: InspectionImage[] = [];
+/** 与模穴页 SeriesPanel 同口径：外观按视角取图 */
+async function ensurePhotoCameras() {
+  if (!photoProjectId.value) {
+    photoCameras.value = [];
+    photoCamera.value = "";
+    return;
+  }
+  const folders = await getViewerFolders(photoProjectId.value, "", "mold").catch(
+    () => null
+  );
+  const cameras = folders?.data?.cameras || [];
+  photoCameras.value = cameras;
+  if (!cameras.length) {
+    photoCamera.value = "";
+    return;
+  }
+  if (!cameras.includes(photoCamera.value)) {
+    photoCamera.value = cameras[0];
+  }
+}
+
+async function ensurePhotoCavities(source: PhotoSource) {
+  if (!photoProjectId.value || !photoMachine.value) {
+    photoCavities.value = [];
+    photoCavity.value = "";
+    return;
+  }
+  const dates = await getViewerDates(
+    photoProjectId.value,
+    photoMachine.value,
+    source,
+    source === "appearance" ? photoCamera.value : "",
+    "mold"
+  ).catch(() => null);
+  const cavities = (dates?.data?.cavities || [])
+    .map(item => String(item || "").trim().toUpperCase())
+    .filter(Boolean);
+  photoCavities.value = cavities;
+  if (!cavities.length) {
+    photoCavity.value = "";
+    return;
+  }
+  if (!cavities.includes(photoCavity.value)) {
+    photoCavity.value = cavities[0];
+  }
+}
+
+async function collectImages(source: PhotoSource) {
+  const projectId = photoProjectId.value;
+  const machine = photoMachine.value;
+  const cavity = photoCavity.value;
+  if (!projectId || !machine || !cavity) return [];
   if (source === "appearance") {
-    if (!cavity) return [];
-    const folders = await getViewerFolders(projectId, "", "mold").catch(
-      () => null
-    );
-    const cameras = folders?.data?.cameras || [];
-    for (const camera of cameras) {
-      const dates = await getViewerDates(
-        projectId,
-        machine,
-        "appearance",
-        camera,
-        "mold"
-      ).catch(() => null);
-      const day = dates?.data?.default_date || dates?.data?.dates?.[0] || "";
-      if (!day) continue;
-      const res = await getViewerImages({
-        project_id: projectId,
-        machine,
-        cavity,
-        date: day,
-        source: "appearance",
-        dim: "mold",
-        camera
-      }).catch(() => null);
-      images.push(...(res?.data?.images || []));
-    }
-    return images;
+    const camera = photoCamera.value;
+    if (!camera) return [];
+    const dates = await getViewerDates(
+      projectId,
+      machine,
+      "appearance",
+      camera,
+      "mold"
+    ).catch(() => null);
+    const day = dates?.data?.default_date || dates?.data?.dates?.[0] || "";
+    if (!day) return [];
+    const res = await getViewerImages({
+      project_id: projectId,
+      machine,
+      cavity,
+      date: day,
+      source: "appearance",
+      dim: "mold",
+      camera
+    });
+    return res?.data?.images || [];
   }
   const dates = await getViewerDates(projectId, machine, "mold");
   const day = dates?.data?.default_date || dates?.data?.dates?.[0] || "";
@@ -232,27 +271,30 @@ async function collectImages(
   return res?.data?.images || [];
 }
 
-async function openPhotos(row: YieldAlertRow, source: PhotoSource) {
-  const cavity = row.cavity || "";
-  if (!row.project_id || !row.machine || !cavity) {
-    ElMessage.warning("缺少机台或穴位，无法打开图片");
-    return;
-  }
-  photoTitle.value = `${source === "mold" ? "注塑机" : "外观机"} · ${row.machine}${
-    cavity ? ` · ${cavity}` : ""
-  }`;
-  photoOpen.value = true;
-  photoLoading.value = true;
-  photoHint.value = "";
+async function loadPhotos() {
+  const source = photoSource.value;
   photoImages.value = [];
   photoIndex.value = 0;
+  photoHint.value = "";
+  if (!photoProjectId.value || !photoMachine.value) {
+    photoHint.value = "缺少机台";
+    return;
+  }
+  photoLoading.value = true;
   try {
-    const images = await collectImages(
-      row.project_id,
-      row.machine,
-      cavity,
-      source
-    );
+    if (source === "appearance") {
+      await ensurePhotoCameras();
+      if (!photoCamera.value) {
+        photoHint.value = "没有可用视角";
+        return;
+      }
+    }
+    await ensurePhotoCavities(source);
+    if (!photoCavity.value) {
+      photoHint.value = "该机台没有可用模穴图片";
+      return;
+    }
+    const images = await collectImages(source);
     photoImages.value = images;
     if (!images.length) photoHint.value = "这一天没有找到图片";
   } catch (error) {
@@ -260,6 +302,63 @@ async function openPhotos(row: YieldAlertRow, source: PhotoSource) {
   } finally {
     photoLoading.value = false;
   }
+}
+
+async function openPhotos(row: YieldAlertRow, source: PhotoSource) {
+  if (!row.project_id || !row.machine) {
+    ElMessage.warning("缺少机台，无法打开图片");
+    return;
+  }
+  photoSource.value = source;
+  photoProjectId.value = row.project_id;
+  photoMachine.value = row.machine;
+  photoCavity.value = "";
+  photoCavities.value = [];
+  photoCamera.value = "";
+  photoCameras.value = [];
+  photoTitle.value = `${source === "mold" ? "注塑机" : "外观机"} · ${row.machine}`;
+  photoOpen.value = true;
+  await loadPhotos();
+}
+
+async function reloadPhotoImages() {
+  photoImages.value = [];
+  photoIndex.value = 0;
+  photoHint.value = "";
+  if (!photoProjectId.value || !photoMachine.value) {
+    photoHint.value = "缺少机台";
+    return;
+  }
+  if (photoSource.value === "appearance" && !photoCamera.value) {
+    photoHint.value = "没有可用视角";
+    return;
+  }
+  if (!photoCavity.value) {
+    photoHint.value = "该机台没有可用模穴图片";
+    return;
+  }
+  photoLoading.value = true;
+  try {
+    const images = await collectImages(photoSource.value);
+    photoImages.value = images;
+    if (!images.length) photoHint.value = "这一天没有找到图片";
+  } catch (error) {
+    photoHint.value = backendErrorHint(error);
+  } finally {
+    photoLoading.value = false;
+  }
+}
+
+async function onPhotoCameraChange() {
+  if (photoSource.value !== "appearance") return;
+  // 换视角后穴位列表可能变，重新拉元数据
+  photoCavity.value = "";
+  photoCavities.value = [];
+  await loadPhotos();
+}
+
+async function onPhotoCavityChange() {
+  await reloadPhotoImages();
 }
 
 function shiftPhoto(step: number) {
@@ -287,15 +386,6 @@ function noticeText(item: YieldNotice) {
   ];
   for (const machine of item.machines) {
     lines.push(machineLine(machine));
-    const cavities = alerts.value.filter(
-      row =>
-        (row.project_id || "") === (machine.project_id || "") &&
-        row.machine === machine.machine
-    );
-    for (const row of cavities) {
-      const reason = cavityIssueText(row);
-      lines.push(`  ${reason}；不良率 ${rateText(row.rate_pct)}`);
-    }
   }
   lines.push("请尽快到机台确认。");
   return lines.join("\n");
@@ -332,7 +422,7 @@ async function load() {
     duty.value = data?.duty || "";
     fromHour.value = data?.from_hour || "";
     toHour.value = data?.to_hour || "";
-    // 直接用 yield-alerts（后端已从 LIM 交叉表 query_machine_cavity 派生），不再本地重判
+    // 直接用 yield-alerts（后端按 LIM 机台线汇总判红），不再本地重判
     const nextAlerts = data?.alerts || [];
     alerts.value = nextAlerts;
     notices.value = data?.notices || [];
@@ -391,8 +481,8 @@ onUnmounted(() => {
       <p v-if="!notices.length && !loading" class="alert-empty">
         {{
           alerts.length
-            ? "有异常模穴但排班表没有当班负责人"
-            : `${DEFAULT_LIM_HOURS_LABEL}没有 LIM 异常模穴`
+            ? "有异常机台但排班表没有当班负责人"
+            : `${DEFAULT_LIM_HOURS_LABEL}没有 LIM 异常机台`
         }}
       </p>
       <div v-else class="notice-grid">
@@ -414,10 +504,10 @@ onUnmounted(() => {
 
     <section class="alert-panel">
       <div class="alert-panel__head">
-        <strong>异常模穴明细</strong>
+        <strong>异常机台明细</strong>
         <span v-if="selectedNotice">
           {{ selectedNotice.name }}
-          {{ selectedNotice.phone }} · {{ tableAlerts.length }} 穴
+          {{ selectedNotice.phone }} · {{ tableAlerts.length }} 台
         </span>
         <span v-else-if="unassigned.length">
           {{ unassigned.length }} 台未排到当前班次
@@ -437,7 +527,7 @@ onUnmounted(() => {
         :data="tableAlerts"
         border
         :header-cell-style="headerCellStyle"
-        empty-text="没有 LIM 异常模穴"
+        empty-text="没有 LIM 异常机台"
       >
         <el-table-column
           prop="project_name"
@@ -483,7 +573,7 @@ onUnmounted(() => {
         >
           <template #default="{ row }">
             <span class="issue-text" :class="{ 'is-rate': Number(row.ng || 0) > 0 }">
-              {{ cavityIssueText(row) }}
+              {{ machineIssueText(row) }}
             </span>
           </template>
         </el-table-column>
@@ -527,6 +617,36 @@ onUnmounted(() => {
       <template #header>
         <div class="photo-dialog__head">
           <strong>{{ photoTitle }}</strong>
+          <el-select
+            v-if="photoCavities.length"
+            v-model="photoCavity"
+            class="photo-dialog__select"
+            size="small"
+            placeholder="模穴"
+            @change="onPhotoCavityChange"
+          >
+            <el-option
+              v-for="letter in photoCavities"
+              :key="letter"
+              :label="`${letter}穴`"
+              :value="letter"
+            />
+          </el-select>
+          <el-select
+            v-if="photoSource === 'appearance'"
+            v-model="photoCamera"
+            class="photo-dialog__select"
+            size="small"
+            placeholder="视角"
+            @change="onPhotoCameraChange"
+          >
+            <el-option
+              v-for="code in photoCameras"
+              :key="code"
+              :label="code"
+              :value="code"
+            />
+          </el-select>
           <span v-if="photoCurrent" class="photo-dialog__file">
             {{ photoCurrent.filename }}
           </span>
@@ -547,7 +667,7 @@ onUnmounted(() => {
           >
             <component :is="useRenderIcon('ri/arrow-left-s-line')" />
           </button>
-          <img
+          <ZoomableImage
             :src="photoCurrent.view_url"
             :alt="photoCurrent.filename"
           />
@@ -561,6 +681,7 @@ onUnmounted(() => {
             <component :is="useRenderIcon('ri/arrow-right-s-line')" />
           </button>
         </template>
+        <p v-else-if="!photoLoading" class="photo-empty">暂无图片</p>
       </div>
     </el-dialog>
   </div>
@@ -861,6 +982,22 @@ onUnmounted(() => {
   letter-spacing: -0.02em;
 }
 
+.photo-dialog__select {
+  flex: none;
+  width: 112px;
+}
+
+.photo-dialog__select :deep(.el-select__wrapper) {
+  background: var(--la-media-field, rgba(255, 255, 255, 0.08));
+  box-shadow: 0 0 0 1px var(--la-media-field-ring, rgba(255, 255, 255, 0.14))
+    inset;
+}
+
+.photo-dialog__select :deep(.el-select__placeholder),
+.photo-dialog__select :deep(.el-select__selected-item) {
+  color: var(--la-media-text, #f4f4f5);
+}
+
 .photo-dialog__file {
   flex: 1;
   min-width: 0;
@@ -894,10 +1031,8 @@ onUnmounted(() => {
   background: var(--la-media-bg);
 }
 
-.photo-stage img {
-  max-width: calc(100% - 128px);
-  max-height: calc(90vh - 88px);
-  object-fit: contain;
+.photo-stage :deep(.zoomable-image) {
+  inset: 12px 64px;
 }
 
 .photo-empty {

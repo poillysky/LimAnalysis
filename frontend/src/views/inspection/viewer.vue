@@ -18,6 +18,7 @@ import {
 } from "@/api/modules/inspection";
 import { backendErrorHint } from "@/api/http";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
+import ZoomableImage from "@/components/ZoomableImage/index.vue";
 
 defineOptions({
   name: "InspectionViewer"
@@ -1131,7 +1132,7 @@ onUnmounted(() => {
             />
           </svg>
         </button>
-        <img :src="current.view_url" :alt="current.filename" />
+        <ZoomableImage :src="current.view_url" :alt="current.filename" />
         <button
           type="button"
           class="viewer-nav"
@@ -1173,7 +1174,7 @@ onUnmounted(() => {
             <i v-if="isHitImage(item)" class="viewer-thumb__hit">命中</i>
           </button>
         </div>
-        <p class="viewer-keys">方向键翻页（按 ServerTime 先后）</p>
+        <p class="viewer-keys">滚轮缩放 · 拖拽平移 · 双击复位 · 方向键翻页</p>
       </div>
     </div>
 
@@ -1371,10 +1372,8 @@ onUnmounted(() => {
   background: var(--la-media-bg);
 }
 
-.viewer-frame > img {
-  max-width: 100%;
-  max-height: 58vh;
-  object-fit: contain;
+.viewer-frame :deep(.zoomable-image) {
+  inset: 40px 56px 36px;
 }
 
 .viewer-chrome,
@@ -1615,8 +1614,8 @@ onUnmounted(() => {
     min-height: 46vh;
   }
 
-  .viewer-frame > img {
-    max-height: 46vh;
+  .viewer-frame :deep(.zoomable-image) {
+    inset: 36px 40px 32px;
   }
 }
 </style>

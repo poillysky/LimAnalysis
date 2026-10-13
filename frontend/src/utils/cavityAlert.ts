@@ -11,7 +11,7 @@ export type AlertRules = {
   bodyCavityMinQty: number;
   bodyMachineRateAbovePct: number;
   bodyMachineMinQty: number;
-  /** LIM 模穴别名，系统通知按 LIM 红线穴位用这对 */
+  /** LIM 模穴/机台别名；系统通知用 machine*（机台线） */
   cavityRateAbovePct: number;
   cavityMinQty: number;
   machineRateAbovePct: number;

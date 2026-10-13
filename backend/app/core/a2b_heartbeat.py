@@ -13,7 +13,8 @@ from app.core.meta_models import MetaA2bClientHeartbeat
 from app.core.projects import load_projects
 
 STALE_SECONDS = 90
-APPEARANCE_STATIONS = ("1", "2", "3")
+# 外观机固定两工站；前端一机一卡、每卡两盏监控灯
+APPEARANCE_STATIONS = ("1", "2")
 _TIME_FMT = "%Y-%m-%d %H:%M:%S"
 _MODES = frozenset({"mold", "appearance"})
 

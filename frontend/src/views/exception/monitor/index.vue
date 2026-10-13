@@ -67,17 +67,36 @@ function workerLabel(role: "collector" | "agg" | "cleanup") {
   return `离线 · 上次 ${w.last_seen.slice(11) || w.last_seen}`;
 }
 
+/** 定时或联动任一开启即视为调度在跑（ETL/ADS 与联动互斥） */
+function schedArmed(key: keyof NonNullable<RuntimeStatus["schedulers"]>) {
+  const s = runtime.value?.schedulers?.[key];
+  if (!s) return false;
+  if (key === "disk_cleanup") return !!s.enabled;
+  if ((key === "etl" || key === "agg") && s.linkage_enabled) return true;
+  return !!s.is_active;
+}
+
 function schedLabel(key: keyof NonNullable<RuntimeStatus["schedulers"]>) {
   const s = runtime.value?.schedulers?.[key] as SchedulerStatus | undefined;
   if (!s) return "—";
   if (key === "sfc" && s.blocked_by_workshop) return "车间离线已停采";
-  const active = key === "disk_cleanup" ? s.enabled : s.is_active;
+  const active = schedArmed(key);
   const st = (s.last_run_status || "").trim();
   const t = (s.last_run_time || "").slice(11);
   if (s.job?.active) return `执行中${t ? ` · ${t}` : ""}`;
   if (!active) return st ? `已停 · ${st}` : "已停";
-  if (!st) return "待命";
-  return t ? `${st} · ${t}` : st;
+  const mode =
+    (key === "etl" || key === "agg") && s.linkage_enabled
+      ? "联动"
+      : key === "disk_cleanup"
+        ? ""
+        : "定时";
+  if (!st) return mode ? `${mode} · 待命` : "待命";
+  return mode
+    ? `${mode} · ${t ? `${st} · ${t}` : st}`
+    : t
+      ? `${st} · ${t}`
+      : st;
 }
 
 function schedTone(key: keyof NonNullable<RuntimeStatus["schedulers"]>): LampTone {
@@ -86,8 +105,7 @@ function schedTone(key: keyof NonNullable<RuntimeStatus["schedulers"]>): LampTon
   if (key === "sfc" && s.blocked_by_workshop) return "warn";
   if (s.job?.active) return "ok";
   if (s.job?.ok === false) return "bad";
-  const active = key === "disk_cleanup" ? s.enabled : s.is_active;
-  if (!active) return "idle";
+  if (!schedArmed(key)) return "idle";
   return "ok";
 }
 
@@ -168,8 +186,8 @@ function shortSched(key: keyof NonNullable<RuntimeStatus["schedulers"]>) {
   if (key === "sfc" && s.blocked_by_workshop) return "停采";
   if (s.job?.active) return "执行";
   if (s.job?.ok === false) return "失败";
-  const active = key === "disk_cleanup" ? s.enabled : s.is_active;
-  if (!active) return "停";
+  if (!schedArmed(key)) return "停";
+  if ((key === "etl" || key === "agg") && s.linkage_enabled) return "联动";
   return "开";
 }
 

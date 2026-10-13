@@ -16,6 +16,7 @@ import { backendErrorHint } from "@/api/http";
 import echarts from "@/plugins/echarts";
 import PageTabs from "@/components/PageTabs/index.vue";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
+import ZoomableImage from "@/components/ZoomableImage/index.vue";
 
 const props = defineProps<{
   projectId: string;
@@ -670,7 +671,10 @@ onUnmounted(() => {
           >
             <component :is="useRenderIcon('ri/arrow-left-s-line')" />
           </button>
-          <img :src="photoCurrent.view_url" :alt="photoCurrent.filename" />
+          <ZoomableImage
+            :src="photoCurrent.view_url"
+            :alt="photoCurrent.filename"
+          />
           <button
             class="photo-nav is-next"
             type="button"
@@ -929,10 +933,8 @@ onUnmounted(() => {
   background: var(--la-media-bg);
 }
 
-.photo-stage img {
-  max-width: calc(100% - 96px);
-  max-height: 100%;
-  object-fit: contain;
+.photo-stage :deep(.zoomable-image) {
+  inset: 8px 52px;
 }
 
 .photo-empty {

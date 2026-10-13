@@ -34,6 +34,8 @@ export type JobSummary = {
 export type SchedulerStatus = {
   is_active?: boolean;
   enabled?: boolean;
+  /** ETL/ADS：pipeline 联动开启（与定时互斥，同样视为调度在跑） */
+  linkage_enabled?: boolean;
   blocked_by_workshop?: boolean;
   last_run_time: string;
   last_run_status: string;

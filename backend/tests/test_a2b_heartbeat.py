@@ -206,13 +206,12 @@ class A2bHeartbeatTests(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(status["summary"]["total_slots"], 3)  # 工站 1/2/3
+        self.assertEqual(status["summary"]["total_slots"], 2)  # 工站 1/2
         by_station = {s["station"]: s for s in status["slots"]}
         self.assertEqual(by_station["1"]["presence"], "never")
         self.assertEqual(by_station["2"]["presence"], "online")
         self.assertEqual(by_station["2"]["client_status"], "已暂停")
         self.assertTrue(by_station["2"]["paused"])
-        self.assertEqual(by_station["3"]["presence"], "never")
         self.assertEqual(status["summary"]["unregistered"], 0)
 
 
