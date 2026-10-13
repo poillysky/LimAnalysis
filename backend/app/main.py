@@ -1,12 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.deps import AuthError, auth_error_response
 from app.api.router import api_router
 from app.core import db as stores
+from app.core.a2b_heartbeat import STALE_SECONDS, upsert_heartbeat
 from app.core.config import settings
 from app.core.log_setup import setup_logging
 from app.core.meta_init import init_meta_store
@@ -28,6 +31,29 @@ async def lifespan(_app: FastAPI):
     except Exception:
         logger.exception("缺陷库表初始化失败（ensure_defect_tables），相关功能可能不可用")
     yield
+
+
+async def _parse_heartbeat_body(request: Request) -> dict:
+    """兼容 JSON / 表单 / query。"""
+    data: dict = {}
+    if request.query_params:
+        data.update({k: v for k, v in request.query_params.items()})
+    content_type = (request.headers.get("content-type") or "").lower()
+    if request.method == "POST":
+        try:
+            if "application/json" in content_type or not content_type:
+                body = await request.json()
+                if isinstance(body, dict):
+                    data.update(body)
+            elif (
+                "application/x-www-form-urlencoded" in content_type
+                or "multipart/form-data" in content_type
+            ):
+                form = await request.form()
+                data.update({k: str(v) for k, v in form.items()})
+        except Exception:
+            pass
+    return data
 
 
 def create_app() -> FastAPI:
@@ -58,6 +84,48 @@ def create_app() -> FastAPI:
                 "error": str(exc)[:300],
             }
         return {"success": True, "data": data, "message": ""}
+
+    async def receive_a2b_heartbeat(request: Request):
+        """A2BCopyTray 无鉴权心跳接收（兼容 /api/heartbeat 与 /api/client/heartbeat）。"""
+        data = await _parse_heartbeat_body(request)
+        try:
+            row = upsert_heartbeat(data)
+        except Exception as exc:
+            logger.exception("A2B 心跳写入失败")
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": str(exc)[:300],
+                },
+                status_code=500,
+            )
+        if row is None:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": "缺少 clientId / deviceAlias / machine",
+                    "hint": "请 POST JSON，字段含 clientId 或 machine",
+                },
+                status_code=400,
+            )
+        return {
+            "success": True,
+            "client_id": row["client_id"],
+            "machine_name": row["machine"],
+            "received_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timeout_seconds": STALE_SECONDS,
+        }
+
+    app.add_api_route(
+        "/api/heartbeat",
+        receive_a2b_heartbeat,
+        methods=["GET", "POST"],
+    )
+    app.add_api_route(
+        "/api/client/heartbeat",
+        receive_a2b_heartbeat,
+        methods=["GET", "POST"],
+    )
 
     return app
 

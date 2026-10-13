@@ -45,6 +45,19 @@ def save_system_defaults(value: dict) -> dict:
         db.close()
 
 
+def _normalize_appearance_machines(raw) -> list[str]:
+    """外观机自由列表（不走注塑线号目录）。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in raw or []:
+        code = str(item).strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append(code[:80])
+    return out
+
+
 def _to_dict(row: MetaProject, defaults: dict) -> dict:
     item = {**defaults}
     item.update(row.config or {})
@@ -57,6 +70,9 @@ def _to_dict(row: MetaProject, defaults: dict) -> dict:
             "btype": row.btype,
             "prefix": row.prefix,
             "machines": list((row.config or {}).get("machines") or []),
+            "appearance_machines": _normalize_appearance_machines(
+                (row.config or {}).get("appearance_machines")
+            ),
             "owners": _normalize_owners((row.config or {}).get("owners")),
             "column_map": normalize_column_map(
                 (row.config or {}).get("column_map")
@@ -172,6 +188,14 @@ def _merge_project_config(data: dict, existing: dict | None = None) -> dict:
         config["machines"] = _normalize_machines(data["machines"])
     else:
         config["machines"] = _normalize_machines(config.get("machines") or [])
+    if "appearance_machines" in data and data["appearance_machines"] is not None:
+        config["appearance_machines"] = _normalize_appearance_machines(
+            data["appearance_machines"]
+        )
+    else:
+        config["appearance_machines"] = _normalize_appearance_machines(
+            config.get("appearance_machines") or []
+        )
     if "owners" in data and data["owners"] is not None:
         config["owners"] = _normalize_owners(data["owners"])
     else:

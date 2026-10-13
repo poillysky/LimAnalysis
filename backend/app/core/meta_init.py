@@ -1,5 +1,6 @@
 from app.core.db import MetaSession, meta_engine
 from app.core.meta_models import (  # noqa: F401
+    MetaA2bClientHeartbeat,
     MetaAggLog,
     MetaAggModel,
     MetaAggModelField,

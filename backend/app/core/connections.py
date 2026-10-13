@@ -218,6 +218,78 @@ def public_dbweb() -> dict:
     }
 
 
+# NAS compose 对外端口 → Adminer 容器内 Docker DNS（Adminer 与三库同网）
+_ADMINER_PORT_TO_DOCKER = {
+    15432: "postgres-raw",
+    15433: "postgres-dwh",
+    15434: "postgres-defect",
+}
+_ADMINER_TARGET_TO_DOCKER = {
+    "raw": "postgres-raw",
+    "dwh": "postgres-dwh",
+    "defect": "postgres-defect",
+}
+
+
+def adminer_server_for(parts: dict, target: str) -> str:
+    """Adminer 表单里的「服务器」字段（从其容器视角可达）。
+
+    - 已是 postgres-*：原样（默认 5432 不写端口）
+    - 本机回环 + 15432/3/4：映射为同 compose 的服务名（Adminer 里 127.0.0.1 指自己）
+    - 其它：host 或 host:port
+    """
+    host = str(parts.get("host") or "").strip() or "127.0.0.1"
+    try:
+        port = int(parts.get("port") or 5432)
+    except (TypeError, ValueError):
+        port = 5432
+    key = str(target or "").strip().lower()
+    if host.startswith("postgres-"):
+        return host if port in (0, 5432) else f"{host}:{port}"
+    if host.lower() in ("127.0.0.1", "localhost", "::1"):
+        name = _ADMINER_PORT_TO_DOCKER.get(port) or _ADMINER_TARGET_TO_DOCKER.get(key)
+        if name:
+            return name
+    if port in (0, 5432):
+        return host
+    return f"{host}:{port}"
+
+
+def adminer_login_payload(target: str) -> dict:
+    """供前端 POST 自动登录 Adminer：按当前页签选库。
+
+    返回字段与 Adminer 登录表单 auth[*] 对齐；含口令，仅鉴权用户可取。
+    """
+    key = str(target or "").strip().lower()
+    dbweb = load_dbweb()
+    base = str(dbweb.get("url") or DEFAULT_DBWEB["url"]).rstrip("/")
+    if key == "meta":
+        sqlite_path = str(dbweb.get("sqlite_path") or DEFAULT_DBWEB["sqlite_path"])
+        return {
+            "target": "meta",
+            "label": "元数据 SQLite",
+            "adminer_url": base,
+            "driver": "sqlite",
+            "server": "",
+            "username": "",
+            "password": "",
+            "db": sqlite_path,
+        }
+    if key not in TARGETS:
+        raise ValueError("未知数据源，请选 meta / raw / dwh / defect")
+    parts = load_connections()[key]
+    return {
+        "target": key,
+        "label": LABELS[key],
+        "adminer_url": base,
+        "driver": "pgsql",
+        "server": adminer_server_for(parts, key),
+        "username": str(parts.get("username") or ""),
+        "password": str(parts.get("password") or ""),
+        "db": str(parts.get("database") or ""),
+    }
+
+
 def ping_dbweb(url: str | None = None) -> dict:
     target = str(url or load_dbweb()["url"] or "").strip().rstrip("/")
     if not target:

@@ -6,7 +6,6 @@ import {
   deleteProject,
   listProjects,
   updateProject,
-  type ColumnMapItem,
   type MachineGroup,
   type ProjectItem,
   type ProjectOwners,
@@ -98,33 +97,9 @@ const form = reactive({
   display_name: "",
   enabled: true,
   machines: [] as string[],
-  owners: emptyOwners(),
-  column_map: [] as ColumnMapItem[]
+  appearance_machines: [] as string[],
+  owners: emptyOwners()
 });
-
-function cloneColumnMap(raw?: ColumnMapItem[] | null): ColumnMapItem[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map(item => ({
-      source: String(item?.source || "").trim(),
-      target: String(item?.target || "").trim()
-    }))
-    .filter(item => item.source || item.target);
-}
-
-function columnMapSummary(row: ProjectItem) {
-  const items = cloneColumnMap(row.column_map);
-  if (!items.length) return "";
-  return items.map(item => `${item.source}→${item.target}`).join("  ");
-}
-
-function addColumnMapRow() {
-  form.column_map.push({ source: "", target: "" });
-}
-
-function removeColumnMapRow(index: number) {
-  form.column_map.splice(index, 1);
-}
 
 function ownerSummary(row: ProjectItem) {
   const count = collectOwnerIds(row.owners).length;
@@ -204,6 +179,39 @@ function toggleGroup(group: MachineGroup) {
   form.machines = [...next];
 }
 
+/** 外观机预设：与注塑机同款按钮，编号 1–10 */
+const APPEARANCE_PRESETS = Array.from({ length: 10 }, (_, i) => String(i + 1));
+
+function isAppearanceOn(code: string) {
+  return form.appearance_machines.includes(code);
+}
+
+function toggleAppearance(code: string) {
+  const next = new Set(form.appearance_machines);
+  if (next.has(code)) next.delete(code);
+  else next.add(code);
+  form.appearance_machines = APPEARANCE_PRESETS.filter(item => next.has(item));
+}
+
+function isAppearanceAllChecked() {
+  return APPEARANCE_PRESETS.every(item => form.appearance_machines.includes(item));
+}
+
+function isAppearancePartial() {
+  const count = APPEARANCE_PRESETS.filter(item =>
+    form.appearance_machines.includes(item)
+  ).length;
+  return count > 0 && count < APPEARANCE_PRESETS.length;
+}
+
+function toggleAppearanceAll() {
+  if (isAppearanceAllChecked()) {
+    form.appearance_machines = [];
+  } else {
+    form.appearance_machines = [...APPEARANCE_PRESETS];
+  }
+}
+
 const dialogTitle = computed(() =>
   editingId.value ? "编辑项目" : "新增项目"
 );
@@ -251,8 +259,8 @@ function resetForm() {
   form.display_name = "";
   form.enabled = true;
   form.machines = [];
+  form.appearance_machines = [];
   form.owners = emptyOwners();
-  form.column_map = [];
 }
 
 function openCreate() {
@@ -266,8 +274,8 @@ function openEdit(row: ProjectItem) {
   form.display_name = row.display_name;
   form.enabled = row.enabled;
   form.machines = [...(row.machines || [])];
+  form.appearance_machines = [...(row.appearance_machines || [])];
   form.owners = cloneOwners(row.owners);
-  form.column_map = cloneColumnMap(row.column_map);
   dialogVisible.value = true;
 }
 
@@ -276,15 +284,14 @@ async function submit() {
     ElMessage.warning("请填写名称");
     return;
   }
-  const column_map = cloneColumnMap(form.column_map).filter(
-    item => item.source && item.target && item.source !== item.target
-  );
   const payload = {
     display_name: form.display_name.trim(),
     enabled: form.enabled,
     machines: [...form.machines],
-    owners: cloneOwners(form.owners),
-    column_map
+    appearance_machines: form.appearance_machines
+      .map(item => item.trim())
+      .filter(Boolean),
+    owners: cloneOwners(form.owners)
   };
   try {
     if (editingId.value) {
@@ -350,10 +357,18 @@ onMounted(load);
         <el-table-column prop="display_name" label="名称" width="120" />
         <el-table-column prop="project_id" label="项目ID" width="140" />
         <el-table-column prop="prefix" label="前缀" width="130" />
-        <el-table-column label="机台" min-width="280">
+        <el-table-column label="注塑机" min-width="240">
           <template #default="{ row }">
             <span v-if="(row.machines || []).length" class="machine-list">
               {{ (row.machines || []).join("  ") }}
+            </span>
+            <span v-else class="cell-muted">未配置</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="外观机" min-width="160">
+          <template #default="{ row }">
+            <span v-if="(row.appearance_machines || []).length" class="machine-list">
+              {{ (row.appearance_machines || []).join("  ") }}
             </span>
             <span v-else class="cell-muted">未配置</span>
           </template>
@@ -369,14 +384,6 @@ onMounted(load);
               {{ ownerSummary(row) }}
             </button>
             <span v-else class="cell-muted">未配置</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="列映射" min-width="160">
-          <template #default="{ row }">
-            <span v-if="columnMapSummary(row)" class="machine-list">
-              {{ columnMapSummary(row) }}
-            </span>
-            <span v-else class="cell-muted">无</span>
           </template>
         </el-table-column>
         <el-table-column label="启用" width="80">
@@ -401,42 +408,7 @@ onMounted(load);
         <el-form-item label="名称" required>
           <el-input v-model="form.display_name" placeholder="例如 Eelspkr" />
         </el-form-item>
-        <el-form-item label="列映射">
-          <div class="column-map-board">
-            <div
-              v-for="(item, index) in form.column_map"
-              :key="index"
-              class="column-map-row"
-            >
-              <el-input
-                v-model="item.source"
-                placeholder="CSV 原列名"
-                size="small"
-              />
-              <span class="column-map-arrow">→</span>
-              <el-input
-                v-model="item.target"
-                placeholder="入库列名"
-                size="small"
-              />
-              <el-button
-                type="danger"
-                link
-                size="small"
-                @click="removeColumnMapRow(index)"
-              >
-                删除
-              </el-button>
-            </div>
-            <div class="column-map-actions">
-              <el-button size="small" @click="addColumnMapRow">添加映射</el-button>
-              <span class="machine-hint">
-                例：BCoverSN → FCoverSN，采集/上传时改名入库
-              </span>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="机台">
+        <el-form-item label="注塑机">
           <div class="machine-board">
             <div
               v-for="group in machineGroups"
@@ -469,6 +441,38 @@ onMounted(load);
             </div>
             <div class="machine-hint">
               已选 {{ form.machines.length }} 台 · 点线号全选
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="外观机">
+          <div class="machine-board">
+            <div class="machine-row">
+              <button
+                type="button"
+                class="machine-line"
+                :class="{
+                  'is-on': isAppearanceAllChecked(),
+                  'is-partial': isAppearancePartial()
+                }"
+                title="全选/取消 外观机"
+                @click="toggleAppearanceAll"
+              >
+                外
+              </button>
+              <button
+                v-for="item in APPEARANCE_PRESETS"
+                :key="item"
+                type="button"
+                class="machine-cell"
+                :class="{ 'is-on': isAppearanceOn(item) }"
+                :title="`外观机 ${item}`"
+                @click="toggleAppearance(item)"
+              >
+                {{ item }}
+              </button>
+            </div>
+            <div class="machine-hint">
+              已选 {{ form.appearance_machines.length }} 台 · 点「外」全选
             </div>
           </div>
         </el-form-item>
@@ -575,32 +579,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.column-map-board {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-}
-
-.column-map-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: center;
-}
-
-.column-map-arrow {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-.column-map-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
 .machine-board {
   display: flex;
   flex-direction: column;

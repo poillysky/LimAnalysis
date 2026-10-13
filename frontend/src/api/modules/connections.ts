@@ -48,8 +48,28 @@ export type ConnectionsResult = {
   };
 };
 
+export type AdminerLogin = {
+  target: string;
+  label: string;
+  adminer_url: string;
+  driver: string;
+  server: string;
+  username: string;
+  password: string;
+  db: string;
+};
+
 export const listConnections = () => {
   return http.request<ConnectionsResult>("get", `${API_PREFIX}/system/connections`);
+};
+
+/** 按页签取 Adminer 自动登录字段（后端带出口令，仅登录用户） */
+export const getAdminerLogin = (target: string) => {
+  return http.request<{ success: boolean; data: AdminerLogin }>(
+    "get",
+    `${API_PREFIX}/system/connections/adminer-login`,
+    { params: { target } }
+  );
 };
 
 export const saveConnections = (data: {

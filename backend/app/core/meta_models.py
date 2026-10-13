@@ -244,3 +244,28 @@ class MetaAggModelField(MetaBase):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     description: Mapped[str] = mapped_column(String(500), default="", nullable=False)
 
+
+class MetaA2bClientHeartbeat(MetaBase):
+    """A2BCopyTray 客户端心跳。主键 = deviceAlias（clientId）。"""
+
+    __tablename__ = "a2b_client_heartbeats"
+
+    client_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(20), default="", nullable=False)
+    mode_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    machine: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    project: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    station: Mapped[str] = mapped_column(String(20), default="", nullable=False)
+    client_status: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    ok_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    fail_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_sync: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    source: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    target: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    host_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    client_version: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    last_seen_at: Mapped[str] = mapped_column(String(40), default="", nullable=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+

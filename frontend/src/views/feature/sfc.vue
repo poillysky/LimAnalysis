@@ -12,6 +12,7 @@ import {
   uploadSfcCsv,
   waitForSfcJob,
   type SfcAccount,
+  type SfcColumnMapItem,
   type SfcConfig,
   type SfcProjectRow
 } from "@/api/modules/sfc";
@@ -86,8 +87,33 @@ const projectForm = reactive({
   sfc_code: "",
   btype: "0",
   prefix: "",
-  enabled: true
+  enabled: true,
+  column_map: [] as SfcColumnMapItem[]
 });
+
+function cloneColumnMap(raw?: SfcColumnMapItem[] | null): SfcColumnMapItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(item => ({
+      source: String(item?.source || "").trim(),
+      target: String(item?.target || "").trim()
+    }))
+    .filter(item => item.source || item.target);
+}
+
+function columnMapSummary(row: SfcProjectRow) {
+  const items = cloneColumnMap(row.column_map);
+  if (!items.length) return "";
+  return items.map(item => `${item.source}→${item.target}`).join("  ");
+}
+
+function addColumnMapRow() {
+  projectForm.column_map.push({ source: "", target: "" });
+}
+
+function removeColumnMapRow(index: number) {
+  projectForm.column_map.splice(index, 1);
+}
 
 function defaultSfcCode(displayName: string) {
   const name = (displayName || "").trim();
@@ -400,6 +426,7 @@ function openProjectEdit(row: SfcProjectRow) {
   projectForm.btype = row.btype || "0";
   projectForm.prefix = row.prefix || "";
   projectForm.enabled = row.enabled;
+  projectForm.column_map = cloneColumnMap(row.column_map);
   projectDialogVisible.value = true;
 }
 
@@ -421,13 +448,17 @@ async function submitProject() {
   }
   projectSaving.value = true;
   try {
+    const column_map = cloneColumnMap(projectForm.column_map).filter(
+      item => item.source && item.target && item.source !== item.target
+    );
     await updateProject(projectForm.project_id, {
       sfc_code:
         projectForm.sfc_code.trim() ||
         defaultSfcCode(projectForm.display_name),
       btype: projectForm.btype.trim() || "0",
       prefix: projectForm.prefix.trim(),
-      enabled: projectForm.enabled
+      enabled: projectForm.enabled,
+      column_map
     });
     ElMessage.success("已保存");
     projectDialogVisible.value = false;
@@ -705,6 +736,14 @@ onUnmounted(() => {
             <el-table-column label="前缀" min-width="120" align="left">
               <template #default="{ row }">
                 <code class="code-chip">{{ dash(row.prefix) }}</code>
+              </template>
+            </el-table-column>
+            <el-table-column label="列映射" min-width="140" align="left">
+              <template #default="{ row }">
+                <span v-if="columnMapSummary(row)" class="map-summary">
+                  {{ columnMapSummary(row) }}
+                </span>
+                <span v-else class="cell-muted">无</span>
               </template>
             </el-table-column>
             <el-table-column label="启用" width="80" align="center">
@@ -1274,7 +1313,7 @@ onUnmounted(() => {
     <el-dialog
       v-model="projectDialogVisible"
       :title="`编辑项目 · ${projectForm.display_name || projectForm.project_id}`"
-      width="420px"
+      width="520px"
     >
       <el-form label-width="90px">
         <el-form-item label="sfc_code">
@@ -1288,6 +1327,41 @@ onUnmounted(() => {
         </el-form-item>
         <el-form-item label="前缀" required>
           <el-input v-model="projectForm.prefix" />
+        </el-form-item>
+        <el-form-item label="列映射">
+          <div class="column-map-board">
+            <div
+              v-for="(item, index) in projectForm.column_map"
+              :key="index"
+              class="column-map-row"
+            >
+              <el-input
+                v-model="item.source"
+                placeholder="CSV 原列名"
+                size="small"
+              />
+              <span class="column-map-arrow">→</span>
+              <el-input
+                v-model="item.target"
+                placeholder="入库列名"
+                size="small"
+              />
+              <el-button
+                type="danger"
+                link
+                size="small"
+                @click="removeColumnMapRow(index)"
+              >
+                删除
+              </el-button>
+            </div>
+            <div class="column-map-actions">
+              <el-button size="small" @click="addColumnMapRow">添加映射</el-button>
+              <span class="column-map-hint">
+                例：BCoverSN → FCoverSN，采集/上传时改名入库
+              </span>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="projectForm.enabled" />

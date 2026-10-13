@@ -51,6 +51,7 @@ def overview():
                 ),
                 "btype": resolve_btype(cfg.get("btype")),
                 "prefix": cfg.get("prefix"),
+                "column_map": list(cfg.get("column_map") or []),
                 "last_crawl_time": (cfg.get("last_crawl_time") or ""),
                 "last_crawl_status": (cfg.get("last_crawl_status") or ""),
                 "last_crawl_rows": cfg.get("last_crawl_rows") or 0,

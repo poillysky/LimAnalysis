@@ -7,6 +7,7 @@
 from fastapi import APIRouter
 
 from app.modules.system.routes import (
+    a2b_heartbeat,
     config,
     connections,
     db_browser,
@@ -22,3 +23,4 @@ router.include_router(config.router)
 router.include_router(db_browser.router)
 router.include_router(projects.router)
 router.include_router(people.router)
+router.include_router(a2b_heartbeat.router)

@@ -5,10 +5,12 @@
 """
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 
-from app.api.deps import require_admin
+from app.api.deps import require_admin, require_user
 from app.core import db as stores
 from app.core.connections import (
+    adminer_login_payload,
     ping_dbweb,
     ping_metabase,
     ping_parts,
@@ -20,7 +22,7 @@ from app.core.connections import (
     save_metabase,
 )
 from app.core.metabase_embed import board_for_project
-from app.core.response import ok
+from app.core.response import fail, ok
 from app.modules.system.schemas import (
     ConnectionsUpdate,
     ConnectionTest,
@@ -95,6 +97,18 @@ def connections_test(
         draft["password"] = load_connections()[target]["password"]
     result = ping_parts(draft)
     return ok({"target": target, "label": stored[target]["label"], **result})
+
+
+@router.get("/connections/adminer-login")
+def connections_adminer_login(
+    target: str = "raw",
+    _user: dict = Depends(require_user),
+):
+    """按数据浏览页签返回 Adminer 自动登录表单字段（含口令）。"""
+    try:
+        return ok(adminer_login_payload(target))
+    except ValueError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
 
 
 @router.post("/connections/dbweb/test")

@@ -48,6 +48,15 @@ export default {
       }
     },
     {
+      path: "/feature/a2b-heartbeat",
+      name: "FeatureA2bHeartbeat",
+      component: () => import("@/views/feature/a2b-heartbeat.vue"),
+      meta: {
+        title: "A2B 心跳",
+        icon: "ri/pulse-line"
+      }
+    },
+    {
       path: "/feature/connections",
       name: "FeatureConnections",
       component: () => import("@/views/feature/connections.vue"),

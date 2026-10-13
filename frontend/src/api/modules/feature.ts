@@ -34,6 +34,8 @@ export type ProjectItem = {
   btype?: string;
   prefix?: string;
   machines?: string[];
+  /** 外观机自由列表，如 GV-0701 */
+  appearance_machines?: string[];
   owners?: ProjectOwners;
   column_map?: ColumnMapItem[];
 };
@@ -52,7 +54,11 @@ export const listProjects = () => {
 };
 
 export const createProject = (
-  data: Partial<ProjectItem> & { display_name: string; machines?: string[] }
+  data: Partial<ProjectItem> & {
+    display_name: string;
+    machines?: string[];
+    appearance_machines?: string[];
+  }
 ) => {
   return http.request("post", `${API_PREFIX}/system/projects`, { data });
 };

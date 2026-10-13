@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { listConnections } from "@/api/modules/connections";
+import {
+  getAdminerLogin,
+  listConnections
+} from "@/api/modules/connections";
 import {
   clearDbTable,
   downloadDbTable,
@@ -421,12 +424,65 @@ function switchTarget(key: string) {
   loadTables();
 }
 
-function openAdminer() {
-  const base =
+const adminerOpening = ref(false);
+
+const adminerButtonLabel = computed(() => {
+  const tab = TARGETS.find(item => item.key === active.value);
+  return tab ? `打开 Adminer（${tab.label}）` : "打开 Adminer";
+});
+
+/** 按当前页签 POST 登录 Adminer（选原始库→原始，选 ETL→ETL） */
+async function openAdminer() {
+  const fallback =
     adminerUrl.value ||
     String(import.meta.env.VITE_DBWEB_URL || "").replace(/\/$/, "") ||
     `${window.location.protocol}//${window.location.hostname}:18080`;
-  window.open(base, "_blank", "noopener");
+  adminerOpening.value = true;
+  try {
+    const res = await getAdminerLogin(active.value);
+    const auth = res?.data;
+    if (!auth?.adminer_url) {
+      window.open(fallback, "_blank", "noopener");
+      return;
+    }
+    // 不能 noopener：需要写表单再 submit；口令只进新窗口 document，不进地址栏
+    const win = window.open("about:blank", "_blank");
+    if (!win) {
+      ElMessage.warning("浏览器拦截了弹窗，请允许后重试");
+      return;
+    }
+    const doc = win.document;
+    doc.open();
+    doc.write(
+      `<!doctype html><title>正在登录 Adminer…</title><p style="font:14px sans-serif;padding:24px">正在打开 ${auth.label}…</p>`
+    );
+    doc.close();
+    const form = doc.createElement("form");
+    form.method = "POST";
+    form.action = `${String(auth.adminer_url).replace(/\/$/, "")}/`;
+    const fields: Record<string, string> = {
+      "auth[driver]": auth.driver || "pgsql",
+      "auth[server]": auth.server || "",
+      "auth[username]": auth.username || "",
+      "auth[password]": auth.password || "",
+      "auth[db]": auth.db || "",
+      "auth[permanent]": "1"
+    };
+    for (const [name, value] of Object.entries(fields)) {
+      const input = doc.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    }
+    doc.body.appendChild(form);
+    form.submit();
+  } catch (error) {
+    ElMessage.error(backendErrorHint(error));
+    window.open(fallback, "_blank", "noopener");
+  } finally {
+    adminerOpening.value = false;
+  }
 }
 
 async function onDownloadTable() {
@@ -548,14 +604,19 @@ onUnmounted(() => {
       <div>
         <h2>数据浏览</h2>
         <p>
-          直接读取项目已配置连接（元数据 SQLite / 原始库 / ETL 库 / 次品库），无需再登录
-          Adminer
+          页内直接读库；「打开 Adminer」按当前页签自动登录对应库（原始 / ETL / 次品 /
+          元数据）
         </p>
       </div>
       <div class="db-head__actions">
         <el-button :loading="loadingTables" @click="loadTables">刷新</el-button>
-        <el-button type="primary" plain @click="openAdminer">
-          打开 Adminer
+        <el-button
+          type="primary"
+          plain
+          :loading="adminerOpening"
+          @click="openAdminer"
+        >
+          {{ adminerButtonLabel }}
         </el-button>
       </div>
     </header>

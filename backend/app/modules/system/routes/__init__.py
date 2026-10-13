@@ -7,4 +7,5 @@
 - db_browser: 数据库浏览/清空/导出
 - projects: 项目与机台目录
 - people: 用户/人员/值班表/通知
+- a2b_heartbeat: A2B 客户端心跳监控
 """

@@ -31,6 +31,11 @@ export type SfcAccount = {
   last_error: string;
 };
 
+export type SfcColumnMapItem = {
+  source: string;
+  target: string;
+};
+
 export type SfcProjectRow = {
   project_id: string;
   display_name: string;
@@ -38,6 +43,8 @@ export type SfcProjectRow = {
   sfc_code: string;
   btype: string;
   prefix: string;
+  /** CSV 原列名 → 入库列名，采集/上传时生效 */
+  column_map?: SfcColumnMapItem[];
   last_crawl_time: string;
   last_crawl_status: string;
   last_crawl_rows: number;
