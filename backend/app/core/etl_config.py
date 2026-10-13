@@ -1,4 +1,7 @@
-"""ETL 自动清洗调度配置（meta_settings）。"""
+"""ETL 自动清洗调度配置（meta_settings）。
+
+与 pipeline_linkage 互斥：开启定时运行时会关闭联动。
+"""
 
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ def load_etl_config() -> dict:
         db.close()
 
 
-def save_etl_config(data: dict) -> dict:
+def save_etl_config(data: dict, *, peer_sync: bool = True) -> dict:
     current = load_etl_config()
     if "is_active" in data and data["is_active"] is not None:
         current["is_active"] = bool(data["is_active"])
@@ -46,12 +49,20 @@ def save_etl_config(data: dict) -> dict:
         else:
             row.value = dict(current)
         db.commit()
-        return load_etl_config()
+        result = load_etl_config()
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
+
+    # 定时运行与联动互斥：开启定时时关闭联动
+    if peer_sync and result.get("is_active"):
+        from app.core.linkage_config import load_linkage_config, save_linkage_config
+
+        if load_linkage_config().get("enabled"):
+            save_linkage_config({"enabled": False}, peer_sync=False)
+    return result
 
 
 def patch_etl_config(data: dict) -> dict:

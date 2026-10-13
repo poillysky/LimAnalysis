@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from app.core.ads_query import (
+    DEFAULT_LIM_HOURS,
     list_query_catalog,
     query_body_cavity,
     query_machine_cavity,
@@ -75,7 +76,7 @@ def query_series_api(
 @router.get("/query/machine-cavity")
 def query_machine_cavity_api(
     project_id: str,
-    hours: int = 3,
+    hours: int = DEFAULT_LIM_HOURS,
     metric: str = "appearance",
     exclude_machine_cavities: str = "",
     exclude_body_cavities: str = "",
@@ -99,7 +100,7 @@ def query_machine_cavity_api(
 @router.get("/query/body-cavity")
 def query_body_cavity_api(
     project_id: str,
-    hours: int = 3,
+    hours: int = DEFAULT_LIM_HOURS,
     metric: str = "appearance",
     exclude_machine_cavities: str = "",
     exclude_body_cavities: str = "",
@@ -121,7 +122,7 @@ def query_body_cavity_api(
 
 
 @router.get("/query/yield-alerts")
-def yield_alerts_api(project_id: str | None = None, hours: int = 3):
+def yield_alerts_api(project_id: str | None = None, hours: int = DEFAULT_LIM_HOURS):
     try:
         return ok(list_yield_alerts(project_id, hours=hours))
     except ValueError as exc:

@@ -7,6 +7,10 @@ import {
   type YieldAlertRow,
   type YieldNotice
 } from "@/api/modules/defect";
+import {
+  DEFAULT_LIM_HOURS,
+  DEFAULT_LIM_HOURS_LABEL
+} from "@/utils/pivotTable";
 import type { ListItem, TabItem } from "./data";
 import NoticeList from "./components/NoticeList.vue";
 import BellIcon from "~icons/ep/bell";
@@ -34,7 +38,7 @@ function emptyTabs(): TabItem[] {
       key: "system",
       name: "系统通知",
       list: [],
-      emptyText: "近 3 小时没有待通知人员"
+      emptyText: `${DEFAULT_LIM_HOURS_LABEL}没有待通知人员`
     },
     {
       key: "manual",
@@ -59,7 +63,7 @@ function rateText(value: number | null | undefined) {
 
 function windowLabel(fromHour: string, toHour: string) {
   if (fromHour && toHour && fromHour !== toHour) return `${fromHour} ~ ${toHour}`;
-  return fromHour || toHour || "近 3 小时";
+  return fromHour || toHour || DEFAULT_LIM_HOURS_LABEL;
 }
 
 function machineNames(item: YieldNotice) {
@@ -157,7 +161,7 @@ async function loadNotices() {
   const signal = loadAbort.signal;
   try {
     const [yieldRes, manualRes] = await Promise.allSettled([
-      getYieldAlerts({ hours: 3 }, signal),
+      getYieldAlerts({ hours: DEFAULT_LIM_HOURS }, signal),
       listManualNotices(signal)
     ]);
     const yieldData =
@@ -183,7 +187,7 @@ async function loadNotices() {
         key: "system",
         name: "系统通知",
         list: [...people, ...unassigned],
-        emptyText: "近 3 小时没有待通知人员"
+        emptyText: `${DEFAULT_LIM_HOURS_LABEL}没有待通知人员`
       },
       {
         key: "manual",

@@ -59,7 +59,7 @@ function storeOk(key: keyof NonNullable<RuntimeStatus["stores"]>) {
   return !!runtime.value?.stores?.[key]?.ok;
 }
 
-function workerLabel(role: "collector" | "agg") {
+function workerLabel(role: "collector" | "agg" | "cleanup") {
   const w = runtime.value?.workers?.[role];
   if (!w) return "未知";
   if (w.alive) return w.last_seen ? `在线 · ${w.last_seen.slice(11)}` : "在线";
@@ -100,6 +100,7 @@ const lamps = computed<RuntimeLamp[]>(() => {
 
   const collectorAlive = !!runtime.value?.workers?.collector?.alive;
   const aggAlive = !!runtime.value?.workers?.agg?.alive;
+  const cleanupAlive = !!runtime.value?.workers?.cleanup?.alive;
 
   return [
     {
@@ -124,6 +125,13 @@ const lamps = computed<RuntimeLamp[]>(() => {
       detail: workerLabel("agg")
     },
     {
+      key: "cleanupWorker",
+      label: "清理",
+      tone: cleanupAlive ? "ok" : "bad",
+      short: cleanupAlive ? "在线" : "离线",
+      detail: workerLabel("cleanup")
+    },
+    {
       key: "sfc",
       label: "SFC",
       tone: schedTone("sfc"),
@@ -143,6 +151,13 @@ const lamps = computed<RuntimeLamp[]>(() => {
       tone: schedTone("agg"),
       short: shortSched("agg"),
       detail: schedLabel("agg")
+    },
+    {
+      key: "disk_cleanup",
+      label: "清理调度",
+      tone: schedTone("disk_cleanup"),
+      short: shortSched("disk_cleanup"),
+      detail: schedLabel("disk_cleanup")
     }
   ];
 });

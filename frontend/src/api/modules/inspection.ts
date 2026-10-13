@@ -34,6 +34,8 @@ export type InspectionImage = {
   date_str: string;
   rel_path: string;
   view_url: string;
+  /** 文件名解析出的二维码 / SN */
+  sn?: string;
   status?: string;
   camera?: string;
 };

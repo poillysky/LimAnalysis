@@ -6,9 +6,10 @@ LimAnalysis 重任务 Worker（独立进程）。
   python -m collector.worker
 
 职责：
-  - 定时调度：只投递 sfc_crawl / disk_cleanup 到 meta_jobs
-  - 串行消费：sfc_crawl / sfc_upload / sfc_sync_schema / etl_clean / disk_cleanup
-  - 数据聚合 etl_agg 由独立进程 python -m processor.agg_worker 消费
+  - 定时调度：只投递 sfc_crawl / etl_clean 到 meta_jobs
+  - 串行消费：sfc_crawl / sfc_upload / sfc_sync_schema / etl_clean
+  - 数据聚合 etl_agg 由 python -m processor.agg_worker 消费
+  - 磁盘清理 disk_cleanup 由 python -m collector.cleanup_worker 消费
 主 API 进程不应再跑采集、大批量入库或清洗。
 """
 
@@ -29,7 +30,6 @@ logger = logging.getLogger("collector.worker")
 def _handle(job: dict) -> None:
     from collector.jobs import (
         JOB_CRAWL,
-        JOB_DISK_CLEANUP,
         JOB_ETL_CLEAN,
         JOB_SYNC_SCHEMA,
         JOB_UPLOAD,
@@ -48,84 +48,6 @@ def _handle(job: dict) -> None:
     job_type = job["job_type"]
     payload = job.get("payload") or {}
     try:
-        if job_type == JOB_DISK_CLEANUP:
-            import time
-            from datetime import datetime
-
-            from app.core.disk_cleanup import patch_disk_cleanup_config, run_cleanup
-            from app.core.disk_cleanup_logs import (
-                create_disk_cleanup_log,
-                finish_disk_cleanup_log,
-            )
-
-            trigger = str(payload.get("trigger") or "manual")
-            log_id = create_disk_cleanup_log(
-                trigger=trigger,
-                job_id=job_id,
-                message="清理进行中",
-            )
-            t0 = time.time()
-            try:
-                result = run_cleanup()
-            except Exception as exc:
-                msg = str(exc)[:500]
-                patch_disk_cleanup_config(
-                    {
-                        "last_run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "last_run_status": "failed",
-                        "last_run_message": msg,
-                    }
-                )
-                finish_disk_cleanup_log(
-                    log_id,
-                    status="failed",
-                    message=msg,
-                    duration=round(time.time() - t0, 3),
-                    detail={"error": msg},
-                )
-                raise
-            ok = bool(result.get("ok", True))
-            msg = str(result.get("message") or "disk cleanup done")[:500]
-            detail = {
-                k: result.get(k)
-                for k in (
-                    "deleted_rows",
-                    "deleted_files",
-                    "db_retention_days",
-                    "image_retention_days",
-                    "meta_prune",
-                    "errors",
-                    "raw_ok",
-                    "dwh_ok",
-                    "defect_ok",
-                    "images_mold_files",
-                    "images_appearance_files",
-                )
-                if k in result
-            }
-            finish_disk_cleanup_log(
-                log_id,
-                status="success" if ok else "failed",
-                message=msg,
-                deleted_rows=int(result.get("deleted_rows") or 0),
-                deleted_files=int(result.get("deleted_files") or 0),
-                duration=round(time.time() - t0, 3),
-                detail=detail,
-            )
-            finish_job(
-                job_id,
-                status=STATUS_SUCCESS if ok else STATUS_FAILED,
-                message=msg,
-                result=result,
-            )
-            logger.info(
-                "job #%s disk_cleanup ok=%s rows=%s files=%s",
-                job_id,
-                ok,
-                result.get("deleted_rows"),
-                result.get("deleted_files"),
-            )
-            return
         if job_type == JOB_ETL_CLEAN:
             from processor.etl_logs import create_etl_log, finish_etl_log, log_line
 
@@ -406,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--only",
-        choices=("crawl", "upload", "schema", "etl", "cleanup"),
+        choices=("crawl", "upload", "schema", "etl"),
         action="append",
         help="limit job types (repeatable); default all",
     )
@@ -417,7 +339,6 @@ def main(argv: list[str] | None = None) -> int:
         "upload": "sfc_upload",
         "schema": "sfc_sync_schema",
         "etl": "etl_clean",
-        "cleanup": "disk_cleanup",
     }
     only = tuple(type_map[x] for x in (args.only or [])) or None
     try:

@@ -37,6 +37,10 @@ export type PivotSource = {
   ng: number;
 };
 
+/** LIM 看板 / 首页 / 播报统一默认窗口（与模穴页默认一致） */
+export const DEFAULT_LIM_HOURS = 6;
+export const DEFAULT_LIM_HOURS_LABEL = "近 6 小时";
+
 /** 模穴字母横轴（跳过 I / O，与现场穴位命名一致） */
 export const CAVITY_LETTERS = [
   "A",

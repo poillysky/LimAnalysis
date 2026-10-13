@@ -18,6 +18,7 @@
 #   1) uvicorn app.main:app --port 8000          # 主 API
 #   2) python -m collector.worker                # 采集/清洗 Worker
 #   3) python -m processor.agg_worker            # 数据聚合 Worker
+#   4) python -m collector.cleanup_worker        # 磁盘清理 Worker
 # Worker 需与 API 共用同一 meta SQLite，并能访问 raw PG（15432）。
 
 # 内存：Metabase 最吃 RAM；三库各限 1G；NAS 内存紧可再下调

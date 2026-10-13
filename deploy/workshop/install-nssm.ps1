@@ -33,5 +33,6 @@ function Install-LimService([string]$Name, [string]$AppParameters) {
 Install-LimService "api" "-m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
 Install-LimService "collector" "-m collector.worker"
 Install-LimService "agg" "-m processor.agg_worker"
+Install-LimService "cleanup" "-m collector.cleanup_worker"
 
 Write-Host "完成。卸载示例: nssm remove LimAnalysis-api confirm"

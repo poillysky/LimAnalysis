@@ -23,14 +23,15 @@ STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelled"
 
-# 采集 Worker 消费的重任务类型
+# 采集 Worker 消费的重任务类型（不含磁盘清理，避免清理阻塞清洗）
 HEAVY_TYPES = (
     JOB_CRAWL,
     JOB_UPLOAD,
     JOB_SYNC_SCHEMA,
     JOB_ETL_CLEAN,
-    JOB_DISK_CLEANUP,
 )
 WORKER_TYPES = HEAVY_TYPES
 # 聚合 Worker 消费的类型
 AGG_WORKER_TYPES = (JOB_ETL_AGG,)
+# 磁盘清理 Worker 消费的类型
+CLEANUP_WORKER_TYPES = (JOB_DISK_CLEANUP,)

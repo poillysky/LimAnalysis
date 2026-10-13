@@ -70,6 +70,15 @@ class FilenameHelpersTest(unittest.TestCase):
     def test_extract_status_none(self) -> None:
         self.assertEqual(filenames.extract_status("plain.jpg"), "")
 
+    def test_extract_sn_mold_status_sn_cavity(self) -> None:
+        self.assertEqual(filenames.extract_sn("OK,sample03,A.jpg"), "sample03")
+
+    def test_extract_sn_mold_sn_cavity(self) -> None:
+        self.assertEqual(filenames.extract_sn("sample03,B.jpg"), "sample03")
+
+    def test_extract_sn_appearance_prefix_view(self) -> None:
+        self.assertEqual(filenames.extract_sn("截图SN001_camLeft.jpg"), "SN001")
+
 
 class FacadePassthroughTest(unittest.TestCase):
     """门面 re-export 必须与子模块行为一致（拆分不改变对外契约）。"""

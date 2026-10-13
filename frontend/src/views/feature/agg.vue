@@ -57,8 +57,42 @@ const scheduler = reactive<AggScheduler>({
   last_run_status: "",
   last_run_message: ""
 });
-/** 与清洗页共用：SFC 成功 → 清洗 → 聚合 */
+/** 与清洗页共用：SFC 成功 → 清洗 → 聚合（与定时运行互斥） */
 const linkageEnabled = ref(false);
+/** off=关闭 | interval=定时运行 | linkage=联动运行 */
+type ScheduleRunMode = "off" | "interval" | "linkage";
+const runMode = ref<ScheduleRunMode>("off");
+
+const runModeLabel = computed(() => {
+  if (runMode.value === "interval") return "定时运行";
+  if (runMode.value === "linkage") return "联动运行";
+  return "已关闭";
+});
+
+const runModeTagType = computed(() =>
+  runMode.value === "off" ? "info" : "success"
+);
+
+function syncRunModeFromState() {
+  if (linkageEnabled.value) runMode.value = "linkage";
+  else if (scheduler.is_active) runMode.value = "interval";
+  else runMode.value = "off";
+}
+
+function onRunModeChange(mode: ScheduleRunMode | string | number | boolean) {
+  const next = (mode as ScheduleRunMode) || "off";
+  runMode.value = next;
+  if (next === "interval") {
+    scheduler.is_active = true;
+    linkageEnabled.value = false;
+  } else if (next === "linkage") {
+    scheduler.is_active = false;
+    linkageEnabled.value = true;
+  } else {
+    scheduler.is_active = false;
+    linkageEnabled.value = false;
+  }
+}
 
 const editorOpen = ref(false);
 const editorLoading = ref(false);
@@ -288,6 +322,10 @@ async function load(silent = false) {
     rows.value = res.data?.projects || [];
     assignScheduler(res.data?.scheduler);
     if (linkage?.data) linkageEnabled.value = Boolean(linkage.data.enabled);
+    if (linkageEnabled.value && scheduler.is_active) {
+      linkageEnabled.value = false;
+    }
+    syncRunModeFromState();
     const job = res.data?.active_job;
     activeJobId.value =
       job && (job.status === "queued" || job.status === "running")
@@ -366,23 +404,58 @@ function onTabChange(name: string | number) {
 async function onSaveScheduler() {
   schedulerSaving.value = true;
   try {
-    const [res, linkage] = await Promise.all([
-      saveAggScheduler({
-        is_active: scheduler.is_active,
+    const mode = runMode.value;
+    const wasLinkage = linkageEnabled.value;
+    onRunModeChange(mode);
+    if (mode === "interval") {
+      await savePipelineLinkage({ enabled: false });
+      const res = await saveAggScheduler({
+        is_active: true,
         run_interval: scheduler.run_interval
-      }),
-      savePipelineLinkage({ enabled: linkageEnabled.value })
-    ]);
-    assignScheduler(res.data);
-    if (linkage?.data) linkageEnabled.value = Boolean(linkage.data.enabled);
-    const parts: string[] = [];
-    parts.push(
-      scheduler.is_active
-        ? `自动聚合每 ${scheduler.run_interval} 分钟`
-        : "自动聚合已关闭"
+      });
+      assignScheduler(res.data);
+      linkageEnabled.value = false;
+    } else if (mode === "linkage") {
+      await saveAggScheduler({
+        is_active: false,
+        run_interval: scheduler.run_interval
+      });
+      const linkage = await savePipelineLinkage({ enabled: true });
+      assignScheduler({
+        is_active: false,
+        run_interval: scheduler.run_interval,
+        last_run_time: scheduler.last_run_time,
+        last_run_status: scheduler.last_run_status,
+        last_run_message: scheduler.last_run_message
+      });
+      if (linkage?.data) linkageEnabled.value = Boolean(linkage.data.enabled);
+    } else {
+      await saveAggScheduler({
+        is_active: false,
+        run_interval: scheduler.run_interval
+      });
+      if (wasLinkage) {
+        await savePipelineLinkage({ enabled: false });
+      }
+      assignScheduler({
+        is_active: false,
+        run_interval: scheduler.run_interval,
+        last_run_time: scheduler.last_run_time,
+        last_run_status: scheduler.last_run_status,
+        last_run_message: scheduler.last_run_message
+      });
+      linkageEnabled.value = false;
+    }
+    syncRunModeFromState();
+    ElMessage.success(
+      mode === "interval"
+        ? `定时聚合：每 ${scheduler.run_interval} 分钟（已关闭共用联动）`
+        : mode === "linkage"
+          ? "联动已开启（清洗与聚合共用；两侧定时已关）"
+          : wasLinkage
+            ? "已关闭（共用联动已关，清洗页同步生效）"
+            : "聚合定时已关闭"
     );
-    parts.push(linkageEnabled.value ? "联动模式已开启" : "联动模式已关闭");
-    ElMessage.success(parts.join("；"));
   } catch (error) {
     ElMessage.error(backendErrorHint(error));
   } finally {
@@ -864,11 +937,13 @@ onUnmounted(stopRunTimers);
           <strong>{{ enabledCount }}</strong>
         </div>
         <div class="etl-stat">
-          <span class="etl-stat__label">自动节奏</span>
+          <span class="etl-stat__label">运行模式</span>
           <strong>{{
-            scheduler.is_active
-              ? `每 ${scheduler.run_interval} 分钟`
-              : "已关闭"
+            runMode === "interval"
+              ? `定时每 ${scheduler.run_interval} 分钟`
+              : runMode === "linkage"
+                ? "联动运行"
+                : "已关闭"
           }}</strong>
         </div>
       </section>
@@ -876,22 +951,25 @@ onUnmounted(stopRunTimers);
       <section class="etl-panel etl-schedule">
         <div class="etl-schedule__head">
           <div>
-            <h3>自动聚合</h3>
+            <h3>自动运行</h3>
           </div>
-          <el-tag
-            size="small"
-            :type="scheduler.is_active ? 'success' : 'info'"
-            effect="light"
-          >
-            {{ scheduler.is_active ? "已开启" : "已关闭" }}
+          <el-tag size="small" :type="runModeTagType" effect="light">
+            {{ runModeLabel }}
           </el-tag>
         </div>
         <div class="etl-schedule__form">
-          <div class="etl-schedule__item">
-            <span>启用自动聚合</span>
-            <el-switch v-model="scheduler.is_active" />
+          <div class="etl-schedule__item etl-schedule__modes">
+            <span>运行模式</span>
+            <el-radio-group
+              :model-value="runMode"
+              @change="onRunModeChange"
+            >
+              <el-radio-button value="off">关闭</el-radio-button>
+              <el-radio-button value="interval">定时运行</el-radio-button>
+              <el-radio-button value="linkage">联动运行</el-radio-button>
+            </el-radio-group>
           </div>
-          <div class="etl-schedule__item">
+          <div v-if="runMode === 'interval'" class="etl-schedule__item">
             <span>间隔（分钟）</span>
             <el-input-number
               v-model="scheduler.run_interval"
@@ -899,10 +977,6 @@ onUnmounted(stopRunTimers);
               :max="1440"
               :step="5"
             />
-          </div>
-          <div class="etl-schedule__item">
-            <span>联动模式</span>
-            <el-switch v-model="linkageEnabled" />
           </div>
           <el-button
             type="primary"
@@ -914,7 +988,15 @@ onUnmounted(stopRunTimers);
           </el-button>
         </div>
         <p class="etl-schedule__hint muted">
-          联动：SFC 上传完成后约 1 分钟自动清洗；清洗完成后约 1 分钟自动聚合（与间隔调度互不替代）
+          <template v-if="runMode === 'interval'">
+            按间隔定时聚合。与联动互斥；开启定时会关闭清洗/聚合共用的联动开关。
+          </template>
+          <template v-else-if="runMode === 'linkage'">
+            SFC → 清洗 → 聚合链式触发（与清洗页共用同一开关）；开启后两侧定时都会关闭。
+          </template>
+          <template v-else>
+            关闭本页定时。若当前是联动，保存后会关掉共用联动（清洗页一并失效）。
+          </template>
         </p>
         <div
           v-if="scheduler.last_run_time || scheduler.last_run_message"
@@ -1062,9 +1144,11 @@ onUnmounted(stopRunTimers);
                   running || activeJobId ? "聚合中" : "空闲"
                 }}</strong>
                 <span class="etl-stat__hint">{{
-                  scheduler.is_active
+                  runMode === "interval"
                     ? `定时每 ${scheduler.run_interval} 分钟`
-                    : "定时关闭"
+                    : runMode === "linkage"
+                      ? "联动运行"
+                      : "自动运行已关闭"
                 }}</span>
               </div>
               <div class="etl-stat">
@@ -1112,7 +1196,7 @@ onUnmounted(stopRunTimers);
             <div v-if="!logs.length" class="etl-logs-empty">
               <div class="etl-logs-empty__title">还没有运行记录</div>
               <div class="etl-logs-empty__desc">
-                发起一轮聚合，或开启自动聚合后，这里会列出每次结果
+                发起一轮聚合，或开启定时/联动运行后，这里会列出每次结果
               </div>
               <div class="etl-logs-empty__actions">
                 <el-button

@@ -30,7 +30,7 @@ docker compose -f docker-compose.nas.yml up -d
 
 Adminer：`http://<NAS>:18080`（可嵌前端「数据浏览」；SQLite 路径 `/data/meta/lim_meta.sqlite`）。
 
-Metabase（开源，不收费）：`http://<NAS>:13000`。首次打开设管理员。添加数据库时 Host 填 `postgres-dwh`、端口 `5432`、库名 `lim_dwh`、用户/密码 `lim` / `lim`。图表请用近 3 小时视图 `v_eagle_rcvr_ads_3h`（宽表；ADS 表本身已是 timestamptz/numeric）。
+Metabase（开源，不收费）：`http://<NAS>:13000`。首次打开设管理员。添加数据库时 Host 填 `postgres-dwh`、端口 `5432`、库名 `lim_dwh`、用户/密码 `lim` / `lim`。图表请用近 6 小时视图 `v_eagle_rcvr_ads_6h`（与模穴交叉表默认窗口一致；宽表；ADS 表本身已是 timestamptz/numeric）。
 
 ```bash
 cd backend
@@ -54,10 +54,14 @@ python -m collector.worker
 # 终端 3：数据聚合（DWD→ADS，可按间隔自动跑）
 cd backend
 python -m processor.agg_worker
+
+# 终端 4：磁盘清理（独立进程，不阻塞采集/清洗）
+cd backend
+python -m collector.cleanup_worker
 ```
 
 Worker 可选：`python -m collector.worker --only crawl`（或 `upload` / `schema` / `etl`）。  
-数据清洗（raw→dwh）由采集 Worker 消费 `etl_clean`；数据聚合由独立进程消费 `etl_agg`。
+数据清洗（raw→dwh）由采集 Worker 消费 `etl_clean`；聚合 / 磁盘清理各由独立进程消费。
 
 ```bash
 cd frontend

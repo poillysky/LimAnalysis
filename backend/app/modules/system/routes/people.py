@@ -1,6 +1,6 @@
 """system 子路由：人员类主数据。
 
-含用户（管理员专属）、人员、值班表、手工通知。
+含用户（列表任意登录可读，增删改需管理员）、人员、值班表、手工通知。
 拆自原 system/router.py。
 """
 
@@ -55,7 +55,8 @@ def _user_error(exc: Exception, not_found: bool = False):
 
 
 @router.get("/users")
-def users_list(_admin: dict = Depends(require_admin)):
+def users_list():
+    """任意登录用户可查看；增删改仍需管理员。"""
     return ok({"users": list_users()})
 
 
@@ -69,7 +70,7 @@ def users_add(body: UserCreate, _admin: dict = Depends(require_admin)):
 
 
 @router.get("/users/{username}")
-def users_read(username: str, _admin: dict = Depends(require_admin)):
+def users_read(username: str):
     item = get_user(username)
     if item is None:
         return JSONResponse(fail("用户不存在"), status_code=404)

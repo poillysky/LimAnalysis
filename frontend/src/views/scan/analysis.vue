@@ -121,9 +121,6 @@ function buildPivot(
     a.localeCompare(b, "zh-CN", { numeric: true })
   );
   const out: PivotRow[] = [];
-  const grandAxis = new Map<string, { qty: number; ng: number }>();
-  let grandQty = 0;
-  let grandNg = 0;
   for (const entity of entities) {
     const cells = byEntity.get(entity)!;
     let totalQty = 0;
@@ -139,14 +136,8 @@ function buildPivot(
       if (qty <= 0) continue;
       totalQty += qty;
       totalNg += ng;
-      const g = grandAxis.get(axis) || { qty: 0, ng: 0 };
-      g.qty += qty;
-      g.ng += ng;
-      grandAxis.set(axis, g);
     }
     if (totalQty <= 0) continue;
-    grandQty += totalQty;
-    grandNg += totalNg;
     const qtyMap: Record<string, number> = {};
     for (const axis of axes) {
       qtyMap[axis] = Number(qtyCells[axis] || 0);
@@ -170,41 +161,6 @@ function buildPivot(
       totalQty,
       totalNg,
       totalRate: rateOf(totalQty, totalNg)
-    });
-  }
-  if (out.length) {
-    const qtyCells: Record<string, number | null> = {};
-    const rateCells: Record<string, number | null> = {};
-    const qtyMap: Record<string, number> = {};
-    for (const axis of axes) {
-      const cell = grandAxis.get(axis);
-      const qty = cell?.qty ?? 0;
-      const ng = cell?.ng ?? 0;
-      qtyCells[axis] = cell ? qty : null;
-      rateCells[axis] = cell ? rateOf(qty, ng) : null;
-      qtyMap[axis] = qty;
-    }
-    out.push({
-      entity: "汇总",
-      metric: "qty",
-      metricLabel: "产量",
-      cells: qtyCells,
-      qtys: qtyMap,
-      totalQty: grandQty,
-      totalNg: grandNg,
-      totalRate: rateOf(grandQty, grandNg),
-      isTotal: true
-    });
-    out.push({
-      entity: "汇总",
-      metric: "rate",
-      metricLabel: "不良率",
-      cells: rateCells,
-      qtys: qtyMap,
-      totalQty: grandQty,
-      totalNg: grandNg,
-      totalRate: rateOf(grandQty, grandNg),
-      isTotal: true
     });
   }
   return out;
@@ -654,7 +610,7 @@ onUnmounted(() => {
     <section class="cavity-panel">
       <div class="cavity-panel__head">
         <strong>本体 × 模穴交叉表</strong>
-        <span>纵：本体第 1 位（模具） · 横：本体第 2 位 1–8 → A–H · {{ bodyAlertHint }}</span>
+        <span>纵：本体第 1 位（模具 0–9/A–Z） · 横：本体第 2 位 1–8 → A–H · {{ bodyAlertHint }}</span>
       </div>
       <el-table
         class="cavity-table"

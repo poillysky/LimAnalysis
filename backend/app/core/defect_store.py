@@ -501,6 +501,16 @@ _BODY_LETTER_TO_DIGIT = {
     "H": "8",
 }
 
+# 本体第 1 位模具：数字 0–9 或字母 A–Z
+_BODY_MOLD_RE = r"^[0-9A-Z]$"
+
+
+def _normalize_body_mold(mold: str) -> str:
+    text = str(mold or "").strip().upper()
+    if len(text) == 1 and (text.isdigit() or text.isalpha()):
+        return text
+    return ""
+
 
 def _parse_pairs(values) -> list[tuple[str, str]]:
     raws: list[str] = []
@@ -555,21 +565,22 @@ def _exclude_machine_cavity_sql(layout: dict, pairs) -> tuple[str, dict]:
 
 
 def _exclude_body_cavity_sql(body_expr: str, pairs) -> tuple[str, dict]:
-    """从机台表去掉本体异常格：模具 × 穴位（1–8 / A–H）对应的原始行不进汇总。"""
+    """从机台表去掉本体异常格：模具（0–9/A–Z）× 穴位（1–8 / A–H）。"""
     items = _parse_pairs(pairs)
     if not items:
         return "", {}
-    mold_sql = f"SUBSTRING({body_expr} FROM 1 FOR 1)"
+    mold_sql = f"UPPER(SUBSTRING({body_expr} FROM 1 FOR 1))"
     digit_sql = f"SUBSTRING({body_expr} FROM 2 FOR 1)"
     clauses: list[str] = []
     params: dict = {}
     for i, (mold, cavity) in enumerate(items):
+        mold_n = _normalize_body_mold(mold)
         digit = _BODY_LETTER_TO_DIGIT.get(cavity, cavity)
-        if not mold.isdigit() or digit not in "12345678":
+        if not mold_n or digit not in "12345678":
             continue
         mkey, dkey = f"xbc_m_{i}", f"xbc_d_{i}"
         clauses.append(f"({mold_sql} = :{mkey} AND {digit_sql} = :{dkey})")
-        params[mkey] = mold
+        params[mkey] = mold_n
         params[dkey] = digit
     if not clauses:
         return "", {}
@@ -675,11 +686,11 @@ def query_analysis(
         if catalog:
             allowed = set(catalog)
             machines = [row for row in machines if row["machine"] in allowed]
-    mold_sql = f"SUBSTRING({body_expr} FROM 1 FOR 1)"
+    mold_sql = f"UPPER(SUBSTRING({body_expr} FROM 1 FOR 1))"
     hole_sql = f"SUBSTRING({body_expr} FROM 2 FOR 1)"
     body_filter = (
         f"{time_filter} AND CHAR_LENGTH({body_expr}) >= 2 "
-        f"AND {mold_sql} ~ '^[0-9]$' AND {hole_sql} ~ '^[1-8]$'"
+        f"AND {mold_sql} ~ '{_BODY_MOLD_RE}' AND {hole_sql} ~ '^[1-8]$'"
         f"{machine_excl}"
     )
     body_params = dict(base_params)

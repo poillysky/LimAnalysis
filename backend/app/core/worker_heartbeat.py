@@ -12,7 +12,7 @@ from app.core.meta_models import MetaSetting
 
 WORKER_HEARTBEAT_KEY = "worker_heartbeat"
 STALE_SECONDS = 45
-_ROLES = ("collector", "agg")
+_ROLES = ("collector", "agg", "cleanup")
 _TIME_FMT = "%Y-%m-%d %H:%M:%S"
 
 # 进程内节流，避免每秒写 SQLite
@@ -65,7 +65,7 @@ def _parse_at(raw: str) -> datetime | None:
 
 
 def worker_heartbeat_status(*, stale_seconds: int = STALE_SECONDS) -> dict:
-    """返回 collector / agg 的存活摘要。"""
+    """返回 collector / agg / cleanup 的存活摘要。"""
     init_meta_store()
     db = MetaSession()
     try:

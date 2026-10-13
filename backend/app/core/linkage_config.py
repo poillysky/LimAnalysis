@@ -1,4 +1,7 @@
-"""SFC → 清洗 → 聚合 联动配置（meta_settings）。"""
+"""SFC → 清洗 → 聚合 联动配置（meta_settings）。
+
+与 ETL/AGG 定时调度互斥：开启联动时关闭两侧定时。
+"""
 
 from __future__ import annotations
 
@@ -31,7 +34,7 @@ def load_linkage_config() -> dict:
         db.close()
 
 
-def save_linkage_config(data: dict) -> dict:
+def save_linkage_config(data: dict, *, peer_sync: bool = True) -> dict:
     current = load_linkage_config()
     if "enabled" in data and data["enabled"] is not None:
         current["enabled"] = bool(data["enabled"])
@@ -46,9 +49,20 @@ def save_linkage_config(data: dict) -> dict:
         else:
             row.value = dict(current)
         db.commit()
-        return load_linkage_config()
+        result = load_linkage_config()
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
+
+    # 联动与定时互斥：开启联动时关闭清洗/聚合定时
+    if peer_sync and result.get("enabled"):
+        from app.core.agg_config import load_agg_config, save_agg_config
+        from app.core.etl_config import load_etl_config, save_etl_config
+
+        if load_etl_config().get("is_active"):
+            save_etl_config({"is_active": False}, peer_sync=False)
+        if load_agg_config().get("is_active"):
+            save_agg_config({"is_active": False}, peer_sync=False)
+    return result

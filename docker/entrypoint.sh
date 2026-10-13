@@ -17,6 +17,9 @@ case "$role" in
   agg)
     exec python -m processor.agg_worker
     ;;
+  cleanup)
+    exec python -m collector.cleanup_worker
+    ;;
   *)
     exec "$@"
     ;;

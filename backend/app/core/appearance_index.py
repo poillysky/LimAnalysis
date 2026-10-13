@@ -252,12 +252,10 @@ def ensure_appearance_index_schema() -> None:
 
 
 def extract_sn_from_filename(filename: str) -> str:
-    stem = Path(filename).stem
-    if stem.startswith("截图"):
-        stem = stem[2:]
-    if "_" in stem:
-        return stem.rsplit("_", 1)[0].strip()
-    return stem.strip()
+    """与 inspection_parts.filenames.extract_sn 同源：注塑 OK,SN,A / 外观 截图SN_视角。"""
+    from app.core.inspection_parts.filenames import extract_sn
+
+    return extract_sn(filename)
 
 
 def _needs_reindex(row: AppearanceDirIndex | None, dir_mtime: float, file_count: int) -> bool:

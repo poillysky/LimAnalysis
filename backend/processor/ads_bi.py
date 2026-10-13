@@ -1,16 +1,22 @@
-"""ADS 给 Metabase：列类型/索引正确，只维护一个近 3 小时宽表视图。"""
+"""ADS 给 Metabase：列类型/索引正确，只维护一个与 LIM 交叉表默认窗口一致的宽表视图。"""
 
 from __future__ import annotations
 
 from sqlalchemy import inspect, text
 
 from app.core import db as stores
+from app.core.ads_query import DEFAULT_LIM_HOURS
 from app.core.sql_ident import ident, q
 
 
 def ads_prefix(target_table: str) -> str:
     name = ident(target_table)
     return name[:-4] if name.endswith("_ads") else name
+
+
+def ads_window_view_name(prefix: str, hours: int = DEFAULT_LIM_HOURS) -> str:
+    """BI 切片视图名，如 v_eagle_rcvr_ads_6h。"""
+    return f"v_{prefix}_ads_{int(hours)}h"
 
 
 def ads_pg_type(
@@ -61,9 +67,10 @@ def _udt_name(table: str, column: str) -> str:
 
 
 def _drop_bi_views(prefix: str) -> None:
-    """清掉旧补丁视图与当前 3h 视图（再重建）。"""
+    """清掉旧补丁视图、旧 3h 视图与当前窗口视图（再重建）。"""
     names = (
-        f"v_{prefix}_ads_3h",
+        ads_window_view_name(prefix, DEFAULT_LIM_HOURS),
+        f"v_{prefix}_ads_3h",  # 旧近 3 小时切片，已弃用
         f"v_{prefix}_defect_long_3h",
         f"v_{prefix}_defect_long",
         f"v_{prefix}_ads_typed",
@@ -116,7 +123,10 @@ def ensure_ads_time_index(target_table: str, time_field_name: str = "hour") -> N
 
 
 def refresh_bi_views(target_table: str, time_field_name: str = "hour") -> dict:
-    """只建数据最新 3 小时宽表切片（给 Metabase）。"""
+    """只建与 LIM 交叉表默认窗口一致的宽表切片（给 Metabase）。
+
+    口径与 query_machine_cavity 相同：相对 max(hour) 含锚点共 DEFAULT_LIM_HOURS 个整点桶。
+    """
     table = ident(target_table)
     prefix = ads_prefix(table)
     tf = ident(time_field_name)
@@ -124,10 +134,13 @@ def refresh_bi_views(target_table: str, time_field_name: str = "hour") -> dict:
     if not cols:
         return {"ok": False, "reason": "ads_missing"}
 
-    ads_3h = ident(f"v_{prefix}_ads_3h")
-    window = f"(SELECT max({q(tf)}) - interval '2 hours' FROM {q(table)})"
+    hours = int(DEFAULT_LIM_HOURS)
+    # 含最新小时：近 N 小时 = max(hour) - (N-1) hours
+    lag = max(0, hours - 1)
+    ads_view = ident(ads_window_view_name(prefix, hours))
+    window = f"(SELECT max({q(tf)}) - interval '{lag} hours' FROM {q(table)})"
     sql = (
-        f"CREATE OR REPLACE VIEW {q(ads_3h)} AS\n"
+        f"CREATE OR REPLACE VIEW {q(ads_view)} AS\n"
         f"SELECT * FROM {q(table)}\n"
         f"WHERE {q(tf)} IS NOT NULL AND {q(tf)} >= {window}"
     )
@@ -137,7 +150,8 @@ def refresh_bi_views(target_table: str, time_field_name: str = "hour") -> dict:
     return {
         "ok": True,
         "table": table,
-        "ads_3h": ads_3h,
+        "hours": hours,
+        "ads_view": ads_view,
     }
 
 

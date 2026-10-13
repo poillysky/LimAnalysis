@@ -267,7 +267,6 @@ onMounted(load);
             <span>{{ card.item?.ok ? card.item.label : "不可用" }}</span>
           </header>
           <p v-if="card.item?.error" class="disk-err">{{ card.item.error }}</p>
-          <p v-else class="disk-muted">PostgreSQL 库体积</p>
         </article>
       </div>
       <div class="disk-path-row">
@@ -277,38 +276,38 @@ onMounted(load);
             <span>{{ card.item?.dir_label || "—" }}</span>
           </header>
           <p class="disk-line">
-            本卷已用 {{ card.item?.used_label || "—" }} /
-            {{ card.item?.total_label || "—" }}
-            <template v-if="card.item?.used_pct != null">
-              · {{ card.item.used_pct }}%
-            </template>
-            <span class="disk-muted">（整盘，不是下面目录）</span>
-          </p>
-          <p class="disk-line">
-            目录占用 {{ card.item?.dir_label || "—" }}
             <template v-if="card.item?.dir_files != null">
-              · {{ card.item.dir_files.toLocaleString() }} 文件
+              {{ card.item.dir_files.toLocaleString() }} 文件
             </template>
-            <span v-if="card.item?.dir_bytes_truncated" class="disk-err">
-              （文件数超过 20 万，计数可能不完整）
+            <template v-else>—</template>
+            <template v-if="card.item?.used_pct != null">
+              · 卷 {{ card.item.used_pct }}%
+            </template>
+            <span
+              v-if="card.item?.dir_bytes_truncated"
+              class="disk-err"
+              title="文件数超过 20 万，计数可能不完整"
+            >
+              · 计数不全
             </span>
-            <span class="disk-muted">（磁盘占用，含子目录）</span>
           </p>
           <template v-if="card.key === 'images' && card.item?.details?.length">
             <p
               v-for="(d, i) in card.item.details"
               :key="i"
               class="disk-path"
+              :title="d.path || ''"
             >
-              {{ d.label }} {{ d.path || "未配置" }}
-              ·
+              {{ d.label }}
               {{ d.exists ? fmtDetailSize(d.dir_bytes) : d.error || "不可用" }}
               <template v-if="d.exists && d.dir_files != null">
-                · {{ Number(d.dir_files).toLocaleString() }} 文件
+                · {{ Number(d.dir_files).toLocaleString() }}
               </template>
             </p>
           </template>
-          <p v-else class="disk-path">{{ card.item?.path || "未配置" }}</p>
+          <p v-else class="disk-path" :title="card.item?.path || ''">
+            {{ card.item?.path || "未配置" }}
+          </p>
           <p v-if="card.item?.error" class="disk-err">{{ card.item.error }}</p>
         </article>
       </div>
@@ -357,7 +356,7 @@ onMounted(load);
       <aside class="disk-aside">
         <h3>说明</h3>
         <ul>
-          <li>清理由 collector.worker 串行执行，API 只入队，不堵页面。</li>
+          <li>清理由独立进程 collector.cleanup_worker 执行，不阻塞采集/清洗。</li>
           <li>Postgres 按时间列分批删除（默认保留 90 天）。</li>
           <li>图片目录读取「图片目录」配置的注塑 / 外观根路径。</li>
           <li>CSV 上传入库成功后立即删除本地文件；失败则保留。</li>
@@ -368,24 +367,16 @@ onMounted(load);
       </el-tab-pane>
 
       <el-tab-pane label="清理日志" name="logs">
-        <section class="disk-panel disk-logs-panel" v-loading="logsLoading">
+        <section class="disk-logs-panel" v-loading="logsLoading">
           <header class="disk-logs-head">
-            <div>
+            <div class="disk-logs-head__text">
               <h3>清理日志</h3>
-              <p>
-                最近
-                {{
-                  latestLog
-                    ? `${dash(latestLog.ended_at || latestLog.started_at)} · ${statusLabel(latestLog.status)}`
-                    : lastRun.time
-                      ? `${dash(lastRun.time)} · ${statusLabel(lastRun.status)}`
-                      : "尚无记录"
-                }}
-              </p>
+              <p>查看每次清理结果，或立即入队执行一轮</p>
             </div>
             <div class="disk-logs-actions">
-              <span class="disk-count">{{ logs.length }} 条记录</span>
-              <el-button :loading="running" @click="onRun">立即清理</el-button>
+              <el-button type="primary" :loading="running" @click="onRun">
+                立即清理
+              </el-button>
               <el-button :loading="logsLoading" @click="loadLogs()">
                 刷新
               </el-button>
@@ -395,10 +386,72 @@ onMounted(load);
             </div>
           </header>
 
+          <div class="disk-logs-stats">
+            <div class="disk-stat" :class="running ? 'is-busy' : 'is-idle'">
+              <span class="disk-stat__label">当前状态</span>
+              <strong>{{ running ? "清理中" : "空闲" }}</strong>
+              <span class="disk-stat__hint">
+                {{
+                  form.enabled
+                    ? `每日 ${form.run_hour}:00 定时`
+                    : "定时已关闭"
+                }}
+              </span>
+            </div>
+            <div class="disk-stat">
+              <span class="disk-stat__label">最近结果</span>
+              <strong class="disk-stat__tag">
+                <el-tag
+                  v-if="latestLog || lastRun.status"
+                  size="small"
+                  :type="
+                    statusType(
+                      latestLog?.status || lastRun.status || ''
+                    )
+                  "
+                  effect="light"
+                  round
+                >
+                  {{
+                    statusLabel(
+                      latestLog?.status || lastRun.status || ''
+                    )
+                  }}
+                </el-tag>
+                <span v-else class="disk-muted">尚未运行</span>
+              </strong>
+              <span class="disk-stat__hint">
+                {{
+                  dash(
+                    latestLog?.ended_at ||
+                      latestLog?.started_at ||
+                      lastRun.time
+                  )
+                }}
+              </span>
+            </div>
+            <div class="disk-stat">
+              <span class="disk-stat__label">记录条数</span>
+              <strong>{{ logs.length }}</strong>
+              <span class="disk-stat__hint">最近最多 50 条</span>
+            </div>
+          </div>
+
           <div v-if="!logs.length" class="disk-logs-empty">
+            <div class="disk-logs-empty__mark" aria-hidden="true">
+              <span /><span /><span />
+            </div>
             <div class="disk-logs-empty__title">还没有清理记录</div>
             <div class="disk-logs-empty__desc">
               点「立即清理」或等每日定时跑完后，这里会列出每次结果
+            </div>
+            <div class="disk-logs-empty__actions">
+              <el-button type="primary" :loading="running" @click="onRun">
+                立即清理
+              </el-button>
+              <el-button :loading="logsLoading" @click="loadLogs()">
+                刷新
+              </el-button>
             </div>
           </div>
 
@@ -494,80 +547,6 @@ onMounted(load);
   margin-top: 4px;
 }
 
-.disk-logs-panel {
-  display: block;
-}
-
-.disk-logs-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.disk-logs-head h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.disk-logs-head p {
-  margin: 6px 0 0;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-.disk-logs-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.disk-count {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  margin-right: 4px;
-  font-variant-numeric: tabular-nums;
-  line-height: 32px;
-}
-
-.disk-logs-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 48px 16px;
-  text-align: center;
-}
-
-.disk-logs-empty__title {
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.disk-logs-empty__desc {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-.disk-logs-table {
-  width: 100%;
-}
-
-.disk-num {
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-}
-
-.disk-log-detail {
-  padding: 8px 12px;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--el-text-color-regular);
-}
-
 .disk-head {
   display: flex;
   align-items: center;
@@ -629,7 +608,7 @@ onMounted(load);
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .disk-cap-card header strong {
@@ -638,23 +617,26 @@ onMounted(load);
 }
 
 .disk-cap-card header span {
-  font-size: 13px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .disk-line {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 12px;
   color: var(--el-text-color-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .disk-path {
-  margin: 2px 0 0;
+  margin: 4px 0 0;
   font-size: 12px;
-  word-break: break-all;
-  color: var(--el-text-color-regular);
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .disk-muted {
@@ -703,9 +685,199 @@ onMounted(load);
   line-height: 1.7;
 }
 
+/* 日志区：独立单栏，勿复用配置页的「表单 + 侧栏」两列 grid */
+.disk-logs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+}
+
+.disk-logs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.disk-logs-head__text {
+  min-width: 0;
+}
+
+.disk-logs-head h3 {
+  margin: 0;
+  font-size: var(--la-text-md, 15px);
+  font-weight: 650;
+}
+
+.disk-logs-head p {
+  margin: 2px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: var(--la-page-desc, 13px);
+}
+
+.disk-logs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.disk-logs-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.disk-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: color-mix(
+    in srgb,
+    var(--el-fill-color-light) 55%,
+    var(--el-bg-color)
+  );
+}
+
+.disk-stat.is-busy {
+  border-color: color-mix(
+    in srgb,
+    var(--el-color-warning) 35%,
+    var(--el-border-color-lighter)
+  );
+}
+
+.disk-stat__label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.disk-stat strong {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.disk-stat__tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+}
+
+.disk-stat__hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.disk-logs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 44px 20px 40px;
+  text-align: center;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 12px;
+  background: linear-gradient(
+    180deg,
+    var(--el-fill-color-lighter) 0%,
+    var(--el-bg-color) 100%
+  );
+}
+
+.disk-logs-empty__mark {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 52px;
+  margin-bottom: 6px;
+  opacity: 0.55;
+}
+
+.disk-logs-empty__mark span {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--el-text-color-placeholder);
+}
+
+.disk-logs-empty__mark span:nth-child(1) {
+  width: 100%;
+}
+
+.disk-logs-empty__mark span:nth-child(2) {
+  width: 72%;
+}
+
+.disk-logs-empty__mark span:nth-child(3) {
+  width: 88%;
+}
+
+.disk-logs-empty__title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--el-text-color-primary);
+}
+
+.disk-logs-empty__desc {
+  max-width: 36em;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--el-text-color-secondary);
+}
+
+.disk-logs-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.disk-logs-table {
+  width: 100%;
+  --el-table-border-color: var(--el-border-color-lighter);
+}
+
+.disk-logs-table :deep(.el-table__expanded-cell) {
+  background: var(--el-fill-color-lighter);
+}
+
+.disk-num {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.disk-log-detail {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--el-text-color-regular);
+}
+
 @media (max-width: 1100px) {
   .disk-db-row,
-  .disk-path-row {
+  .disk-path-row,
+  .disk-logs-stats {
     grid-template-columns: 1fr;
   }
 }
@@ -713,6 +885,15 @@ onMounted(load);
 @media (max-width: 960px) {
   .disk-panel {
     grid-template-columns: 1fr;
+  }
+
+  .disk-logs-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .disk-logs-actions {
+    justify-content: flex-start;
   }
 }
 </style>

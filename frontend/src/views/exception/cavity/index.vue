@@ -28,6 +28,8 @@ import {
   BODY_CAVITY_LETTERS,
   BODY_DIGIT_TO_LETTER,
   CAVITY_LETTERS,
+  DEFAULT_LIM_HOURS,
+  DEFAULT_LIM_HOURS_LABEL,
   PIVOT_HEADER_CELL_STYLE as headerCellStyle,
   bodyCavityLetter,
   cavityLetter,
@@ -72,18 +74,19 @@ const projectTabs = computed(() =>
   }))
 );
 const ready = ref(false);
-const hours = ref(6);
+const hours = ref(DEFAULT_LIM_HOURS);
 const metric = ref("appearance");
 const metrics = ref<QueryMetric[]>([]);
 const WINDOW_OPTIONS = [
   { value: 1, label: "近 1 小时" },
-  { value: 6, label: "近 6 小时" },
+  { value: DEFAULT_LIM_HOURS, label: DEFAULT_LIM_HOURS_LABEL },
   { value: 24, label: "近 1 天" },
   { value: 72, label: "近 3 天" }
 ];
 const windowName = computed(
   () =>
-    WINDOW_OPTIONS.find(item => item.value === hours.value)?.label || "近 6 小时"
+    WINDOW_OPTIONS.find(item => item.value === hours.value)?.label ||
+    DEFAULT_LIM_HOURS_LABEL
 );
 const metricName = computed(() => {
   const item = metrics.value.find(row => row.key === metric.value);
@@ -199,9 +202,6 @@ function buildPivot(
     a.localeCompare(b, "zh-CN", { numeric: true })
   );
   const out: PivotRow[] = [];
-  const grandAxis = new Map<string, { qty: number; ng: number }>();
-  let grandQty = 0;
-  let grandNg = 0;
 
   for (const entity of entities) {
     const cells = byEntity.get(entity)!;
@@ -219,15 +219,9 @@ function buildPivot(
       if (qty <= 0) continue;
       totalQty += qty;
       totalNg += ng;
-      const g = grandAxis.get(axis) || { qty: 0, ng: 0 };
-      g.qty += qty;
-      g.ng += ng;
-      grandAxis.set(axis, g);
     }
     // 整行产量合计为 0：不显示该机台/模具
     if (totalQty <= 0) continue;
-    grandQty += totalQty;
-    grandNg += totalNg;
     const qtyMap: Record<string, number> = {};
     for (const axis of axes) {
       qtyMap[axis] = Number(qtyCells[axis] || 0);
@@ -254,41 +248,6 @@ function buildPivot(
     });
   }
 
-  if (out.length) {
-    const qtyCells: Record<string, number | null> = {};
-    const rateCells: Record<string, number | null> = {};
-    const qtyMap: Record<string, number> = {};
-    for (const axis of axes) {
-      const cell = grandAxis.get(axis);
-      const qty = cell?.qty ?? 0;
-      const ng = cell?.ng ?? 0;
-      qtyCells[axis] = cell ? qty : null;
-      rateCells[axis] = cell ? rateOf(qty, ng) : null;
-      qtyMap[axis] = qty;
-    }
-    out.push({
-      entity: "汇总",
-      metric: "qty",
-      metricLabel: "产量",
-      cells: qtyCells,
-      qtys: qtyMap,
-      totalQty: grandQty,
-      totalNg: grandNg,
-      totalRate: rateOf(grandQty, grandNg),
-      isTotal: true
-    });
-    out.push({
-      entity: "汇总",
-      metric: "rate",
-      metricLabel: "不良率",
-      cells: rateCells,
-      qtys: qtyMap,
-      totalQty: grandQty,
-      totalNg: grandNg,
-      totalRate: rateOf(grandQty, grandNg),
-      isTotal: true
-    });
-  }
   return out;
 }
 

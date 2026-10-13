@@ -91,7 +91,10 @@ def build_runtime_status() -> dict:
     cleanup_job = _job_summary(JOB_DISK_CLEANUP)
 
     stores_ok = all(x["ok"] for x in (meta, raw, dwh, defect))
-    workers_ok = all(bool(workers.get(role, {}).get("alive")) for role in ("collector", "agg"))
+    workers_ok = all(
+        bool(workers.get(role, {}).get("alive"))
+        for role in ("collector", "agg", "cleanup")
+    )
     status = "ok" if stores_ok and workers_ok else "degraded"
 
     return {

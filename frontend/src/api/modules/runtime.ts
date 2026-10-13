@@ -56,6 +56,7 @@ export type RuntimeStatus = {
   workers: {
     collector: WorkerHeart;
     agg: WorkerHeart;
+    cleanup: WorkerHeart;
   };
   schedulers: {
     sfc: SchedulerStatus;

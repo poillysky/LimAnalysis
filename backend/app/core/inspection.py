@@ -19,6 +19,7 @@ from app.core.appearance_index import (
     drop_files_by_rel_paths,
     drop_view_dir_index,
     ensure_view_dir_indexed,
+    extract_sn_from_filename,
     get_appearance_index_status,
     is_appearance_index_building,
     prune_project_index,
@@ -261,15 +262,18 @@ def _to_client_image(item: dict, root: Path, source: str) -> dict | None:
     except (OSError, ValueError):
         return None
     ticket = issue_media_ticket(source, rel)
+    filename = str(item.get("filename") or "")
+    # 优先按文件名解析 SN（注塑 OK,SN,A → 只要中间字母串），避免把整段文件名当 sn
+    sn = extract_sn_from_filename(filename) or str(item.get("sn") or "").strip()
     return {
         "id": rel,
         "machine": item["machine"],
         "cavity": item["cavity"],
-        "filename": item["filename"],
+        "filename": filename,
         "date_str": item["date_str"],
         "rel_path": rel,
-        "status": extract_status(item.get("filename") or "")
-        or str(item.get("status") or "").strip(),
+        "sn": sn,
+        "status": extract_status(filename) or str(item.get("status") or "").strip(),
         "camera": str(item.get("camera") or item.get("cavity") or ""),
         "view_url": (
             f"{settings.api_prefix}/inspection/image"
@@ -531,20 +535,91 @@ def _filename_has_sn(filename: str, sns: set[str]) -> str:
     if stem.startswith("截图"):
         stem = stem[2:]
     if "_" in stem:
-        candidate = stem.rsplit("_", 1)[0]
+        candidate = stem.rsplit("_", 1)[0].strip()
         if candidate in sns:
             return candidate
+    # 先按分隔符切词做集合命中（OK,SN001,A.jpg），避免 O(文件×SN) 子串扫描
+    for part in re.split(r"[,_\-\s/\\]+", stem):
+        token = part.strip()
+        if token in sns:
+            return token
     lower_name = filename.lower()
-    for sn in sns:
-        if sn and sn.lower() in lower_name:
+    lower_map = {sn.lower(): sn for sn in sns if sn}
+    for sn_lower, sn in lower_map.items():
+        if sn_lower and sn_lower in lower_name:
             return sn
     return ""
+
+
+def _server_time_epoch(value) -> float | None:
+    if value is None:
+        return None
+    if hasattr(value, "timestamp"):
+        try:
+            return float(value.timestamp())
+        except (OSError, ValueError, OverflowError):
+            return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _attach_server_times(project: dict, raw_items: list[dict]) -> None:
+    """按文件名 SN 挂上 lim_raw.ServerTime，供时间轴排序。"""
+    if not raw_items:
+        return
+    sn_hints: set[str] = set()
+    for item in raw_items:
+        sn = str(item.get("sn") or "").strip()
+        if not sn:
+            sn = extract_sn_from_filename(str(item.get("filename") or ""))
+        if sn:
+            sn_hints.add(sn)
+    # 注塑机列表：用当日机台×穴位 SN 清单补齐，便于 OK,SN,A 切词命中
+    need_day_sns = any(not str(item.get("sn") or "").strip() for item in raw_items)
+    if need_day_sns:
+        machine = str((raw_items[0] or {}).get("machine") or "").strip()
+        cavity = str((raw_items[0] or {}).get("cavity") or "").strip().upper()
+        day = str((raw_items[0] or {}).get("date_str") or "").strip()
+        if machine and cavity in CAVITY_LETTERS:
+            try:
+                sn_hints.update(
+                    list_sns_for_machine_cavity(
+                        project, machine, cavity, date_str=day
+                    )
+                )
+            except ValueError:
+                pass
+    meta = lookup_raw_meta_by_sns(project, sn_hints) if sn_hints else {}
+    sn_set = set(meta.keys()) | sn_hints
+    for item in raw_items:
+        sn = str(item.get("sn") or "").strip()
+        if sn not in meta:
+            sn = _filename_has_sn(str(item.get("filename") or ""), sn_set)
+        if not sn or sn not in meta:
+            continue
+        item["sn"] = sn
+        item["server_time"] = meta[sn].get("server_time")
+
+
+def _sort_raw_images_by_server_time(raw_items: list[dict]) -> None:
+    """按 ServerTime 升序（早→晚）；无 ServerTime 的落到后面，再用 mtime。"""
+
+    def sort_key(item: dict):
+        epoch = _server_time_epoch(item.get("server_time"))
+        name = str(item.get("filename") or "").lower()
+        if epoch is not None:
+            return (0, epoch, name)
+        return (1, float(item.get("mtime") or 0), name)
+
+    raw_items.sort(key=sort_key)
 
 
 def lookup_raw_meta_by_sns(
     project: dict, sns: set[str] | list[str]
 ) -> dict[str, dict]:
-    """SN → {machine, cavity, date_str}；同 SN 多行取最新生产时间。"""
+    """SN → {machine, cavity, date_str, server_time}；同 SN 多行取最新生产时间。"""
     sn_list = sorted({str(s).strip() for s in sns if str(s).strip()})
     if not sn_list:
         return {}
@@ -570,6 +645,7 @@ def lookup_raw_meta_by_sns(
                 if time_col
                 else "''"
             )
+            stamp_expr = f"({time_sql})::timestamptz" if time_col else "NULL"
             order = (
                 f"({time_sql})::timestamp DESC NULLS LAST"
                 if time_col
@@ -579,7 +655,8 @@ def lookup_raw_meta_by_sns(
                 f"SELECT BTRIM(({sn_sql})::text) AS sn, "
                 f"BTRIM(({machine_sql})::text) AS machine, "
                 f"{letter_sql} AS letter, "
-                f"{day_expr} AS d "
+                f"{day_expr} AS d, "
+                f"{stamp_expr} AS st "
                 f"FROM {q(ident(layout['table']))} "
                 f"WHERE BTRIM(({sn_sql})::text) IN ({placeholders}) "
                 f"AND BTRIM(({sn_sql})::text) <> '' "
@@ -598,6 +675,7 @@ def lookup_raw_meta_by_sns(
                     "machine": machine,
                     "cavity": letter,
                     "date_str": day if len(day) == 8 else "",
+                    "server_time": row[4],
                 }
     return out
 
@@ -1062,7 +1140,8 @@ def list_appearance_images_by_mold(
             )
         if missing_rels:
             drop_files_by_rel_paths(project_key, missing_rels)
-    raw_items.sort(key=lambda item: (-item["mtime"], item["filename"].lower()))
+    _attach_server_times(project, raw_items)
+    _sort_raw_images_by_server_time(raw_items)
     images = []
     for item in raw_items:
         client = _to_client_image(item, root, "appearance")
@@ -1140,7 +1219,8 @@ def list_appearance_images(
                     "mtime": stat.st_mtime,
                 }
             )
-    raw_items.sort(key=lambda item: (-item["mtime"], item["filename"].lower()))
+    _attach_server_times(project, raw_items)
+    _sort_raw_images_by_server_time(raw_items)
     images = []
     for item in raw_items:
         client = _to_client_image(item, root, "appearance")
@@ -1230,6 +1310,7 @@ def search_appearance_images(
                     "date_str": meta["date_str"] or item["date_str"],
                     "path": item["path"],
                     "mtime": item["mtime"],
+                    "server_time": meta.get("server_time"),
                     "sn": sn,
                     "tester": item.get("tester") or "",
                 }
@@ -1240,6 +1321,7 @@ def search_appearance_images(
                 "无法按注塑机维度定位（请切到「外观机」维度扫码）"
             )
         raw_items = enriched
+    # 扫码多命中时优先最新一张；全日邻居列表由 list_* 按 ServerTime 升序
 
     images = []
     for item in raw_items[:limit]:
@@ -1442,7 +1524,8 @@ def list_viewer_images(
                     }
                 )
 
-    raw_items.sort(key=lambda item: (-item["mtime"], item["filename"].lower()))
+    _attach_server_times(project, raw_items)
+    _sort_raw_images_by_server_time(raw_items)
     images = []
     for item in raw_items:
         client = _to_client_image(item, root, kind)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createUser,
@@ -9,11 +9,16 @@ import {
   type UserItem
 } from "@/api/modules/users";
 import { backendErrorHint } from "@/api/http";
+import { useUserStoreHook } from "@/store/modules/user";
 import { switchValue } from "@/utils/switchValue";
 
 defineOptions({
   name: "FeatureUsers"
 });
+
+const userStore = useUserStoreHook();
+/** 普通用户可看列表、点开编辑；改参/新增/删除仅管理员 */
+const isAdmin = computed(() => userStore.roles.includes("admin"));
 
 const loading = ref(false);
 const rows = ref<UserItem[]>([]);
@@ -34,6 +39,10 @@ function errMessage(error: unknown, fallback: string) {
   return msg || fallback;
 }
 
+function denyWrite() {
+  ElMessage.warning("需要管理员权限才能修改");
+}
+
 async function load() {
   loading.value = true;
   backendHint.value = "";
@@ -49,6 +58,10 @@ async function load() {
 }
 
 function openCreate() {
+  if (!isAdmin.value) {
+    denyWrite();
+    return;
+  }
   editing.value = null;
   form.username = "";
   form.nickname = "";
@@ -69,6 +82,10 @@ function openEdit(row: UserItem) {
 }
 
 async function submit() {
+  if (!isAdmin.value) {
+    denyWrite();
+    return;
+  }
   if (!editing.value && !form.username.trim()) {
     ElMessage.warning("请填写账号");
     return;
@@ -109,6 +126,11 @@ async function submit() {
 }
 
 async function onEnabledChange(row: UserItem, value: boolean) {
+  if (!isAdmin.value) {
+    row.enabled = !value;
+    denyWrite();
+    return;
+  }
   try {
     await updateUser(row.username, { enabled: value });
   } catch (error) {
@@ -118,6 +140,10 @@ async function onEnabledChange(row: UserItem, value: boolean) {
 }
 
 async function onDelete(row: UserItem) {
+  if (!isAdmin.value) {
+    denyWrite();
+    return;
+  }
   try {
     await ElMessageBox.confirm(`删除用户 ${row.username}？`, "确认", {
       type: "warning"
@@ -146,11 +172,20 @@ onMounted(load);
       :closable="false"
       :title="backendHint"
     />
+    <el-alert
+      v-else-if="!isAdmin"
+      class="mb-4"
+      type="info"
+      :closable="false"
+      title="当前为普通用户：可查看用户信息，无法新增、修改或删除"
+    />
     <el-card shadow="never">
       <template #header>
         <div class="flex items-center justify-between">
           <span>用户管理</span>
-          <el-button type="primary" @click="openCreate">新增用户</el-button>
+          <el-button v-if="isAdmin" type="primary" @click="openCreate">
+            新增用户
+          </el-button>
         </div>
       </template>
       <el-table v-loading="loading" :data="rows" stripe>
@@ -165,14 +200,24 @@ onMounted(load);
           <template #default="{ row }">
             <el-switch
               v-model="row.enabled"
+              :disabled="!isAdmin"
               @change="val => onEnabledChange(row, switchValue(val))"
             />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140">
+        <el-table-column label="操作" :width="isAdmin ? 140 : 80">
           <template #default="{ row }">
-            <el-button type="primary" link @click="openEdit(row)">编辑</el-button>
-            <el-button type="danger" link @click="onDelete(row)">删除</el-button>
+            <el-button type="primary" link @click="openEdit(row)">
+              {{ isAdmin ? "编辑" : "查看" }}
+            </el-button>
+            <el-button
+              v-if="isAdmin"
+              type="danger"
+              link
+              @click="onDelete(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -180,21 +225,25 @@ onMounted(load);
 
     <el-dialog
       v-model="dialogVisible"
-      :title="editing ? '编辑用户' : '新增用户'"
+      :title="editing ? (isAdmin ? '编辑用户' : '查看用户') : '新增用户'"
       width="480px"
     >
       <el-form label-width="90px">
         <el-form-item label="账号" required>
           <el-input
             v-model="form.username"
-            :disabled="Boolean(editing)"
+            :disabled="Boolean(editing) || !isAdmin"
             placeholder="字母、数字或下划线"
           />
         </el-form-item>
         <el-form-item label="姓名">
-          <el-input v-model="form.nickname" />
+          <el-input v-model="form.nickname" :disabled="!isAdmin" />
         </el-form-item>
-        <el-form-item :label="editing ? '新密码' : '密码'" :required="!editing">
+        <el-form-item
+          v-if="isAdmin"
+          :label="editing ? '新密码' : '密码'"
+          :required="!editing"
+        >
           <el-input
             v-model="form.password"
             type="password"
@@ -203,18 +252,20 @@ onMounted(load);
           />
         </el-form-item>
         <el-form-item label="角色">
-          <el-select v-model="form.role" class="w-full">
+          <el-select v-model="form.role" class="w-full" :disabled="!isAdmin">
             <el-option label="管理员" value="admin" />
             <el-option label="普通用户" value="common" />
           </el-select>
         </el-form-item>
         <el-form-item label="启用">
-          <el-switch v-model="form.enabled" />
+          <el-switch v-model="form.enabled" :disabled="!isAdmin" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submit">确定</el-button>
+        <el-button @click="dialogVisible = false">
+          {{ isAdmin ? "取消" : "关闭" }}
+        </el-button>
+        <el-button v-if="isAdmin" type="primary" @click="submit">确定</el-button>
       </template>
     </el-dialog>
   </div>

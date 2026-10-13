@@ -1,5 +1,6 @@
 import { http } from "@/utils/http";
 import { API_PREFIX } from "@/api/http";
+import { DEFAULT_LIM_HOURS } from "@/utils/pivotTable";
 
 export const getDefectSummary = (params?: object) => {
   return http.request("get", `${API_PREFIX}/defects/summary`, { params });
@@ -67,8 +68,9 @@ export type YieldAlertResult = {
 };
 
 export const getYieldAlerts = (
-  params: {
+  params?: {
     project_id?: string;
+    /** 默认与模穴 LIM 交叉表窗口一致 */
     hours?: number;
   },
   signal?: AbortSignal
@@ -76,7 +78,13 @@ export const getYieldAlerts = (
   return http.request<YieldAlertResult>(
     "get",
     `${API_PREFIX}/system/query/yield-alerts`,
-    { params, signal }
+    {
+      params: {
+        ...params,
+        hours: params?.hours ?? DEFAULT_LIM_HOURS
+      },
+      signal
+    }
   );
 };
 

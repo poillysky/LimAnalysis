@@ -59,6 +59,15 @@ const index = ref(0);
 const started = ref(false);
 const locating = ref(false);
 const qrQuery = ref("");
+/** 二维码搜索命中的 rel_path，胶卷条上做记号；普通开始检查清空 */
+const hitRel = ref("");
+/** 外观扫码会话：视角下拉只保留有该码的视角，切换视角仍按 ServerTime 翻邻居 */
+type QrSession = {
+  query: string;
+  cameras: string[];
+  hitByCamera: Record<string, InspectionImage>;
+};
+const qrSession = ref<QrSession | null>(null);
 const filmRef = ref<HTMLElement | null>(null);
 /** 扫码定位时检出但不在项目机台清单里的机台，临时并入下拉 */
 const machineExtras = ref<string[]>([]);
@@ -90,7 +99,58 @@ const machineFieldLabel = computed(() => {
 const dateFieldLabel = computed(() =>
   isAppearance.value && isMoldDim.value ? "生产日" : "日期"
 );
+/** 扫码后只列出命中视角；否则用目录全量 */
+const cameraChoices = computed(() =>
+  qrSession.value?.cameras?.length ? qrSession.value.cameras : cameras.value
+);
 const current = computed(() => images.value[index.value] || null);
+
+/**
+ * 二维码优先用 API 已解析的 sn；仅当仍是「OK,SN,A」整段时做兜底切割。
+ * 完整解析规则在后端 extract_sn，避免前后端状态表漂移。
+ */
+function snFallback(raw: string, filename = "") {
+  const text = String(raw || "").trim();
+  if (text && !text.includes(",")) return text;
+  let stem = String(filename || text || "")
+    .replace(/\.[^.]+$/, "")
+    .trim();
+  if (!stem) return text;
+  if (stem.startsWith("截图")) stem = stem.slice(2);
+  if (stem.includes(",")) {
+    const parts = stem
+      .split(",")
+      .map(p => p.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      // 去掉首段状态、末段穴位后取中间（与后端 extract_sn 同形）
+      const statuses = new Set([
+        "OK",
+        "定位NG",
+        "底涂不良",
+        "无料NG",
+        "扫码不良",
+        "相机掉线"
+      ]);
+      const letters = new Set("ABCDEFGHJKLMNPQR".split(""));
+      const start = statuses.has(parts[0]) ? 1 : 0;
+      const end = letters.has(parts[parts.length - 1].toUpperCase())
+        ? parts.length - 1
+        : parts.length;
+      const mid = parts.slice(start, end);
+      if (mid.length) return mid.length === 1 ? mid[0] : mid.join(",");
+    }
+  }
+  if (stem.includes("_")) return stem.split("_").slice(0, -1).join("_").trim();
+  return stem || text;
+}
+
+const currentQr = computed(() => {
+  const item = current.value;
+  if (!item) return "";
+  return snFallback(item.sn || "", item.filename || "");
+});
+
 const canQuery = computed(() => {
   if (!ready.value || !projectId.value || !machine.value || !dateStr.value) {
     return false;
@@ -407,16 +467,23 @@ async function loadDates(keepDate = "") {
 watch(projectId, () => {
   if (locating.value) return;
   machineExtras.value = [];
+  clearQrSession();
   if (isAppearance.value) {
     void loadAppearanceMeta().then(() => loadAppearanceViews());
     void warmIndex();
   } else syncMachine();
 });
 
+function clearQrSession() {
+  qrSession.value = null;
+  hitRel.value = "";
+}
+
 watch(queryDim, () => {
   if (!isAppearance.value || locating.value) return;
   images.value = [];
   index.value = 0;
+  clearQrSession();
   started.value = false;
   machine.value = "";
   camera.value = "";
@@ -428,6 +495,7 @@ watch(machine, () => {
   if (locating.value) return;
   images.value = [];
   index.value = 0;
+  clearQrSession();
   started.value = false;
   if (isAppearance.value) void loadAppearanceViews();
   else void loadDates();
@@ -435,8 +503,13 @@ watch(machine, () => {
 
 watch(camera, () => {
   if (locating.value || !isAppearance.value) return;
+  if (qrSession.value) {
+    void switchQrCamera(camera.value);
+    return;
+  }
   images.value = [];
   index.value = 0;
+  hitRel.value = "";
   started.value = false;
   void loadDates();
 });
@@ -445,6 +518,7 @@ watch(cavity, () => {
   if (locating.value || !isMoldDim.value) return;
   images.value = [];
   index.value = 0;
+  clearQrSession();
   started.value = false;
   void loadDates();
 });
@@ -472,11 +546,174 @@ function onProjectChange(id: string | number | boolean) {
   syncMachine();
 }
 
+function viewerImageParams() {
+  return {
+    project_id: projectId.value,
+    machine: machine.value,
+    cavity: isAppearance.value
+      ? isMoldDim.value
+        ? cavity.value
+        : camera.value
+      : cavity.value,
+    date: dateStr.value,
+    status: status.value,
+    source: photoSource.value,
+    dim: isAppearance.value ? queryDim.value : undefined,
+    camera: isMoldDim.value ? camera.value : undefined
+  };
+}
+
+/** 扫码命中后拉邻居：参数以命中图为准，避免外观机/注塑机维度下拉被级联冲掉 */
+function viewerImageParamsFromHit(hit: InspectionImage) {
+  if (isAppearance.value) {
+    if (isMoldDim.value) {
+      return {
+        project_id: projectId.value,
+        machine: String(hit.machine || machine.value || "").trim(),
+        cavity: String(hit.cavity || cavity.value || "").trim(),
+        date: String(hit.date_str || dateStr.value || "").trim(),
+        status: status.value,
+        source: "appearance" as const,
+        dim: "mold" as const,
+        camera: String(hit.camera || camera.value || "").trim()
+      };
+    }
+    const view = String(hit.camera || hit.cavity || camera.value || "").trim();
+    return {
+      project_id: projectId.value,
+      machine: String(hit.machine || machine.value || "").trim(),
+      cavity: view,
+      date: String(hit.date_str || dateStr.value || "").trim(),
+      status: status.value,
+      source: "appearance" as const,
+      dim: "tester" as const,
+      camera: undefined as string | undefined
+    };
+  }
+  return {
+    project_id: projectId.value,
+    machine: String(hit.machine || machine.value || "").trim(),
+    cavity: String(hit.cavity || cavity.value || "").trim(),
+    date: String(hit.date_str || dateStr.value || "").trim(),
+    status: String(hit.status || status.value || "OK").trim() || "OK",
+    source: "mold" as const,
+    dim: undefined as undefined,
+    camera: undefined as string | undefined
+  };
+}
+
+function imageKey(item: InspectionImage | null | undefined) {
+  if (!item) return "";
+  return String(item.rel_path || item.id || item.filename || "").trim();
+}
+
+function isHitImage(item: InspectionImage) {
+  const key = hitRel.value;
+  if (!key) return false;
+  return imageKey(item) === key || item.filename === key;
+}
+
+function findHitIndex(list: InspectionImage[], hit: InspectionImage, query: string) {
+  const hitKey = imageKey(hit);
+  let idx = list.findIndex(item => imageKey(item) === hitKey);
+  if (idx >= 0) return idx;
+  if (hit.filename) {
+    idx = list.findIndex(item => item.filename === hit.filename);
+    if (idx >= 0) return idx;
+  }
+  const needle = query.trim().toLowerCase();
+  if (!needle) return -1;
+  return list.findIndex(item =>
+    String(item.filename || "")
+      .toLowerCase()
+      .includes(needle)
+  );
+}
+
+function hitViewOf(item: InspectionImage) {
+  return String(item.camera || item.cavity || "").trim();
+}
+
+function buildQrSession(query: string, hits: InspectionImage[]): QrSession | null {
+  const hitByCamera: Record<string, InspectionImage> = {};
+  const order: string[] = [];
+  for (const hit of hits) {
+    const view = hitViewOf(hit);
+    if (!view || hitByCamera[view]) continue;
+    hitByCamera[view] = hit;
+    order.push(view);
+  }
+  if (!order.length) return null;
+  return { query, cameras: order, hitByCamera };
+}
+
+async function applyHitDay(hit: InspectionImage, query: string) {
+  const dayParams = viewerImageParamsFromHit(hit);
+  let dayImages: InspectionImage[] = [];
+  if (
+    dayParams.project_id &&
+    dayParams.machine &&
+    dayParams.date &&
+    dayParams.cavity &&
+    (!isMoldDim.value || dayParams.camera)
+  ) {
+    try {
+      const dayRes = await getViewerImages(dayParams);
+      dayImages = dayRes?.data?.images || [];
+    } catch {
+      dayImages = [];
+    }
+  }
+  const hitIdx = findHitIndex(dayImages, hit, query);
+  if (dayImages.length && hitIdx >= 0) {
+    images.value = dayImages;
+    index.value = hitIdx;
+    hitRel.value = imageKey(dayImages[hitIdx]);
+    hint.value = "";
+  } else if (dayImages.length) {
+    images.value = dayImages;
+    index.value = 0;
+    hitRel.value = imageKey(hit);
+    hint.value = "已打开当日照片，但未在列表中精确匹配到该二维码";
+  } else {
+    images.value = [hit];
+    index.value = 0;
+    hitRel.value = imageKey(hit);
+  }
+}
+
+async function switchQrCamera(view: string) {
+  const session = qrSession.value;
+  const want = String(view || "").trim();
+  if (!session || !want) return;
+  const hit = session.hitByCamera[want];
+  if (!hit) {
+    ElMessage.warning("该视角没有该二维码");
+    return;
+  }
+  locating.value = true;
+  loading.value = true;
+  started.value = true;
+  try {
+    locateFromImage(hit);
+    camera.value = want;
+    await applyHitDay(hit, session.query);
+  } catch (error) {
+    hint.value = errMessage(error, "切换视角失败");
+  } finally {
+    locating.value = false;
+    loading.value = false;
+    await nextTick();
+    scrollFilm();
+  }
+}
+
 async function startCheck() {
   if (!ready.value) {
     router.push("/feature/inspection");
     return;
   }
+  clearQrSession();
   if (!canQuery.value) {
     ElMessage.warning(
       isMoldDim.value
@@ -491,20 +728,7 @@ async function startCheck() {
   hint.value = "";
   started.value = true;
   try {
-    const res = await getViewerImages({
-      project_id: projectId.value,
-      machine: machine.value,
-      cavity: isAppearance.value
-        ? isMoldDim.value
-          ? cavity.value
-          : camera.value
-        : cavity.value,
-      date: dateStr.value,
-      status: status.value,
-      source: photoSource.value,
-      dim: isAppearance.value ? queryDim.value : undefined,
-      camera: isMoldDim.value ? camera.value : undefined
-    });
+    const res = await getViewerImages(viewerImageParams());
     images.value = res?.data?.images || [];
     index.value = 0;
     if (!images.value.length) {
@@ -593,6 +817,7 @@ async function searchByName() {
   loading.value = true;
   hint.value = "";
   started.value = true;
+  clearQrSession();
   try {
     const res = await searchViewerImages(
       projectId.value,
@@ -600,24 +825,42 @@ async function searchByName() {
       photoSource.value,
       isAppearance.value ? queryDim.value : undefined
     );
-    images.value = res?.data?.images || [];
-    index.value = 0;
-    if (!images.value.length) {
+    const hits = res?.data?.images || [];
+    if (!hits.length) {
+      images.value = [];
+      index.value = 0;
       hint.value = res?.data?.hint || "没有匹配该文件名的照片。";
     } else {
       locating.value = true;
-      const hit = images.value[0];
+      const hit = hits[0];
       // 后端已按当前维度返回字段：外观机→tester；注塑机→raw 机台/穴位/生产日
       locateFromImage(hit);
       if (isAppearance.value) await loadAppearanceViews();
       await loadDates(hit.date_str || "");
       locateFromImage(hit);
+      if (isAppearance.value) {
+        const session = buildQrSession(query, hits);
+        qrSession.value = session;
+        if (session?.cameras.length) {
+          const view = hitViewOf(hit);
+          camera.value = session.cameras.includes(view)
+            ? view
+            : session.cameras[0];
+        }
+      }
+      await applyHitDay(
+        isAppearance.value && qrSession.value
+          ? qrSession.value.hitByCamera[camera.value] || hit
+          : hit,
+        query
+      );
+      const viewCount = qrSession.value?.cameras.length || 0;
       ElMessage.success(
         `已定位 ${hit.machine || "—"}${
           isAppearance.value
             ? [
                 isMoldDim.value && hit.cavity ? `${hit.cavity}穴` : "",
-                hit.camera || (!isMoldDim.value ? hit.cavity : "")
+                camera.value || hit.camera || (!isMoldDim.value ? hit.cavity : "")
               ]
                 .filter(Boolean)
                 .map(part => ` / ${part}`)
@@ -625,7 +868,7 @@ async function searchByName() {
             : hit.cavity
               ? ` / ${hit.cavity}穴`
               : ""
-        }`
+        }${viewCount > 1 ? `（${viewCount} 个视角可切换）` : ""}`
       );
     }
     if (isAppearance.value) void refreshIndexStatus();
@@ -636,6 +879,7 @@ async function searchByName() {
     locating.value = false;
     hint.value = errMessage(error, "搜索失败");
     images.value = [];
+    clearQrSession();
   } finally {
     loading.value = false;
   }
@@ -657,11 +901,11 @@ function onKey(event: KeyboardEvent) {
   if (!images.value.length) return;
   const target = event.target as HTMLElement | null;
   if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
-  if (event.key === "ArrowLeft") {
+  if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
     event.preventDefault();
     prev();
   }
-  if (event.key === "ArrowRight") {
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") {
     event.preventDefault();
     next();
   }
@@ -674,6 +918,7 @@ onMounted(() => {
 watch(photoSource, () => {
   images.value = [];
   index.value = 0;
+  clearQrSession();
   started.value = false;
   queryDim.value = "tester";
   void bootstrap();
@@ -703,6 +948,10 @@ onUnmounted(() => {
         >
           {{ indexBadge.text }}
         </el-tag>
+        <div v-if="currentQr" class="viewer-qr" :title="currentQr">
+          <span class="viewer-qr__label">二维码</span>
+          <strong class="viewer-qr__value">{{ currentQr }}</strong>
+        </div>
       </header>
 
       <div class="viewer-fields">
@@ -777,7 +1026,7 @@ onUnmounted(() => {
           <span>视角</span>
           <el-select v-model="camera" placeholder="视角" style="width: 132px">
             <el-option
-              v-for="code in cameras"
+              v-for="code in cameraChoices"
               :key="code"
               :label="code"
               :value="code"
@@ -902,6 +1151,7 @@ onUnmounted(() => {
           </svg>
         </button>
         <p class="viewer-caption" :title="current.filename">
+          <em v-if="isHitImage(current)" class="viewer-hit-mark">命中</em>
           {{ current.filename }}
         </p>
       </div>
@@ -914,15 +1164,16 @@ onUnmounted(() => {
             type="button"
             class="viewer-thumb"
             :data-active="i === index"
-            :class="{ active: i === index }"
+            :class="{ active: i === index, 'is-hit': isHitImage(item) }"
             :aria-label="item.filename"
             @click="jump(i)"
           >
             <img :src="item.view_url" :alt="item.filename" loading="lazy" />
             <span>{{ i + 1 }}</span>
+            <i v-if="isHitImage(item)" class="viewer-thumb__hit">命中</i>
           </button>
         </div>
-        <p class="viewer-keys">左右方向键翻页</p>
+        <p class="viewer-keys">方向键翻页（按 ServerTime 先后）</p>
       </div>
     </div>
 
@@ -968,6 +1219,35 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;
+}
+
+.viewer-qr {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: min(52vw, 420px);
+  margin-left: auto;
+  padding: 4px 10px;
+  background: color-mix(in oklab, var(--el-color-primary) 6%, var(--la-surface-sunken));
+  border: 1px solid var(--la-border-default);
+  border-radius: 8px;
+}
+
+.viewer-qr__label {
+  flex: 0 0 auto;
+  color: var(--la-text-muted);
+  font-size: 12px;
+}
+
+.viewer-qr__value {
+  overflow: hidden;
+  color: var(--la-text-strong);
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .viewer-bar__icon {
@@ -1249,6 +1529,39 @@ onUnmounted(() => {
 
 .viewer-thumb.active {
   border-color: var(--el-color-primary-light-3);
+}
+
+.viewer-thumb.is-hit {
+  border-color: var(--el-color-warning);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--el-color-warning) 55%, transparent);
+}
+
+.viewer-thumb__hit {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 650;
+  line-height: 16px;
+  color: #fff;
+  background: var(--el-color-warning);
+  border-radius: 3px;
+}
+
+.viewer-hit-mark {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 650;
+  line-height: 18px;
+  color: #fff;
+  vertical-align: 1px;
+  background: var(--el-color-warning);
+  border-radius: 4px;
 }
 
 .viewer-thumb:focus-visible {

@@ -1,4 +1,4 @@
-# 车间一键启动：API + collector worker + agg worker（无 reload）
+# 车间一键启动：API + collector + agg + cleanup worker（无 reload）
 # 用法（仓库根或本目录）：powershell -ExecutionPolicy Bypass -File deploy/workshop/start.ps1
 
 $ErrorActionPreference = "Stop"
@@ -50,6 +50,7 @@ $procs += Start-LimProc "api" @(
 )
 $procs += Start-LimProc "collector" @("-m", "collector.worker")
 $procs += Start-LimProc "agg" @("-m", "processor.agg_worker")
+$procs += Start-LimProc "cleanup" @("-m", "collector.cleanup_worker")
 
 $procs | ConvertTo-Json | Set-Content -Encoding UTF8 $PidFile
 Write-Host "已启动："

@@ -228,6 +228,10 @@
   font-size: 13px;
 }
 
+.etl-schedule__modes {
+  flex-wrap: wrap;
+}
+
 .etl-schedule__meta {
   display: flex;
   flex-wrap: wrap;

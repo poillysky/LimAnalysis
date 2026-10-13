@@ -20,7 +20,18 @@ import {
   type ScanProject
 } from "@/api/modules/scan";
 import { backendErrorHint } from "@/api/http";
-import { formatQty, formatRate, rateOf } from "@/utils/pivotTable";
+import { loadCavityAlertRules } from "@/utils/cavityAlert";
+import {
+  CAVITY_LETTERS,
+  DEFAULT_LIM_HOURS,
+  DEFAULT_LIM_HOURS_LABEL,
+  cavityLetter,
+  formatQty,
+  formatRate,
+  isAlert,
+  pivotKeptTotals,
+  rateOf
+} from "@/utils/pivotTable";
 
 defineOptions({
   name: "Welcome"
@@ -52,12 +63,12 @@ const loading = ref(false);
 const hint = ref("");
 const nowText = ref("");
 const duty = ref("");
-const windowLabel = ref("近 3 小时");
+const windowLabel = ref(DEFAULT_LIM_HOURS_LABEL);
 const broadcast = ref<BroadcastItem[]>([]);
 const activeIdx = ref(0);
 const cavityRows = ref<ProjectSummary[]>([]);
 const scanRows = ref<ProjectSummary[]>([]);
-const cavityWindow = ref("近 3 小时");
+const cavityWindow = ref(DEFAULT_LIM_HOURS_LABEL);
 const scanWindow = ref("近 12 小时");
 
 let clockTimer: number | null = null;
@@ -70,13 +81,14 @@ let summaryAbort: AbortController | null = null;
 const currentBroadcast = computed(() => {
   const list = broadcast.value;
   if (!list.length) {
+    const idle = `${DEFAULT_LIM_HOURS_LABEL}暂无待播报通知`;
     return {
       kind: "idle" as const,
-      text: "近 3 小时暂无待播报通知",
+      text: idle,
       path: "/defect/analysis",
       eyebrow: "值守空闲",
       person: "",
-      lines: ["近 3 小时暂无待播报通知"]
+      lines: [idle]
     };
   }
   return list[activeIdx.value % list.length];
@@ -112,10 +124,11 @@ function fmtWindow(fromHour: string, toHour: string, fallback: string) {
   return fromHour || toHour || fallback;
 }
 
-function summarizeMachineRows(
+/** 扫描页摘要（非 LIM 交叉表口径，保留独立汇总） */
+function summarizeScanRows(
   projectId: string,
   displayName: string,
-  rows: MachineCavityRow[] | DefectAnalysisRow[],
+  rows: DefectAnalysisRow[],
   fromHour: string,
   toHour: string
 ): ProjectSummary {
@@ -123,9 +136,7 @@ function summarizeMachineRows(
   let ng = 0;
   const byMachine = new Map<string, { qty: number; ng: number }>();
   for (const row of rows) {
-    const machine = String(
-      ("machine" in row ? row.machine : "") || ""
-    ).trim();
+    const machine = String(row.machine || "").trim();
     const q = Number(row.qty || 0);
     const n = Number(row.ng || 0);
     qty += q;
@@ -158,6 +169,64 @@ function summarizeMachineRows(
   };
 }
 
+/** 与模穴页 LIM 交叉表同口径：pivotKeptTotals + LIM 红穴机台 Top3 */
+function summarizeLimRows(
+  projectId: string,
+  displayName: string,
+  rows: MachineCavityRow[],
+  fromHour: string,
+  toHour: string
+): ProjectSummary {
+  const source = rows.map(row => ({
+    entity: String(row.machine || "").trim(),
+    cavity: row.cavity,
+    qty: Number(row.qty || 0),
+    ng: Number(row.ng || 0)
+  }));
+  const kept = pivotKeptTotals(source, CAVITY_LETTERS, cavityLetter);
+  const rules = loadCavityAlertRules();
+  const byMachine = new Map<string, { qty: number; ng: number; red: boolean }>();
+  for (const row of source) {
+    const letter = cavityLetter(row.cavity);
+    if (!row.entity || !letter || !CAVITY_LETTERS.includes(letter)) continue;
+    if (row.qty <= 0) continue;
+    const prev = byMachine.get(row.entity) || { qty: 0, ng: 0, red: false };
+    prev.qty += row.qty;
+    prev.ng += row.ng;
+    if (
+      isAlert(
+        rateOf(row.qty, row.ng),
+        row.qty,
+        rules.limCavityRateAbovePct,
+        rules.limCavityMinQty
+      )
+    ) {
+      prev.red = true;
+    }
+    byMachine.set(row.entity, prev);
+  }
+  const top = [...byMachine.entries()]
+    .filter(([, v]) => v.red)
+    .map(([name, v]) => ({
+      name,
+      ng: v.ng,
+      ratePct: rateOf(v.qty, v.ng)
+    }))
+    .sort((a, b) => (b.ratePct ?? -1) - (a.ratePct ?? -1))
+    .slice(0, 3);
+  return {
+    project_id: projectId,
+    display_name: displayName,
+    qty: kept.qty,
+    ng: kept.ng,
+    machines: kept.machines,
+    ratePct: kept.ratePct,
+    fromHour,
+    toHour,
+    top
+  };
+}
+
 function mapYieldBroadcast(
   notices: YieldNotice[],
   alerts: YieldAlertRow[],
@@ -173,11 +242,7 @@ function mapYieldBroadcast(
       const name = m.project_name
         ? `${m.project_name} ${m.machine}`
         : m.machine;
-      machineLines.push(
-        `${name} · 不良率 ${rateText(m.rate_pct)}（产量 ${Number(
-          m.qty || 0
-        ).toLocaleString()}）`
-      );
+      machineLines.push(`${name} · 不良率 ${rateText(m.rate_pct)}`);
     }
     if (!machineLines.length) machineLines.push("暂无机台明细");
     const eyebrow = `【良率预警】${dutyName || "当前班次"} ${when}`;
@@ -245,7 +310,7 @@ function mapManualBroadcast(items: ManualNotice[]): BroadcastItem[] {
 
 async function loadNotices(signal?: AbortSignal) {
   const [yieldRes, manualRes] = await Promise.allSettled([
-    getYieldAlerts({ hours: 3 }, signal),
+    getYieldAlerts({ hours: DEFAULT_LIM_HOURS }, signal),
     listManualNotices(signal)
   ]);
   const yieldData =
@@ -258,7 +323,7 @@ async function loadNotices(signal?: AbortSignal) {
   windowLabel.value = fmtWindow(
     yieldData?.from_hour || "",
     yieldData?.to_hour || "",
-    "近 3 小时"
+    DEFAULT_LIM_HOURS_LABEL
   );
   const next = [
     ...mapYieldBroadcast(
@@ -285,12 +350,12 @@ async function loadCavitySummaries(signal?: AbortSignal) {
       try {
         const res = await getMachineCavityRates(
           p.project_id,
-          3,
+          DEFAULT_LIM_HOURS,
           "appearance",
           signal
         );
         const data = res?.data;
-        return summarizeMachineRows(
+        return summarizeLimRows(
           p.project_id,
           p.display_name,
           data?.rows || [],
@@ -298,14 +363,18 @@ async function loadCavitySummaries(signal?: AbortSignal) {
           data?.to_hour || ""
         );
       } catch {
-        return summarizeMachineRows(p.project_id, p.display_name, [], "", "");
+        return summarizeLimRows(p.project_id, p.display_name, [], "", "");
       }
     })
   );
   cavityRows.value = results;
   const first = results[0];
   if (first) {
-    cavityWindow.value = fmtWindow(first.fromHour, first.toHour, "近 3 小时");
+    cavityWindow.value = fmtWindow(
+      first.fromHour,
+      first.toHour,
+      DEFAULT_LIM_HOURS_LABEL
+    );
   }
 }
 
@@ -324,7 +393,7 @@ async function loadScanSummaries(signal?: AbortSignal) {
           signal
         );
         const data = res?.data;
-        return summarizeMachineRows(
+        return summarizeScanRows(
           p.project_id,
           p.display_name,
           data?.machines || [],
@@ -332,7 +401,7 @@ async function loadScanSummaries(signal?: AbortSignal) {
           data?.to_hour || ""
         );
       } catch {
-        return summarizeMachineRows(p.project_id, p.display_name, [], "", "");
+        return summarizeScanRows(p.project_id, p.display_name, [], "", "");
       }
     })
   );

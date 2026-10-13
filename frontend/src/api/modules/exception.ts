@@ -1,5 +1,6 @@
 import { http } from "@/utils/http";
 import { API_PREFIX } from "@/api/http";
+import { DEFAULT_LIM_HOURS } from "@/utils/pivotTable";
 
 export type BoardProject = {
   project_id: string;
@@ -161,7 +162,7 @@ export type CavityQueryExtra = {
 
 export const getMachineCavityRates = (
   projectId: string,
-  hours = 3,
+  hours = DEFAULT_LIM_HOURS,
   metric = "appearance",
   signal?: AbortSignal,
   extra?: CavityQueryExtra
@@ -209,7 +210,7 @@ export type BodyCavityResult = {
 
 export const getBodyCavityRates = (
   projectId: string,
-  hours = 3,
+  hours = DEFAULT_LIM_HOURS,
   metric = "appearance",
   signal?: AbortSignal,
   extra?: CavityQueryExtra

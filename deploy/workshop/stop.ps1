@@ -1,4 +1,4 @@
-# 停止 start.ps1 拉起的三个进程
+# 停止 start.ps1 拉起的进程（api / collector / agg / cleanup，以 pids.json 为准）
 $ErrorActionPreference = "Continue"
 $RunDir = Join-Path $PSScriptRoot ".run"
 $PidFile = Join-Path $RunDir "pids.json"

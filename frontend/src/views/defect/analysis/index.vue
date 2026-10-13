@@ -15,7 +15,11 @@ import {
 } from "@/api/modules/inspection";
 import { backendErrorHint } from "@/api/http";
 import { rulesFromRemote } from "@/utils/cavityAlert";
-import { isAbortError } from "@/utils/pivotTable";
+import {
+  DEFAULT_LIM_HOURS,
+  DEFAULT_LIM_HOURS_LABEL,
+  isAbortError
+} from "@/utils/pivotTable";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import PageMetricBar from "@/components/PageMetricBar/index.vue";
 
@@ -39,7 +43,7 @@ const windowLabel = computed(() => {
   if (fromHour.value && toHour.value && fromHour.value !== toHour.value) {
     return `${fromHour.value} ~ ${toHour.value}`;
   }
-  return fromHour.value || toHour.value || "近 3 小时";
+  return fromHour.value || toHour.value || DEFAULT_LIM_HOURS_LABEL;
 });
 
 const unassigned = computed(() => {
@@ -117,21 +121,11 @@ function machineLine(row: {
   project_name?: string;
   machine: string;
   rate_pct: number | null;
-  qty: number;
 }) {
-  const rate = `不良率 ${rateText(row.rate_pct)}（产量 ${Number(row.qty || 0).toLocaleString()}）`;
+  const rate = `不良率 ${rateText(row.rate_pct)}`;
   return row.project_name
     ? `${row.project_name} ${row.machine} ${rate}`
     : `${row.machine} ${rate}`;
-}
-
-function isCavityAlert(row: {
-  rate_pct: number | null;
-  qty: number;
-}) {
-  if (row.rate_pct == null) return false;
-  if (Number(row.qty) < rules.value.limCavityMinQty) return false;
-  return row.rate_pct >= rules.value.limCavityRateAbovePct;
 }
 
 const CAMERA_ITEMS = new Set([
@@ -300,11 +294,7 @@ function noticeText(item: YieldNotice) {
     );
     for (const row of cavities) {
       const reason = cavityIssueText(row);
-      lines.push(
-        `  ${reason}；不良率 ${rateText(row.rate_pct)}（产量 ${Number(
-          row.qty || 0
-        ).toLocaleString()}）`
-      );
+      lines.push(`  ${reason}；不良率 ${rateText(row.rate_pct)}`);
     }
   }
   lines.push("请尽快到机台确认。");
@@ -333,7 +323,7 @@ async function load() {
   loading.value = true;
   hint.value = "";
   try {
-    const res = await getYieldAlerts({ hours: 3 }, signal);
+    const res = await getYieldAlerts({ hours: DEFAULT_LIM_HOURS }, signal);
     const data = res?.data;
     if (data?.rules) {
       rules.value = rulesFromRemote(data.rules);
@@ -342,19 +332,10 @@ async function load() {
     duty.value = data?.duty || "";
     fromHour.value = data?.from_hour || "";
     toHour.value = data?.to_hour || "";
-    const nextAlerts = (data?.alerts || []).filter(isCavityAlert);
-    const allowed = new Set(
-      nextAlerts.map(row => `${row.project_id || ""}:${row.machine}`)
-    );
+    // 直接用 yield-alerts（后端已从 LIM 交叉表 query_machine_cavity 派生），不再本地重判
+    const nextAlerts = data?.alerts || [];
     alerts.value = nextAlerts;
-    notices.value = (data?.notices || [])
-      .map(item => ({
-        ...item,
-        machines: item.machines.filter(row =>
-          allowed.has(`${row.project_id || ""}:${row.machine}`)
-        )
-      }))
-      .filter(item => item.machines.length);
+    notices.value = data?.notices || [];
     if (
       selectedNoticeKey.value &&
       !notices.value.some(item => noticeKey(item) === selectedNoticeKey.value)
@@ -411,7 +392,7 @@ onUnmounted(() => {
         {{
           alerts.length
             ? "有异常模穴但排班表没有当班负责人"
-            : "近 3 小时没有 LIM 异常模穴"
+            : `${DEFAULT_LIM_HOURS_LABEL}没有 LIM 异常模穴`
         }}
       </p>
       <div v-else class="notice-grid">

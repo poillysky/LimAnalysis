@@ -11,6 +11,7 @@ from sqlalchemy import delete, or_, select, update
 from app.core.db import MetaSession
 from app.core.job_types import (
     AGG_WORKER_TYPES,
+    CLEANUP_WORKER_TYPES,
     HEAVY_TYPES,
     JOB_CRAWL,
     JOB_DISK_CLEANUP,
@@ -41,6 +42,7 @@ RESULT_MAX_BYTES = 8_192
 # 此处 re-export，保持既有 import 路径 collector.jobs 不变。
 __all__ = [
     "AGG_WORKER_TYPES",
+    "CLEANUP_WORKER_TYPES",
     "HEAVY_TYPES",
     "JOB_CRAWL",
     "JOB_DISK_CLEANUP",

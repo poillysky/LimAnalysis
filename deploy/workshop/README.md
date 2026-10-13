@@ -9,8 +9,9 @@
 | --- | --- |
 | Postgres ×3 | 建议 NAS Docker（`deploy/docker-compose.nas.yml`） |
 | API | `uvicorn app.main:app` 无 reload |
-| collector.worker | 采集 / 上传 / 清洗 / 磁盘清理 |
+| collector.worker | 采集 / 上传 / 清洗 |
 | agg_worker | DWD→ADS 聚合 |
+| cleanup_worker | 磁盘清理（Postgres / 图片） |
 | 前端 | `pnpm build` 产物 + nginx（或任意静态服务器） |
 | Metabase | 可选，局域网；挂了只影响「自动外观数据看板」 |
 
@@ -32,7 +33,7 @@
    pnpm build
    ```
    确认 `VITE_CDN` 为 false。把 `frontend/dist` 拷到车间，用 `nginx.conf.example` 反代 `/api`。
-5. 启动后端三进程：
+5. 启动后端四进程：
    ```powershell
    powershell -ExecutionPolicy Bypass -File deploy\workshop\start.ps1
    ```
@@ -42,10 +43,10 @@
 
 ## Docker Hub 镜像（GitHub Actions）
 
-推送标签 `V*` / `v*`（如 `V1.0.9`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送一体镜像：
+推送标签 `V*` / `v*`（如 `V1.0.10`）或在 Actions 里手动 **Publish Docker Hub**，会构建并推送一体镜像：
 
-- `{用户名}/limanalysis:V1.0.9`（及 `:latest`）
-- 同一镜像角色：`app`（nginx+API）/ `api` / `collector` / `agg`
+- `{用户名}/limanalysis:V1.0.10`（及 `:latest`）
+- 同一镜像角色：`app`（nginx+API）/ `api` / `collector` / `agg` / `cleanup`
 
 仓库 Secrets：
 
@@ -58,7 +59,7 @@
 
 ## NAS 应用单独部署（`/vol1/1000/Docker/limana`）
 
-一体镜像 `limanalysis`：`app` + `collector` + `agg`；三库仍用 [`../docker-compose.nas.yml`](../docker-compose.nas.yml)。  
+一体镜像 `limanalysis`：`app` + `collector` + `agg` + `cleanup`；三库仍用 [`../docker-compose.nas.yml`](../docker-compose.nas.yml)。  
 见 [`../limana/README.md`](../limana/README.md) 与 [`../docker-compose.limana.yml`](../docker-compose.limana.yml)。
 
 ## 桌面图标（PWA · Windows 独立窗口）
@@ -76,10 +77,10 @@
 
 | 项 | 怎么看 |
 | --- | --- |
-| 进程 | 任务管理器 / NSSM 三服务 / `pids.json`；或看板页运行条 / `workers.*.alive` |
+| 进程 | 任务管理器 / NSSM 四服务 / `pids.json`；或看板页运行条 / `workers.*.alive` |
 | 健康 | `GET http://127.0.0.1:8000/api/health` 或 `/api/v1/system/runtime-status`；前端「异常监控」页顶栏 |
 | 三库 | health 里 `stores.raw/dwh/defect.ok` |
-| Worker | `workers.collector/agg.alive`（心跳约 45s 内）；未起则整体 `degraded` |
+| Worker | `workers.collector/agg/cleanup.alive`（心跳约 45s 内）；未起则整体 `degraded` |
 | 调度 | `schedulers.*.last_run_*`；SFC 是否投递看爬虫 `is_active` |
 | 磁盘 | 功能管理 → 磁盘清理；或 cleanup last_run |
 | 前端图标 | 断公网侧栏仍有图标（本地 Iconify） |

@@ -42,9 +42,11 @@ class WorkerHeartbeatTests(unittest.TestCase):
 
         touch_worker_heartbeat("collector", force=True)
         touch_worker_heartbeat("agg", force=True)
+        touch_worker_heartbeat("cleanup", force=True)
         status = worker_heartbeat_status(stale_seconds=45)
         self.assertTrue(status["collector"]["alive"])
         self.assertTrue(status["agg"]["alive"])
+        self.assertTrue(status["cleanup"]["alive"])
 
     def test_stale_not_alive(self) -> None:
         from app.core.meta_models import MetaSetting
@@ -56,7 +58,11 @@ class WorkerHeartbeatTests(unittest.TestCase):
             db.add(
                 MetaSetting(
                     key=WORKER_HEARTBEAT_KEY,
-                    value={"collector": {"at": old, "pid": 1}, "agg": {"at": old, "pid": 2}},
+                    value={
+                        "collector": {"at": old, "pid": 1},
+                        "agg": {"at": old, "pid": 2},
+                        "cleanup": {"at": old, "pid": 3},
+                    },
                 )
             )
             db.commit()
@@ -65,6 +71,7 @@ class WorkerHeartbeatTests(unittest.TestCase):
         status = worker_heartbeat_status(stale_seconds=45)
         self.assertFalse(status["collector"]["alive"])
         self.assertFalse(status["agg"]["alive"])
+        self.assertFalse(status["cleanup"]["alive"])
 
 
 if __name__ == "__main__":

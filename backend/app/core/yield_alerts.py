@@ -1,4 +1,8 @@
-"""近 3 小时机台不良率标红 → 按当前班次从排班表找人。"""
+"""近 N 小时 LIM 机台×模穴标红 → 按当前班次从排班表找人。
+
+主数据与模穴页 LIM 交叉表同一入口：query_machine_cavity(appearance)。
+不良项明细仅由 query_machine_cavity_breakdown 挂到已标红穴位。
+"""
 
 from __future__ import annotations
 
@@ -7,8 +11,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.core.ads_query import (
+    DEFAULT_LIM_HOURS,
     _APPEARANCE_ITEMS,
     _enabled_project,
+    query_machine_cavity,
     query_machine_cavity_breakdown,
 )
 from app.core.db import MetaSession
@@ -204,10 +210,31 @@ def _phone_for(entry: dict, persons: list[dict]) -> str:
     return ""
 
 
+def _defect_index(breakdown: dict | None) -> dict[tuple[str, str], list[dict]]:
+    """machine + 原始模穴 → 不良项列表（仅挂明细，不参与 qty/ng）。"""
+    index: dict[tuple[str, str], list[dict]] = {}
+    if not breakdown:
+        return index
+    for row in breakdown.get("rows") or []:
+        machine = str(row.get("machine") or "").strip()
+        cavity = str(row.get("cavity") or "").strip()
+        if not machine or not cavity:
+            continue
+        defects = [
+            defect
+            for defect in (row.get("defects") or [])
+            if str(defect.get("item") or "").strip() not in _APPEARANCE_ITEMS
+            and str(defect.get("label") or "").strip() not in _APPEARANCE_ITEMS
+        ]
+        if defects:
+            index[(machine, cavity)] = defects
+    return index
+
+
 def list_yield_alerts(
     project_id: str | None = None,
     *,
-    hours: int = 3,
+    hours: int = DEFAULT_LIM_HOURS,
 ) -> dict:
     all_projects, _chosen = _enabled_project(None)
     projects = all_projects
@@ -249,7 +276,10 @@ def list_yield_alerts(
     for project in projects:
         display_name = str(project.get("display_name") or project["project_id"])
         try:
-            cavity = query_machine_cavity_breakdown(project["project_id"], hours=hours)
+            # 与模穴页 LIM 交叉表同一入口（appearance × 机台 × 模穴）
+            cavity = query_machine_cavity(
+                project["project_id"], hours=hours, metric="appearance"
+            )
             ready_any = True
         except ValueError:
             continue
@@ -257,11 +287,19 @@ def list_yield_alerts(
         from_hour = cavity.get("from_hour") or from_hour
         to_hour = cavity.get("to_hour") or to_hour
 
+        try:
+            defect_by = _defect_index(
+                query_machine_cavity_breakdown(project["project_id"], hours=hours)
+            )
+        except ValueError:
+            defect_by = {}
+
         red_rows = []
         machine_tot: dict[str, dict[str, float]] = {}
         for row in cavity.get("rows") or []:
             machine = str(row.get("machine") or "").strip()
-            letter = _cavity_letter(str(row.get("cavity") or ""))
+            cavity_raw = str(row.get("cavity") or "").strip()
+            letter = _cavity_letter(cavity_raw)
             if not machine or not letter:
                 continue
             qty = float(row.get("qty") or 0)
@@ -283,12 +321,13 @@ def list_yield_alerts(
                 continue
             red_rows.append(
                 {
-                    **row,
                     "machine": machine,
+                    "cavity": cavity_raw,
                     "cavity_letter": letter,
                     "qty": qty,
                     "ng": ng,
                     "rate_pct": rate,
+                    "defects": defect_by.get((machine, cavity_raw)) or [],
                 }
             )
 
@@ -353,13 +392,7 @@ def list_yield_alerts(
         for item in red_rows:
             machine = item["machine"]
             tot = machine_tot.get(machine) or {"qty": 0.0, "ng": 0.0}
-            defects = [
-                defect
-                for defect in (item.get("defects") or [])
-                if str(defect.get("item") or "").strip() not in _APPEARANCE_ITEMS
-                and str(defect.get("label") or "").strip()
-                not in _APPEARANCE_ITEMS
-            ]
+            defects = item.get("defects") or []
             alerts.append(
                 {
                     "project_id": project["project_id"],

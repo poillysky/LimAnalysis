@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import type { UploadFile } from "element-plus";
 import {
   createDefectScanBatch,
@@ -71,19 +71,50 @@ function pickDefect(key: string, on: boolean | string | number) {
 
 function focusScan() {
   if (mode.value !== "scan") return;
+  // 未选次品时不抢焦点，避免一进页就弹窗
+  if (!canWrite.value) return;
   nextTick(() => scanBox.value?.focus());
 }
 
-function ensureReady() {
+/** 未选项目/次品时弹窗提示（扫码框、文件区点击共用） */
+async function promptWriteReady() {
+  if (scanning.value) {
+    await ElMessageBox.alert("正在上传中，请稍候。", "请稍候", {
+      type: "info",
+      confirmButtonText: "知道了"
+    });
+    return false;
+  }
   if (!projectId.value) {
-    ElMessage.warning("请选择项目");
+    await ElMessageBox.alert(
+      "请先选择项目，再勾选次品项后才能扫码或上传文件。",
+      "还不能开始",
+      { type: "warning", confirmButtonText: "知道了" }
+    );
     return false;
   }
   if (!defectItem.value) {
-    ElMessage.warning("请勾选次品项");
+    await ElMessageBox.alert(
+      "请先勾选次品项，再扫码或上传文件。",
+      "还不能开始",
+      { type: "warning", confirmButtonText: "知道了" }
+    );
     return false;
   }
   return true;
+}
+
+async function ensureReady() {
+  if (projectId.value && defectItem.value && !scanning.value) return true;
+  return promptWriteReady();
+}
+
+/** 拦截未就绪时的点击，避免禁用态「点了没反应」 */
+function onWriteAreaPointer(event: MouseEvent) {
+  if (canWrite.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  void promptWriteReady();
 }
 
 function prependOp(op?: DefectScanOp | null) {
@@ -136,7 +167,7 @@ async function onProjectChange(id: string) {
 }
 
 async function submitScan() {
-  if (!ensureReady()) return;
+  if (!(await ensureReady())) return;
   const sns = pendingSns.value;
   if (!sns.length) {
     ElMessage.warning("请先扫码");
@@ -163,7 +194,8 @@ async function submitScan() {
 
 async function onUploadFile(upload: UploadFile) {
   const file = upload.raw;
-  if (!file || upload.status !== "ready" || !ensureReady()) return;
+  if (!file || upload.status !== "ready") return;
+  if (!(await ensureReady())) return;
   scanning.value = true;
   try {
     const res = await importDefectScans(
@@ -277,14 +309,21 @@ onUnmounted(() => {
         </div>
 
         <template v-if="mode === 'scan'">
-          <el-input
-            ref="scanBox"
-            v-model="snInput"
-            type="textarea"
-            :autosize="{ minRows: 6, maxRows: 14 }"
-            :disabled="scanning"
-            placeholder="光标放在这里连续扫码或粘贴，一码一行，扫完后点批量上传"
-          />
+          <div
+            class="scan-write-hit"
+            :class="{ 'is-blocked': !canWrite }"
+            @mousedown.capture="onWriteAreaPointer"
+          >
+            <el-input
+              ref="scanBox"
+              v-model="snInput"
+              type="textarea"
+              :autosize="{ minRows: 6, maxRows: 14 }"
+              :disabled="scanning"
+              :readonly="!canWrite"
+              placeholder="先勾选次品项，再把光标放在这里连续扫码或粘贴，一码一行"
+            />
+          </div>
           <div class="scan-actions">
             <span>已扫 {{ pendingSns.length }} 条</span>
             <el-button
@@ -298,23 +337,30 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <el-upload
+        <div
           v-else
-          drag
-          :auto-upload="false"
-          :show-file-list="false"
-          accept=".txt,.csv,.xlsx,.xls"
-          :disabled="!canWrite"
-          :on-change="onUploadFile"
+          class="scan-write-hit"
+          :class="{ 'is-blocked': !canWrite }"
+          @click.capture="onWriteAreaPointer"
         >
-          <div class="scan-drop">
-            <span class="scan-drop__icon">
-              <component :is="useRenderIcon('ri/upload-2-line')" />
-            </span>
-            <strong>上传已扫好的文件</strong>
-            <p>支持 txt、csv、Excel</p>
-          </div>
-        </el-upload>
+          <el-upload
+            drag
+            :auto-upload="false"
+            :show-file-list="false"
+            accept=".txt,.csv,.xlsx,.xls"
+            :disabled="!canWrite"
+            :on-change="onUploadFile"
+          >
+            <div class="scan-drop">
+              <span class="scan-drop__icon">
+                <component :is="useRenderIcon('ri/upload-2-line')" />
+              </span>
+              <strong>上传已扫好的文件</strong>
+              <p v-if="canWrite">支持 txt、csv、Excel</p>
+              <p v-else>请先勾选次品项后再上传</p>
+            </div>
+          </el-upload>
+        </div>
 
         <em v-if="lastOp">
           刚上传 {{ lastOp.count }} 条 · {{ lastOp.method_label }} ·
@@ -470,6 +516,20 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 12px;
   padding: 14px 16px 18px;
+}
+
+.scan-write-hit {
+  position: relative;
+}
+
+.scan-write-hit.is-blocked {
+  cursor: pointer;
+}
+
+.scan-write-hit.is-blocked :deep(.el-upload),
+.scan-write-hit.is-blocked :deep(.el-upload-dragger),
+.scan-write-hit.is-blocked :deep(.el-textarea__inner) {
+  cursor: pointer;
 }
 
 .scan-modes {

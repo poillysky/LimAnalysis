@@ -18,7 +18,9 @@ DIMS = (
 )
 _DIM_COL = {key: col for key, col, _ in DIMS}
 
-# 交叉表窗口：近 1 小时 / 3 小时 / 1 天 / 3 天
+# 交叉表窗口：近 1 小时 / 6 小时 / 1 天 / 3 天
+# LIM 看板 / 首页 / 播报统一默认近 6 小时（与模穴页默认一致）
+DEFAULT_LIM_HOURS = 6
 _MAX_CAVITY_HOURS = 72
 
 _APPEARANCE_ITEMS = (
@@ -65,7 +67,7 @@ def _ads_table(prefix: str) -> str:
     return ident(f"{prefix}_ads")
 
 
-def _window_hours(hours: int | None, default: int = 3) -> int:
+def _window_hours(hours: int | None, default: int = DEFAULT_LIM_HOURS) -> int:
     try:
         value = int(hours if hours is not None else default)
     except (TypeError, ValueError):
@@ -263,22 +265,24 @@ def _series_scope(
         cav = f"BTRIM({q(ident('模穴'))})"
         clauses.append(f"UPPER(RIGHT({cav}, 1)) = :cavity_letter")
         params["cavity_letter"] = letter
-    mold = str(body_mold or "").strip()
+    raw_mold = str(body_mold or "").strip()
+    mold = _normalize_body_mold(raw_mold)
     cavity = str(body_cavity or "").strip().upper()
     if cavity in _BODY_LETTER_TO_DIGIT:
         cavity = _BODY_LETTER_TO_DIGIT[cavity]
-    if mold or cavity:
+    if raw_mold or cavity:
         if "本体" not in cols:
             raise ValueError("ADS 缺少列：本体")
         body = f"BTRIM({q(ident('本体'))})"
+        mold_sql = f"UPPER(SUBSTRING({body} FROM 1 FOR 1))"
         clauses.append(f"CHAR_LENGTH({body}) >= 2")
-        if mold:
-            if not (len(mold) == 1 and mold.isdigit()):
+        if raw_mold:
+            if not mold:
                 raise ValueError("本体模具号无效")
-            clauses.append(f"SUBSTRING({body} FROM 1 FOR 1) = :body_mold")
+            clauses.append(f"{mold_sql} = :body_mold")
             params["body_mold"] = mold
         else:
-            clauses.append(f"SUBSTRING({body} FROM 1 FOR 1) ~ '^[0-9]$'")
+            clauses.append(f"{mold_sql} ~ '{_BODY_MOLD_RE}'")
         if cavity:
             if cavity not in "12345678":
                 raise ValueError("本体穴位无效")
@@ -447,6 +451,17 @@ _BODY_LETTER_TO_DIGIT = {
     "H": "8",
 }
 
+# 本体第 1 位模具：数字 0–9 或字母 A–Z
+_BODY_MOLD_RE = r"^[0-9A-Z]$"
+
+
+def _normalize_body_mold(mold: str) -> str:
+    """本体模具号：单字符 0–9 / A–Z（字母统一大写）。"""
+    text = str(mold or "").strip().upper()
+    if len(text) == 1 and (text.isdigit() or text.isalpha()):
+        return text
+    return ""
+
 
 def _exclude_machine_cavity_sql(pairs) -> tuple[str, dict]:
     """排除机台 × 模穴字母格子：对应 ADS 行的产量/不良都不进汇总。"""
@@ -480,19 +495,20 @@ def _exclude_body_cavity_sql(pairs) -> tuple[str, dict]:
     if not items:
         return "", {}
     body_sql = f"BTRIM({q(ident('本体'))})"
-    mold_sql = f"SUBSTRING({body_sql} FROM 1 FOR 1)"
+    mold_sql = f"UPPER(SUBSTRING({body_sql} FROM 1 FOR 1))"
     digit_sql = f"SUBSTRING({body_sql} FROM 2 FOR 1)"
     clauses: list[str] = []
     params: dict = {}
     for i, (mold, cavity) in enumerate(items):
+        mold_n = _normalize_body_mold(mold)
         digit = cavity
         if digit in _BODY_LETTER_TO_DIGIT:
             digit = _BODY_LETTER_TO_DIGIT[digit]
-        if not mold.isdigit() or digit not in "12345678":
+        if not mold_n or digit not in "12345678":
             continue
         mkey, dkey = f"xbc_m_{i}", f"xbc_d_{i}"
         clauses.append(f"({mold_sql} = :{mkey} AND {digit_sql} = :{dkey})")
-        params[mkey] = mold
+        params[mkey] = mold_n
         params[dkey] = digit
     if not clauses:
         return "", {}
@@ -504,7 +520,7 @@ def _query_dim_cavity(
     *,
     dim_col: str,
     dim_key: str,
-    hours: int = 3,
+    hours: int = DEFAULT_LIM_HOURS,
     metric: str = "appearance",
     exclude_machine_cavities=None,
     exclude_body_cavities=None,
@@ -586,7 +602,7 @@ def _query_dim_cavity(
 def query_machine_cavity(
     project_id: str,
     *,
-    hours: int = 3,
+    hours: int = DEFAULT_LIM_HOURS,
     metric: str = "appearance",
     exclude_machine_cavities=None,
     exclude_body_cavities=None,
@@ -606,7 +622,7 @@ def query_machine_cavity(
 def query_machine_cavity_breakdown(
     project_id: str,
     *,
-    hours: int = 3,
+    hours: int = DEFAULT_LIM_HOURS,
 ) -> dict:
     """近 N 小时按机台 × 模穴汇总外观不良，并带上各不良项件数。"""
     ctx = _cavity_ctx(
@@ -703,12 +719,12 @@ def query_machine_cavity_breakdown(
 def query_body_cavity(
     project_id: str,
     *,
-    hours: int = 3,
+    hours: int = DEFAULT_LIM_HOURS,
     metric: str = "appearance",
     exclude_machine_cavities=None,
     exclude_body_cavities=None,
 ) -> dict:
-    """近 N 小时按本体码拆分：第 1 位模具 × 第 2 位穴位 1–8。"""
+    """近 N 小时按本体码拆分：第 1 位模具（0–9/A–Z）× 第 2 位穴位 1–8。"""
     extra = ["本体"]
     if _parse_pairs(exclude_machine_cavities):
         extra.append("机台")
@@ -720,7 +736,7 @@ def query_body_cavity(
     table = ctx["table"]
     hour_sql = q(ident("hour"))
     body_sql = q(ident("本体"))
-    mold_sql = f"SUBSTRING(BTRIM({body_sql}) FROM 1 FOR 1)"
+    mold_sql = f"UPPER(SUBSTRING(BTRIM({body_sql}) FROM 1 FOR 1))"
     cavity_sql = f"SUBSTRING(BTRIM({body_sql}) FROM 2 FOR 1)"
     qty_sql, ng_sql = q(ident(ctx["qty_col"])), q(ident(ctx["ng_col"]))
     machine_excl, machine_params = _exclude_machine_cavity_sql(
@@ -741,7 +757,7 @@ def query_body_cavity(
         f"WHERE bounds.hi IS NOT NULL "
         f"AND {hour_sql} >= bounds.hi - (:hours - 1) * INTERVAL '1 hour' "
         f"AND CHAR_LENGTH(BTRIM({body_sql})) >= 2 "
-        f"AND {mold_sql} ~ '^[0-9]$' "
+        f"AND {mold_sql} ~ '{_BODY_MOLD_RE}' "
         f"AND {cavity_sql} ~ '^[1-8]$' "
         f"{machine_excl}{body_excl} "
         f"GROUP BY {mold_sql}, {cavity_sql} "

@@ -145,7 +145,7 @@ def request_disk_cleanup(*, trigger: str = "manual") -> dict:
     return {
         "accepted": True,
         "job_id": job["id"],
-        "message": "已入队，等待 Worker 执行",
+        "message": "已入队，等待 cleanup_worker 执行",
         "status": job["status"],
     }
 
