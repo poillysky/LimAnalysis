@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core.ads_query import (
@@ -27,6 +27,9 @@ from app.core.personnel import list_persons
 CAVITY_LETTERS = frozenset("ABCDEFGHJKLMNPQR")
 DAY_START_MIN = 7 * 60 + 30
 NIGHT_START_MIN = 19 * 60 + 30
+DAY_START = time(7, 30)
+NIGHT_START = time(19, 30)
+DUTIES = ("白班", "夜班")
 TZ = ZoneInfo("Asia/Shanghai")
 DEFAULT_RULES = {
     "lim_cavity_rate_above_pct": 5.0,
@@ -177,6 +180,34 @@ def current_duty(now: datetime | None = None) -> str:
     if DAY_START_MIN <= minutes < NIGHT_START_MIN:
         return "白班"
     return "夜班"
+
+
+def current_duty_date(now: datetime | None = None) -> date:
+    """当前班次归属的生产日。
+
+    白班 / 当晚夜班（≥19:30）→ 日历当天；
+    凌晨夜班（0:00–7:30）→ 前一天（班次从昨夜 19:30 起）。
+    """
+    stamp = now.astimezone(TZ) if now else datetime.now(TZ)
+    day = stamp.date()
+    minutes = stamp.hour * 60 + stamp.minute
+    if minutes < DAY_START_MIN:
+        return day - timedelta(days=1)
+    return day
+
+
+def duty_bounds(day: date, duty: str) -> tuple[datetime, datetime]:
+    """班次半开区间 [start, end)：白班 07:30–19:30，夜班 19:30–次日 07:30。"""
+    text = str(duty or "").strip()
+    if text not in DUTIES:
+        raise ValueError("班次应为白班或夜班")
+    if text == "白班":
+        start = datetime.combine(day, DAY_START, tzinfo=TZ)
+        end = datetime.combine(day, NIGHT_START, tzinfo=TZ)
+    else:
+        start = datetime.combine(day, NIGHT_START, tzinfo=TZ)
+        end = datetime.combine(day + timedelta(days=1), DAY_START, tzinfo=TZ)
+    return start, end
 
 
 def _rate_pct(qty: float, ng: float) -> float | None:

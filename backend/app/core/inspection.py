@@ -265,6 +265,14 @@ def _to_client_image(item: dict, root: Path, source: str) -> dict | None:
     filename = str(item.get("filename") or "")
     # 优先按文件名解析 SN（注塑 OK,SN,A → 只要中间字母串），避免把整段文件名当 sn
     sn = extract_sn_from_filename(filename) or str(item.get("sn") or "").strip()
+    server_time = item.get("server_time")
+    if hasattr(server_time, "isoformat"):
+        try:
+            server_time = server_time.isoformat()
+        except (TypeError, ValueError):
+            server_time = None
+    elif server_time is not None:
+        server_time = str(server_time)
     return {
         "id": rel,
         "machine": item["machine"],
@@ -273,6 +281,7 @@ def _to_client_image(item: dict, root: Path, source: str) -> dict | None:
         "date_str": item["date_str"],
         "rel_path": rel,
         "sn": sn,
+        "server_time": server_time,
         "status": extract_status(filename) or str(item.get("status") or "").strip(),
         "camera": str(item.get("camera") or item.get("cavity") or ""),
         "view_url": (
@@ -494,6 +503,7 @@ def _raw_layout_cols(project: dict) -> dict:
     machine_col = _pick_raw_col(columns, "机台")
     cavity_col = _pick_raw_col(columns, "模穴", "模具模穴")
     time_col = _pick_raw_col(columns, *RAW_TIME_COL_CANDIDATES)
+    body_col = _pick_raw_col(columns, "本体")
     if not sn_col or not machine_col or not cavity_col:
         raise ValueError("原始表缺少 SN / 机台 / 模穴 字段，无法按注塑机维度查图")
     return {
@@ -502,7 +512,51 @@ def _raw_layout_cols(project: dict) -> dict:
         "machine": machine_col,
         "cavity": cavity_col,
         "time": time_col,
+        "body": body_col,
     }
+
+
+def _normalize_body_code(value: str) -> str:
+    """本体号：模具位[0-9A-Z] + 穴位位[1-8]，如 A1。"""
+    text = str(value or "").strip().upper()
+    if len(text) != 2:
+        return ""
+    mold, digit = text[0], text[1]
+    if not ((mold.isdigit() or mold.isalpha()) and digit in "12345678"):
+        return ""
+    return f"{mold}{digit}"
+
+
+def _body_expr_sql(layout: dict) -> str:
+    """raw 本体码表达式：优先本体列，否则 SN 第 13–14 位。"""
+    sn_sql = q(ident(layout["sn"]))
+    sn_body = f"UPPER(SUBSTRING(BTRIM(({sn_sql})::text) FROM 13 FOR 2))"
+    body_col = layout.get("body")
+    if not body_col:
+        return sn_body
+    body_sql = q(ident(body_col))
+    return (
+        f"UPPER(BTRIM(COALESCE("
+        f"NULLIF(BTRIM(({body_sql})::text), ''), "
+        f"SUBSTRING(BTRIM(({sn_sql})::text) FROM 13 FOR 2)"
+        f")))"
+    )
+
+
+def _day_clause_sql(layout: dict, date_str: str, params: dict) -> str:
+    ymd = _ymd_only(date_str)
+    time_col = layout.get("time")
+    if not ymd or not time_col:
+        return ""
+    time_sql = q(ident(time_col))
+    start = datetime.strptime(ymd, "%Y%m%d")
+    end = start + timedelta(days=1)
+    params["day_start"] = start.strftime("%Y-%m-%d %H:%M:%S")
+    params["day_end"] = end.strftime("%Y-%m-%d %H:%M:%S")
+    return (
+        f" AND ({time_sql})::timestamp >= CAST(:day_start AS timestamp)"
+        f" AND ({time_sql})::timestamp < CAST(:day_end AS timestamp)"
+    )
 
 
 def _ymd_only(date_str: str) -> str:
@@ -603,15 +657,19 @@ def _attach_server_times(project: dict, raw_items: list[dict]) -> None:
         item["server_time"] = meta[sn].get("server_time")
 
 
-def _sort_raw_images_by_server_time(raw_items: list[dict]) -> None:
-    """按 ServerTime 升序（早→晚）；无 ServerTime 的落到后面，再用 mtime。"""
+def _sort_raw_images_by_server_time(
+    raw_items: list[dict], *, newest_first: bool = False
+) -> None:
+    """按 ServerTime 排序；无 ServerTime 的落到后面，再用 mtime。
+    newest_first=False：早→晚（查阅页时间轴）；True：晚→早（弹窗最新优先）。"""
 
     def sort_key(item: dict):
         epoch = _server_time_epoch(item.get("server_time"))
         name = str(item.get("filename") or "").lower()
         if epoch is not None:
-            return (0, epoch, name)
-        return (1, float(item.get("mtime") or 0), name)
+            return (0, -epoch if newest_first else epoch, name)
+        mtime = float(item.get("mtime") or 0)
+        return (1, -mtime if newest_first else mtime, name)
 
     raw_items.sort(key=sort_key)
 
@@ -786,6 +844,102 @@ def list_production_dates_for_machine(
     return out
 
 
+def list_sns_for_body(
+    project: dict,
+    body_code: str,
+    *,
+    date_str: str = "",
+    limit: int = APPEARANCE_SN_LIMIT,
+) -> dict:
+    """生产日×本体号 → SN 列表，及涉及的机台×模穴字母（供注塑目录扫图）。"""
+    code = _normalize_body_code(body_code)
+    if not code:
+        raise ValueError("本体号无效（应为模具位+穴位位，如 A1）")
+    layout = _raw_layout_cols(project)
+    sn_sql = q(ident(layout["sn"]))
+    machine_sql = q(ident(layout["machine"]))
+    cavity_sql = q(ident(layout["cavity"]))
+    body_expr = _body_expr_sql(layout)
+    letter_sql = _cavity_letter_sql(cavity_sql)
+    params: dict = {"body": code, "lim": max(1, int(limit))}
+    day_clause = _day_clause_sql(layout, date_str, params)
+    sql = text(
+        f"SELECT BTRIM(({sn_sql})::text) AS sn, "
+        f"BTRIM(({machine_sql})::text) AS machine, "
+        f"{letter_sql} AS letter "
+        f"FROM {q(ident(layout['table']))} "
+        f"WHERE {body_expr} = :body "
+        f"AND BTRIM(({sn_sql})::text) <> '' "
+        f"{day_clause}"
+        f"LIMIT :lim"
+    )
+    with stores.raw_engine.connect() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    sns: list[str] = []
+    seen_sn: set[str] = set()
+    pairs: list[tuple[str, str]] = []
+    seen_pair: set[tuple[str, str]] = set()
+    for row in rows:
+        sn = str(row[0] or "").strip()
+        machine = str(row[1] or "").strip()
+        letter = str(row[2] or "").strip().upper()
+        if sn and sn not in seen_sn:
+            seen_sn.add(sn)
+            sns.append(sn)
+        if machine and letter in CAVITY_LETTERS:
+            key = (machine, letter)
+            if key not in seen_pair:
+                seen_pair.add(key)
+                pairs.append(key)
+    return {"body": code, "sns": sns, "pairs": pairs}
+
+
+def list_production_dates_for_body(
+    project: dict,
+    body_code: str,
+    *,
+    limit: int = APPEARANCE_MOLD_DATE_LIMIT,
+) -> list[str]:
+    """本体号维度：raw ServerTime 生产日（YYYYMMDD）。"""
+    code = _normalize_body_code(body_code)
+    if not code:
+        return []
+    layout = _raw_layout_cols(project)
+    time_col = layout.get("time")
+    if not time_col:
+        return []
+    sn_sql = q(ident(layout["sn"]))
+    time_sql = q(ident(time_col))
+    body_expr = _body_expr_sql(layout)
+    params: dict = {"body": code, "lim": max(1, int(limit))}
+    sql = text(
+        f"SELECT DISTINCT to_char(({time_sql})::timestamp, 'YYYYMMDD') AS d "
+        f"FROM {q(ident(layout['table']))} "
+        f"WHERE {body_expr} = :body "
+        f"AND BTRIM(({sn_sql})::text) <> '' "
+        f"AND ({time_sql}) IS NOT NULL "
+        f"ORDER BY d DESC "
+        f"LIMIT :lim"
+    )
+    with stores.raw_engine.connect() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    out: list[str] = []
+    for row in rows:
+        day = str(row[0] or "").strip()
+        if day and day not in out:
+            out.append(day)
+    return out
+
+
+def _dates_with_today_default(ordered: list[str], today: str) -> tuple[list[str], str]:
+    """日期列表保证含当天；默认日固定当天（无图由前端提示「当日无图片」）。"""
+    day = str(today or "").strip()
+    dates = [str(d).strip() for d in ordered if str(d).strip()]
+    if day and day not in dates:
+        dates = [day, *dates]
+    return dates, day
+
+
 def _appearance_union_views(project_dir: Path) -> list[str]:
     views: set[str] = set()
     for tester_name in _child_dir_names(project_dir):
@@ -855,8 +1009,6 @@ def list_appearance_dates(
     project_dir = _appearance_project_dir(root, project)
     today = today_str()
     if kind == "mold":
-        if not camera_name:
-            raise ValueError("请选择视角")
         machine_name = str(tester or "").strip()
         ordered: list[str] = []
         if machine_name:
@@ -866,16 +1018,19 @@ def list_appearance_dates(
                 ordered = []
         if not ordered:
             # 无生产时间列或该机台尚无 raw 时，退回外观目录日（查图仍会向后扫）
+            if not camera_name:
+                raise ValueError("请选择视角")
             ordered = _appearance_union_dates(project_dir, camera_name)
         machines = [
             str(code).strip()
             for code in (project.get("machines") or [])
             if str(code).strip()
         ]
+        dates_out, default_date = _dates_with_today_default(ordered, today)
         return {
-            "dates": ordered,
+            "dates": dates_out,
             "today": today,
-            "default_date": _appearance_default_date(ordered),
+            "default_date": default_date,
             "layout": APPEARANCE_MOLD_LAYOUT,
             "dim": "mold",
             "date_kind": "production",
@@ -1077,7 +1232,13 @@ def _kick_appearance_index_if_empty(project_key: str, project_dir: Path) -> None
 
 
 def list_appearance_images_by_mold(
-    project_id: str, machine: str, cavity: str, camera: str, date_str: str
+    project_id: str,
+    machine: str,
+    cavity: str,
+    camera: str,
+    date_str: str,
+    *,
+    newest_first: bool = False,
 ) -> dict:
     """注塑机维度：生产日×机台×穴位 → SN，再靠外观 SN 索引出图。"""
     machine_name = str(machine or "").strip()
@@ -1141,7 +1302,7 @@ def list_appearance_images_by_mold(
         if missing_rels:
             drop_files_by_rel_paths(project_key, missing_rels)
     _attach_server_times(project, raw_items)
-    _sort_raw_images_by_server_time(raw_items)
+    _sort_raw_images_by_server_time(raw_items, newest_first=newest_first)
     images = []
     for item in raw_items:
         client = _to_client_image(item, root, "appearance")
@@ -1179,8 +1340,414 @@ def list_appearance_images_by_mold(
     }
 
 
+def list_appearance_images_by_body(
+    project_id: str,
+    body_code: str,
+    camera: str,
+    date_str: str,
+    *,
+    newest_first: bool = False,
+) -> dict:
+    """本体号维度：生产日×本体号 → SN，再靠外观 SN 索引出图。"""
+    code = _normalize_body_code(body_code)
+    camera_name = str(camera or "").strip()
+    day = str(date_str or "").strip()
+    if not code or not camera_name or not day:
+        raise ValueError("请选择本体号、视角和生产日")
+    project = _enabled_project(project_id)
+    root = _root("appearance")
+    project_dir = _appearance_project_dir(root, project)
+    project_key = str(project["project_id"])
+    prod_ymd = _ymd_only(day) or day
+    hit = list_sns_for_body(project, code, date_str=prod_ymd)
+    sn_set = set(hit["sns"])
+    scan_days = _ymd_range(prod_ymd, APPEARANCE_MOLD_LOOKAHEAD_DAYS) or [prod_ymd]
+    raw_items: list[dict] = []
+    if sn_set:
+        _kick_appearance_index_if_empty(project_key, project_dir)
+        _schedule_appearance_windows(
+            project_key,
+            project_dir,
+            view=camera_name,
+            date_ymds=scan_days,
+        )
+        hits = query_files_by_sns(
+            project_key, sn_set, view=camera_name, date_ymds=scan_days
+        )
+        missing_rels: list[str] = []
+        for row in hits:
+            rel = str(row.get("rel_path") or "")
+            abs_path = (project_dir / rel).resolve()
+            try:
+                abs_path.relative_to(root)
+            except ValueError:
+                if rel:
+                    missing_rels.append(rel)
+                continue
+            if not abs_path.is_file():
+                if rel:
+                    missing_rels.append(rel)
+                continue
+            raw_items.append(
+                {
+                    "machine": str(row.get("tester") or ""),
+                    "cavity": code,
+                    "camera": camera_name,
+                    "filename": row["filename"],
+                    "date_str": row["date_str"],
+                    "path": str(abs_path),
+                    "mtime": row["mtime"],
+                    "sn": row["sn"],
+                    "tester": row["tester"],
+                }
+            )
+        if missing_rels:
+            drop_files_by_rel_paths(project_key, missing_rels)
+    _attach_server_times(project, raw_items)
+    _sort_raw_images_by_server_time(raw_items, newest_first=newest_first)
+    images = []
+    for item in raw_items:
+        client = _to_client_image(item, root, "appearance")
+        if client:
+            images.append(client)
+    hint = ""
+    look = APPEARANCE_MOLD_LOOKAHEAD_DAYS
+    building = is_appearance_index_building(project_key)
+    has_index = appearance_index_has_rows(project_key)
+    if not sn_set:
+        hint = f"原始库没有本体 {code}、生产日 {prod_ymd} 的 SN"
+    elif not images and (building or not has_index):
+        hint = "索引仍在后台生成/更新，稍后再查即可看到新图"
+    elif not images:
+        hint = (
+            f"有 {len(sn_set)} 个生产日 SN，"
+            f"但随后 {look} 天内该视角没有对应外观截图"
+        )
+    return {
+        "project_id": project["project_id"],
+        "project_name": project["display_name"],
+        "dim": "body",
+        "body": code,
+        "camera": camera_name,
+        "date_str": prod_ymd,
+        "date_kind": "production",
+        "lookahead_days": look,
+        "scan_dates": scan_days,
+        "layout": APPEARANCE_MOLD_LAYOUT,
+        "sn_count": len(sn_set),
+        "hint": hint,
+        "total_count": len(images),
+        "images": images,
+    }
+
+
+def _collect_mold_dir_raw_items(
+    project: dict,
+    machine: str,
+    cavity: str,
+    date_str: str,
+    status_name: str,
+) -> list[dict]:
+    """扫描注塑机目录下一机台×穴位×日的文件（未挂 ServerTime）。"""
+    machine_name = str(machine or "").strip()
+    letter = str(cavity or "").strip().upper()
+    day = str(date_str or "").strip()
+    if not machine_name or letter not in CAVITY_LETTERS or not day:
+        return []
+    root = _root("mold")
+    try:
+        machine_dir, layout = _machine_context(root, project, machine_name)
+    except ValueError:
+        return []
+    if not machine_dir.exists() or not machine_dir.is_dir():
+        return []
+    raw_items: list[dict] = []
+    if layout == "flat":
+        for image_file in machine_dir.iterdir():
+            if not image_file.is_file() or image_file.suffix.lower() not in IMAGE_SUFFIXES:
+                continue
+            detected_point = extract_cavity(image_file.name)
+            if detected_point and detected_point != letter:
+                continue
+            detected_status = extract_status(image_file.name)
+            if detected_status and detected_status != status_name:
+                continue
+            try:
+                stat = image_file.stat()
+            except OSError:
+                continue
+            file_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y%m%d")
+            if file_date != day:
+                continue
+            raw_items.append(
+                {
+                    "machine": machine_name,
+                    "cavity": letter,
+                    "filename": image_file.name,
+                    "date_str": day,
+                    "path": str(image_file.resolve()),
+                    "mtime": stat.st_mtime,
+                }
+            )
+        return raw_items
+    search_dirs: list[Path] = []
+    if layout == "source":
+        point_dir = machine_dir / day / letter
+        status_dir = point_dir / status_name
+        if status_dir.is_dir():
+            search_dirs = [status_dir]
+        elif point_dir.is_dir():
+            search_dirs = [point_dir]
+    else:
+        direct = machine_dir / letter / day
+        if direct.is_dir():
+            search_dirs = [direct]
+        else:
+            for point_dir in machine_dir.iterdir():
+                if not point_dir.is_dir():
+                    continue
+                date_dir = point_dir / day
+                if date_dir.is_dir():
+                    search_dirs.append(date_dir)
+    seen: set[str] = set()
+    for search_dir in search_dirs:
+        try:
+            entries = list(search_dir.iterdir())
+        except OSError:
+            continue
+        for image_file in entries:
+            if not image_file.is_file() or image_file.suffix.lower() not in IMAGE_SUFFIXES:
+                continue
+            if layout == "archive":
+                detected_status = extract_status(image_file.name)
+                if detected_status and detected_status != status_name:
+                    continue
+                detected_point = extract_cavity(image_file.name)
+                if detected_point and detected_point != letter:
+                    continue
+            key = str(image_file.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                stat = image_file.stat()
+            except OSError:
+                continue
+            raw_items.append(
+                {
+                    "machine": machine_name,
+                    "cavity": letter,
+                    "filename": image_file.name,
+                    "date_str": day,
+                    "path": key,
+                    "mtime": stat.st_mtime,
+                }
+            )
+    return raw_items
+
+
+def list_mold_images_by_body(
+    project_id: str,
+    body_code: str,
+    date_str: str,
+    status: str = "OK",
+    *,
+    newest_first: bool = False,
+) -> dict:
+    """本体号维度：生产日 SN → 对应机台×模穴目录图，按 SN 过滤。"""
+    code = _normalize_body_code(body_code)
+    day = str(date_str or "").strip()
+    status_name = str(status or "OK").strip() or "OK"
+    if not code or not day:
+        raise ValueError("请选择本体号和生产日")
+    if status_name not in VIEWER_STATUSES:
+        raise ValueError("状态无效")
+    project = _enabled_project(project_id)
+    prod_ymd = _ymd_only(day) or day
+    hit = list_sns_for_body(project, code, date_str=prod_ymd)
+    sn_set = set(hit["sns"])
+    pairs = hit["pairs"]
+    root = _root("mold")
+    raw_items: list[dict] = []
+    seen_path: set[str] = set()
+    for machine_name, letter in pairs:
+        for item in _collect_mold_dir_raw_items(
+            project, machine_name, letter, prod_ymd, status_name
+        ):
+            path = str(item.get("path") or "")
+            if path and path in seen_path:
+                continue
+            if path:
+                seen_path.add(path)
+            raw_items.append(item)
+    _attach_server_times(project, raw_items)
+    if sn_set:
+        filtered: list[dict] = []
+        for item in raw_items:
+            sn = str(item.get("sn") or "").strip()
+            if not sn:
+                sn = extract_sn_from_filename(str(item.get("filename") or ""))
+            if sn and sn in sn_set:
+                item["sn"] = sn
+                filtered.append(item)
+        raw_items = filtered
+    else:
+        raw_items = []
+    _sort_raw_images_by_server_time(raw_items, newest_first=newest_first)
+    images = []
+    for item in raw_items:
+        client = _to_client_image(item, root, "mold")
+        if client:
+            images.append(client)
+    hint = ""
+    if not sn_set:
+        hint = f"原始库没有本体 {code}、生产日 {prod_ymd} 的 SN"
+    elif not images:
+        hint = f"有 {len(sn_set)} 个生产日 SN，但注塑目录未找到对应图片"
+    return {
+        "project_id": project["project_id"],
+        "project_name": project["display_name"],
+        "dim": "body",
+        "body": code,
+        "date_str": prod_ymd,
+        "date_kind": "production",
+        "status": status_name,
+        "sn_count": len(sn_set),
+        "hint": hint,
+        "total_count": len(images),
+        "images": images,
+    }
+
+
+def list_appearance_tester_view_counts(
+    project_id: str, tester: str, date_str: str
+) -> dict:
+    """外观机维度：选定截图日下各视角目录内图片数。"""
+    tester_name = str(tester or "").strip()
+    day = str(date_str or "").strip()
+    if not tester_name or not day:
+        raise ValueError("请选择外观机和日期")
+    project = _enabled_project(project_id)
+    root = _root("appearance")
+    project_dir = _appearance_project_dir(root, project)
+    tester_dir = _under_root(root, project_dir / tester_name)
+    session_dir = _appearance_session_dir(tester_dir)
+    date_dir = _appearance_resolve_date_dir(session_dir, day)
+    disk_date = date_dir.name if date_dir is not None else day
+    views = _appearance_list_views(session_dir, disk_date if date_dir else "")
+    if not views:
+        views = _appearance_list_views(session_dir)
+    cameras: list[dict] = []
+    for view_name in views:
+        count = 0
+        view_dir = (
+            _appearance_view_dir(date_dir, view_name) if date_dir is not None else None
+        )
+        if view_dir is not None and view_dir.is_dir():
+            try:
+                entries = list(view_dir.iterdir())
+            except OSError:
+                entries = []
+            for image_file in entries:
+                if (
+                    image_file.is_file()
+                    and image_file.suffix.lower() in IMAGE_SUFFIXES
+                ):
+                    count += 1
+        cameras.append({"camera": view_name, "count": count})
+    return {
+        "project_id": project["project_id"],
+        "dim": "tester",
+        "machine": tester_name,
+        "date_str": disk_date,
+        "date_kind": "directory",
+        "cameras": cameras,
+    }
+
+
+def list_appearance_view_counts(
+    project_id: str,
+    machine: str = "",
+    cavity: str = "",
+    date_str: str = "",
+    *,
+    dim: str = "mold",
+    body: str = "",
+) -> dict:
+    """外观各视角数量。dim=mold：生产日×机台×穴位或本体号；dim=tester：截图日×外观机。"""
+    kind = _appearance_dim(dim)
+    if kind == "tester":
+        return list_appearance_tester_view_counts(project_id, machine, date_str)
+
+    from app.core.appearance_index import count_files_by_sns_per_view
+
+    day = str(date_str or "").strip()
+    body_code = _normalize_body_code(body)
+    project = _enabled_project(project_id)
+    root = _root("appearance")
+    project_dir = _appearance_project_dir(root, project)
+    project_key = str(project["project_id"])
+    prod_ymd = _ymd_only(day) or day
+    views = _appearance_union_views(project_dir)
+
+    if body_code:
+        if not day:
+            raise ValueError("请选择本体号和生产日")
+        hit = list_sns_for_body(project, body_code, date_str=prod_ymd)
+        sn_set = set(hit["sns"])
+        scope = {"dim": "body", "body": body_code}
+    else:
+        machine_name = str(machine or "").strip()
+        letter = str(cavity or "").strip().upper()
+        if not machine_name or not letter or not day:
+            raise ValueError("请选择注塑机台、穴位和生产日")
+        if letter not in CAVITY_LETTERS:
+            raise ValueError("穴位无效")
+        sn_set = set(
+            list_sns_for_machine_cavity(
+                project, machine_name, letter, date_str=prod_ymd
+            )
+        )
+        scope = {"dim": "mold", "machine": machine_name, "cavity": letter}
+
+    scan_days = _ymd_range(prod_ymd, APPEARANCE_MOLD_LOOKAHEAD_DAYS) or [prod_ymd]
+    counts: dict[str, int] = {name: 0 for name in views}
+    if sn_set and views:
+        _kick_appearance_index_if_empty(project_key, project_dir)
+        for view_name in views:
+            _schedule_appearance_windows(
+                project_key,
+                project_dir,
+                view=view_name,
+                date_ymds=scan_days,
+            )
+        counts.update(
+            count_files_by_sns_per_view(
+                project_key, sn_set, date_ymds=scan_days, views=views
+            )
+        )
+    cameras = [
+        {"camera": name, "count": int(counts.get(name, 0))} for name in views
+    ]
+    return {
+        "project_id": project["project_id"],
+        **scope,
+        "date_str": prod_ymd,
+        "date_kind": "production",
+        "lookahead_days": APPEARANCE_MOLD_LOOKAHEAD_DAYS,
+        "scan_dates": scan_days,
+        "sn_count": len(sn_set),
+        "cameras": cameras,
+    }
+
+
 def list_appearance_images(
-    project_id: str, tester: str, camera: str, date_str: str
+    project_id: str,
+    tester: str,
+    camera: str,
+    date_str: str,
+    *,
+    newest_first: bool = False,
 ) -> dict:
     tester_name = str(tester or "").strip()
     camera_name = str(camera or "").strip()
@@ -1220,7 +1787,7 @@ def list_appearance_images(
                 }
             )
     _attach_server_times(project, raw_items)
-    _sort_raw_images_by_server_time(raw_items)
+    _sort_raw_images_by_server_time(raw_items, newest_first=newest_first)
     images = []
     for item in raw_items:
         client = _to_client_image(item, root, "appearance")
@@ -1346,11 +1913,42 @@ def search_appearance_images(
 
 def list_viewer_dates(
     project_id: str,
-    machine: str,
+    machine: str = "",
     source: str = "mold",
     camera: str = "",
     dim: str = "tester",
+    body: str = "",
 ) -> dict:
+    body_code = _normalize_body_code(body)
+    # 本体号：注塑/外观均按 ServerTime 生产日
+    if body_code:
+        project = _enabled_project(project_id)
+        today = today_str()
+        ordered: list[str] = []
+        try:
+            ordered = list_production_dates_for_body(project, body_code)
+        except ValueError:
+            ordered = []
+        dates_out, default_date = _dates_with_today_default(ordered, today)
+        kind = _photo_source(source)
+        if kind == "appearance":
+            root = _root("appearance")
+            project_dir = _appearance_project_dir(root, project)
+            cameras = _appearance_union_views(project_dir)
+        else:
+            cameras = []
+        return {
+            "dates": dates_out,
+            "today": today,
+            "default_date": default_date,
+            "date_kind": "production",
+            "dim": "body",
+            "body": body_code,
+            "layout": APPEARANCE_MOLD_LAYOUT if kind == "appearance" else "body",
+            "cavities": list(CAVITY_ORDER),
+            "statuses": list(VIEWER_STATUSES),
+            "cameras": cameras,
+        }
     if _photo_source(source) == "appearance":
         return list_appearance_dates(project_id, machine, camera, dim=dim)
     project = _enabled_project(project_id)
@@ -1360,35 +1958,48 @@ def list_viewer_dates(
     root = _root(source)
     today = today_str()
     machine_dir, layout = _machine_context(root, project, machine)
-    dates: set[str] = set()
-    if not machine_dir.exists() or not machine_dir.is_dir():
-        return {"dates": [], "today": today, "default_date": ""}
-    if layout == "source":
-        for item in machine_dir.iterdir():
-            if item.is_dir() and item.name.isdigit():
-                dates.add(item.name)
-    elif layout == "archive":
-        for point_dir in machine_dir.iterdir():
-            if not point_dir.is_dir():
-                continue
-            for date_dir in point_dir.iterdir():
-                if date_dir.is_dir() and date_dir.name.isdigit():
-                    dates.add(date_dir.name)
-    else:
-        for image_file in machine_dir.iterdir():
-            if not image_file.is_file() or image_file.suffix.lower() not in IMAGE_SUFFIXES:
-                continue
-            try:
-                stamp = datetime.fromtimestamp(image_file.stat().st_mtime)
-            except OSError:
-                continue
-            dates.add(stamp.strftime("%Y%m%d"))
-    ordered = sorted(dates, reverse=True)
-    default_date = today if today in ordered else (ordered[0] if ordered else "")
+    # 与外观注塑机维对齐：日期下拉用 lim_raw.ServerTime 生产日
+    ordered = []
+    date_kind = "production"
+    try:
+        ordered = list_production_dates_for_machine(project, machine)
+    except ValueError:
+        ordered = []
+    if not ordered:
+        # 无生产日时退回目录日，便于空库/尚未入库时仍能浏览
+        date_kind = "directory"
+        dates: set[str] = set()
+        if machine_dir.exists() and machine_dir.is_dir():
+            if layout == "source":
+                for item in machine_dir.iterdir():
+                    if item.is_dir() and item.name.isdigit():
+                        dates.add(item.name)
+            elif layout == "archive":
+                for point_dir in machine_dir.iterdir():
+                    if not point_dir.is_dir():
+                        continue
+                    for date_dir in point_dir.iterdir():
+                        if date_dir.is_dir() and date_dir.name.isdigit():
+                            dates.add(date_dir.name)
+            else:
+                for image_file in machine_dir.iterdir():
+                    if (
+                        not image_file.is_file()
+                        or image_file.suffix.lower() not in IMAGE_SUFFIXES
+                    ):
+                        continue
+                    try:
+                        stamp = datetime.fromtimestamp(image_file.stat().st_mtime)
+                    except OSError:
+                        continue
+                    dates.add(stamp.strftime("%Y%m%d"))
+        ordered = sorted(dates, reverse=True)
+    dates_out, default_date = _dates_with_today_default(ordered, today)
     return {
-        "dates": ordered,
+        "dates": dates_out,
         "today": today,
         "default_date": default_date,
+        "date_kind": date_kind,
         "layout": layout,
         "cavities": list(CAVITY_ORDER),
         "statuses": list(VIEWER_STATUSES),
@@ -1397,28 +2008,61 @@ def list_viewer_dates(
 
 def list_viewer_images(
     project_id: str,
-    machine: str,
-    cavity: str,
-    date_str: str,
+    machine: str = "",
+    cavity: str = "",
+    date_str: str = "",
     status: str = "OK",
     source: str = "mold",
     dim: str = "tester",
     camera: str = "",
+    body: str = "",
+    *,
+    newest_first: bool = False,
 ) -> dict:
-    project = _enabled_project(project_id)
-    machine = str(machine or "").strip()
-    cavity_name = str(cavity or "").strip()
+    body_code = _normalize_body_code(body)
     date_str = str(date_str or "").strip()
     status_name = str(status or "OK").strip() or "OK"
     kind = _photo_source(source)
+    if body_code:
+        if kind == "appearance":
+            view = str(camera or cavity or "").strip()
+            return list_appearance_images_by_body(
+                project_id,
+                body_code,
+                view,
+                date_str,
+                newest_first=newest_first,
+            )
+        return list_mold_images_by_body(
+            project_id,
+            body_code,
+            date_str,
+            status=status_name,
+            newest_first=newest_first,
+        )
+
+    project = _enabled_project(project_id)
+    machine = str(machine or "").strip()
+    cavity_name = str(cavity or "").strip()
     if kind == "appearance":
         if _appearance_dim(dim) == "mold":
             view = str(camera or cavity_name).strip()
             return list_appearance_images_by_mold(
-                project_id, machine, cavity_name, view, date_str
+                project_id,
+                machine,
+                cavity_name,
+                view,
+                date_str,
+                newest_first=newest_first,
             )
         # tester 模式：machine=测试机，cavity=视角
-        return list_appearance_images(project_id, machine, cavity_name, date_str)
+        return list_appearance_images(
+            project_id,
+            machine,
+            cavity_name,
+            date_str,
+            newest_first=newest_first,
+        )
     cavity = cavity_name.upper()
     if not machine or not date_str:
         raise ValueError("请选择机台和日期")
@@ -1429,8 +2073,9 @@ def list_viewer_images(
     root = _root(kind)
     machine_dir, layout = _machine_context(root, project, machine)
     project_name = project["display_name"]
-    raw_items: list[dict] = []
-
+    raw_items = _collect_mold_dir_raw_items(
+        project, machine, cavity, date_str, status_name
+    )
     if not machine_dir.exists() or not machine_dir.is_dir():
         return {
             "images": [],
@@ -1442,90 +2087,8 @@ def list_viewer_images(
             "layout": layout,
         }
 
-    if layout == "flat":
-        for image_file in machine_dir.iterdir():
-            if not image_file.is_file() or image_file.suffix.lower() not in IMAGE_SUFFIXES:
-                continue
-            detected_point = extract_cavity(image_file.name)
-            if detected_point and detected_point != cavity:
-                continue
-            detected_status = extract_status(image_file.name)
-            if detected_status and detected_status != status_name:
-                continue
-            try:
-                stat = image_file.stat()
-            except OSError:
-                continue
-            file_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y%m%d")
-            if file_date != date_str:
-                continue
-            raw_items.append(
-                {
-                    "machine": machine,
-                    "cavity": cavity,
-                    "filename": image_file.name,
-                    "date_str": date_str,
-                    "path": str(image_file.resolve()),
-                    "mtime": stat.st_mtime,
-                }
-            )
-    else:
-        search_dirs: list[Path] = []
-        if layout == "source":
-            point_dir = machine_dir / date_str / cavity
-            status_dir = point_dir / status_name
-            if status_dir.is_dir():
-                search_dirs = [status_dir]
-            elif point_dir.is_dir():
-                search_dirs = [point_dir]
-        else:
-            direct = machine_dir / cavity / date_str
-            if direct.is_dir():
-                search_dirs = [direct]
-            else:
-                for point_dir in machine_dir.iterdir():
-                    if not point_dir.is_dir():
-                        continue
-                    date_dir = point_dir / date_str
-                    if date_dir.is_dir():
-                        search_dirs.append(date_dir)
-        seen: set[str] = set()
-        for search_dir in search_dirs:
-            try:
-                entries = list(search_dir.iterdir())
-            except OSError:
-                continue
-            for image_file in entries:
-                if not image_file.is_file() or image_file.suffix.lower() not in IMAGE_SUFFIXES:
-                    continue
-                if layout == "archive":
-                    detected_status = extract_status(image_file.name)
-                    if detected_status and detected_status != status_name:
-                        continue
-                    detected_point = extract_cavity(image_file.name)
-                    if detected_point and detected_point != cavity:
-                        continue
-                key = str(image_file.resolve())
-                if key in seen:
-                    continue
-                seen.add(key)
-                try:
-                    stat = image_file.stat()
-                except OSError:
-                    continue
-                raw_items.append(
-                    {
-                        "machine": machine,
-                        "cavity": cavity,
-                        "filename": image_file.name,
-                        "date_str": date_str,
-                        "path": key,
-                        "mtime": stat.st_mtime,
-                    }
-                )
-
     _attach_server_times(project, raw_items)
-    _sort_raw_images_by_server_time(raw_items)
+    _sort_raw_images_by_server_time(raw_items, newest_first=newest_first)
     images = []
     for item in raw_items:
         client = _to_client_image(item, root, kind)

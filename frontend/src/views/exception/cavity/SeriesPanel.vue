@@ -2,34 +2,106 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   getQuerySeries,
+  SERIES_MAX_HOURS,
   type QueryFilters,
   type QueryHourRow
 } from "@/api/modules/exception";
+import {
+  type InspectionImage,
+  type PhotoSource
+} from "@/api/modules/inspection";
 import { backendErrorHint } from "@/api/http";
+import {
+  emptyPhotoHint,
+  fetchAppearanceCameraOptions,
+  fetchCellPhotoDates,
+  fetchCellPhotos,
+  photoDateLabel,
+  pickCameraValue,
+  type PhotoCameraOption
+} from "@/utils/machineCellPhotos";
 import echarts from "@/plugins/echarts";
 import PageTabs from "@/components/PageTabs/index.vue";
+import { useRenderIcon } from "@/components/ReIcon/src/hooks";
+import ZoomableImage from "@/components/ZoomableImage/index.vue";
 
-const props = defineProps<{
-  projectId: string;
-  metric: string;
-  filters: QueryFilters;
-}>();
+const props = withDefaults(
+  defineProps<{
+    projectId: string;
+    metric: string;
+    filters: QueryFilters;
+    /** LIM 机台×模穴或本体号格开图片页签 */
+    showPhotos?: boolean;
+  }>(),
+  { showPhotos: false }
+);
 
-type PaneKey = "chart" | "table";
+type PaneKey = "chart" | "table" | "mold" | "appearance";
 
 const loading = ref(false);
 const hint = ref("");
 const pane = ref<PaneKey>("chart");
-const paneOptions = [
-  { value: "chart", label: "历史曲线" },
-  { value: "table", label: "每小时明细" }
-];
+const paneOptions = computed(() => {
+  const base: { value: PaneKey; label: string }[] = [
+    { value: "chart", label: "历史曲线" },
+    { value: "table", label: "每小时明细" }
+  ];
+  if (!props.showPhotos) return base;
+  return [
+    ...base,
+    { value: "mold", label: "注塑机图片" },
+    { value: "appearance", label: "自动外观图片" }
+  ];
+});
 const metricLabel = ref("不良率");
 const rows = ref<QueryHourRow[]>([]);
 const chartEl = ref<HTMLDivElement | null>(null);
 let chart: ReturnType<typeof echarts.init> | null = null;
 let seriesAbort: AbortController | null = null;
 let resizeObs: ResizeObserver | null = null;
+
+const photoLoading = ref(false);
+const photoHint = ref("");
+const photoImages = ref<InspectionImage[]>([]);
+const photoIndex = ref(0);
+const photoDates = ref<string[]>([]);
+const photoDate = ref("");
+const photoToday = ref("");
+const photoCameraOptions = ref<PhotoCameraOption[]>([]);
+const photoCamera = ref("");
+const photoCurrent = computed(
+  () => photoImages.value[photoIndex.value] || null
+);
+const photoMachine = computed(() => String(props.filters?.machine || "").trim());
+const photoCavity = computed(() =>
+  String(props.filters?.cavity_letter || props.filters?.cavity || "")
+    .trim()
+    .toUpperCase()
+);
+/** 本体号：模具位 + 穴位位数字（如 A1） */
+const photoBody = computed(() => {
+  const mold = String(props.filters?.body_mold || "")
+    .trim()
+    .toUpperCase();
+  const digit = String(props.filters?.body_cavity || "").trim();
+  if (!mold || !digit) return "";
+  return `${mold}${digit}`;
+});
+const photoMode = computed<"lim" | "body" | "">(
+  () =>
+    photoBody.value
+      ? "body"
+      : photoMachine.value && photoCavity.value
+        ? "lim"
+        : ""
+);
+const photoScopeLabel = computed(() => {
+  if (photoMode.value === "body") return `本体 ${photoBody.value}`;
+  if (photoMode.value === "lim") {
+    return `${photoMachine.value}${photoCavity.value ? ` · ${photoCavity.value}穴` : ""}`;
+  }
+  return "";
+});
 
 function isAbortError(error: unknown) {
   return (
@@ -332,7 +404,8 @@ async function loadSeries() {
       props.projectId,
       props.metric || "appearance",
       props.filters,
-      signal
+      signal,
+      SERIES_MAX_HOURS
     );
     const data = res?.data;
     metricLabel.value = data?.metric_label || "不良率";
@@ -343,6 +416,141 @@ async function loadSeries() {
     if (!isAbortError(error)) hint.value = backendErrorHint(error);
   } finally {
     loading.value = false;
+  }
+}
+
+async function ensurePhotoDates(source: PhotoSource, keepDate = false) {
+  const meta = await fetchCellPhotoDates({
+    projectId: props.projectId,
+    source,
+    machine: photoMode.value === "lim" ? photoMachine.value : undefined,
+    body: photoMode.value === "body" ? photoBody.value : undefined
+  });
+  photoDates.value = meta.dates;
+  photoToday.value = meta.today;
+  if (keepDate && photoDate.value && meta.dates.includes(photoDate.value)) {
+    return;
+  }
+  photoDate.value = meta.defaultDate;
+}
+
+async function ensureAppearanceCameras() {
+  if (!photoDate.value) {
+    photoCameraOptions.value = [];
+    photoCamera.value = "";
+    return;
+  }
+  const options = await fetchAppearanceCameraOptions({
+    projectId: props.projectId,
+    date: photoDate.value,
+    machine: photoMode.value === "lim" ? photoMachine.value : undefined,
+    cavity: photoMode.value === "lim" ? photoCavity.value : undefined,
+    body: photoMode.value === "body" ? photoBody.value : undefined
+  });
+  photoCameraOptions.value = options;
+  // 日期/穴位变更：默认数量最多的视角
+  photoCamera.value = pickCameraValue(options);
+}
+
+async function reloadPhotoImages(source: PhotoSource) {
+  photoImages.value = [];
+  photoIndex.value = 0;
+  photoHint.value = "";
+  if (!photoDate.value) {
+    photoHint.value = "没有可用日期";
+    return;
+  }
+  if (source === "appearance" && !photoCamera.value) {
+    photoHint.value = "没有可用视角";
+    return;
+  }
+  const { images, hint: apiHint } = await fetchCellPhotos({
+    projectId: props.projectId,
+    date: photoDate.value,
+    source,
+    camera: photoCamera.value,
+    machine: photoMode.value === "lim" ? photoMachine.value : undefined,
+    cavity: photoMode.value === "lim" ? photoCavity.value : undefined,
+    body: photoMode.value === "body" ? photoBody.value : undefined
+  });
+  photoImages.value = images;
+  if (!images.length) {
+    photoHint.value = emptyPhotoHint(
+      photoDate.value,
+      photoToday.value,
+      apiHint
+    );
+  }
+}
+
+async function loadPhotos(source: PhotoSource) {
+  photoImages.value = [];
+  photoIndex.value = 0;
+  photoHint.value = "";
+  if (!props.projectId) {
+    photoHint.value = "未选择项目";
+    return;
+  }
+  if (!photoMode.value) {
+    photoHint.value =
+      source === "appearance"
+        ? "请先点选具体机台×模穴或本体格后再看自动外观图片"
+        : "请先点选具体机台×模穴或本体格后再看注塑机图片";
+    return;
+  }
+  photoLoading.value = true;
+  try {
+    await ensurePhotoDates(source);
+    if (!photoDate.value) {
+      photoHint.value = "没有可用日期";
+      return;
+    }
+    if (source === "appearance") {
+      await ensureAppearanceCameras();
+      if (!photoCamera.value) {
+        photoHint.value = "没有可用视角";
+        return;
+      }
+    }
+    await reloadPhotoImages(source);
+  } catch (error) {
+    photoHint.value = backendErrorHint(error);
+  } finally {
+    photoLoading.value = false;
+  }
+}
+
+async function onPhotoDateChange() {
+  const source: PhotoSource = pane.value === "appearance" ? "appearance" : "mold";
+  photoLoading.value = true;
+  photoHint.value = "";
+  try {
+    if (source === "appearance") {
+      await ensureAppearanceCameras();
+    }
+    await reloadPhotoImages(source);
+  } catch (error) {
+    photoHint.value = backendErrorHint(error);
+  } finally {
+    photoLoading.value = false;
+  }
+}
+
+function shiftPhoto(step: number) {
+  if (!photoImages.value.length) return;
+  const next = photoIndex.value + step;
+  if (next < 0 || next >= photoImages.value.length) return;
+  photoIndex.value = next;
+}
+
+function onPhotoKey(event: KeyboardEvent) {
+  if (pane.value !== "mold" && pane.value !== "appearance") return;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    shiftPhoto(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    shiftPhoto(1);
   }
 }
 
@@ -375,26 +583,58 @@ watch(chartEl, el => {
   resizeObs.observe(el);
 });
 
+watch(
+  () => props.showPhotos,
+  enabled => {
+    if (!enabled && (pane.value === "mold" || pane.value === "appearance")) {
+      pane.value = "chart";
+    }
+  }
+);
+
 watch(pane, async value => {
   if (value === "chart") {
     await nextTick();
     chart?.resize();
+    return;
+  }
+  if (!props.showPhotos) return;
+  if (value === "mold" || value === "appearance") {
+    await loadPhotos(value);
   }
 });
 
+async function onPhotoCameraChange() {
+  if (pane.value !== "appearance") return;
+  photoLoading.value = true;
+  photoHint.value = "";
+  try {
+    await reloadPhotoImages("appearance");
+  } catch (error) {
+    photoHint.value = backendErrorHint(error);
+  } finally {
+    photoLoading.value = false;
+  }
+}
+
 onMounted(() => {
   loadSeries();
+  window.addEventListener("keydown", onPhotoKey);
 });
 onUnmounted(() => {
   seriesAbort?.abort();
   resizeObs?.disconnect();
   chart?.dispose();
   chart = null;
+  window.removeEventListener("keydown", onPhotoKey);
 });
 </script>
 
 <template>
-  <div class="series-panel" v-loading="loading">
+  <div
+    class="series-panel"
+    v-loading="loading || (photoLoading && (pane === 'mold' || pane === 'appearance'))"
+  >
     <PageTabs
       v-model="pane"
       :options="paneOptions"
@@ -402,7 +642,7 @@ onUnmounted(() => {
       aria-label="历史数据"
     />
     <el-alert
-      v-if="hint"
+      v-if="hint && (pane === 'chart' || pane === 'table')"
       class="series-hint"
       type="warning"
       :closable="false"
@@ -462,6 +702,84 @@ onUnmounted(() => {
           </template>
         </el-table-column>
       </el-table>
+    </section>
+
+    <section
+      v-show="pane === 'mold' || pane === 'appearance'"
+      class="query-panel query-panel--photo"
+    >
+      <div class="query-panel__head">
+        <strong>{{ pane === "mold" ? "注塑机图片" : "自动外观图片" }}</strong>
+        <span v-if="photoScopeLabel">{{ photoScopeLabel }}</span>
+        <el-select
+          v-model="photoDate"
+          class="photo-date"
+          size="small"
+          placeholder="日期"
+          @change="onPhotoDateChange"
+        >
+          <el-option
+            v-for="day in photoDates"
+            :key="day"
+            :label="photoDateLabel(day)"
+            :value="day"
+          />
+        </el-select>
+        <el-select
+          v-if="pane === 'appearance'"
+          v-model="photoCamera"
+          class="photo-camera"
+          size="small"
+          placeholder="视角"
+          @change="onPhotoCameraChange"
+        >
+          <el-option
+            v-for="item in photoCameraOptions"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
+        </el-select>
+        <span v-if="photoCurrent" class="photo-file">{{ photoCurrent.filename }}</span>
+        <span v-if="photoImages.length" class="photo-count">
+          {{ photoIndex + 1 }} / {{ photoImages.length }}
+        </span>
+        <button
+          type="button"
+          class="photo-reload"
+          @click="loadPhotos(pane === 'mold' ? 'mold' : 'appearance')"
+        >
+          刷新
+        </button>
+      </div>
+      <div class="photo-stage">
+        <p v-if="photoHint" class="photo-empty">{{ photoHint }}</p>
+        <template v-else-if="photoCurrent">
+          <button
+            class="photo-nav is-prev"
+            type="button"
+            :disabled="photoIndex <= 0"
+            aria-label="上一张"
+            @click="shiftPhoto(-1)"
+          >
+            <component :is="useRenderIcon('ri/arrow-left-s-line')" />
+          </button>
+          <ZoomableImage
+            :src="photoCurrent.view_url"
+            :alt="photoCurrent.filename"
+          />
+          <button
+            class="photo-nav is-next"
+            type="button"
+            :disabled="photoIndex >= photoImages.length - 1"
+            aria-label="下一张"
+            @click="shiftPhoto(1)"
+          >
+            <component :is="useRenderIcon('ri/arrow-right-s-line')" />
+          </button>
+        </template>
+        <p v-else-if="!photoLoading" class="photo-empty">暂无图片</p>
+      </div>
     </section>
   </div>
 </template>
@@ -617,5 +935,160 @@ onUnmounted(() => {
 .num {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+}
+
+/* ── 图像查看区 ──────────────────────────────────────────────────────────
+   刻意用深底：判断注塑件外观缺陷时，浅底会把画面灰度抬高、
+   让对比度下降，看不出真实差异。这是"功能性深色"，不是暗色主题。 */
+.query-panel--photo {
+  background: var(--la-media-bg);
+  border: 1px solid var(--la-media-border);
+  border-radius: 0;
+}
+
+.query-panel--photo .query-panel__head {
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--la-media-head);
+  border-bottom: 1px solid var(--la-media-divider);
+  color: var(--la-media-text);
+}
+
+.query-panel--photo .query-panel__head strong {
+  color: var(--la-media-text);
+}
+
+.query-panel--photo .query-panel__head strong::before {
+  background: var(--el-color-success);
+}
+
+.query-panel--photo .query-panel__head span {
+  color: var(--la-media-text-dim);
+}
+
+.photo-date {
+  width: 128px;
+  flex: none;
+}
+
+.photo-date :deep(.el-select__wrapper) {
+  background: var(--la-media-field);
+  box-shadow: 0 0 0 1px var(--la-media-field-ring) inset;
+}
+
+.photo-date :deep(.el-select__placeholder),
+.photo-date :deep(.el-select__selected-item) {
+  color: var(--la-media-text);
+}
+
+.photo-camera {
+  width: 148px;
+  flex: none;
+}
+
+.photo-camera :deep(.el-select__wrapper) {
+  background: var(--la-media-field);
+  box-shadow: 0 0 0 1px var(--la-media-field-ring) inset;
+}
+
+.photo-camera :deep(.el-select__placeholder),
+.photo-camera :deep(.el-select__selected-item) {
+  color: var(--la-media-text);
+}
+
+.photo-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-count {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--la-media-text);
+  background: var(--la-media-field);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.photo-reload {
+  flex: none;
+  margin-left: auto;
+  border: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--el-color-success);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.photo-reload:hover {
+  background: var(--la-media-hover);
+}
+
+.photo-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  background: var(--la-media-bg);
+}
+
+.photo-stage :deep(.zoomable-image) {
+  inset: 8px 52px;
+}
+
+.photo-empty {
+  margin: 0;
+  color: var(--la-media-text-dim);
+  font-size: 13px;
+}
+
+.photo-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--la-media-text);
+  background: var(--la-media-scrim);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.photo-nav.is-prev {
+  left: 12px;
+}
+
+.photo-nav.is-next {
+  right: 12px;
+}
+
+.photo-nav:hover:not(:disabled) {
+  background: rgba(33, 115, 70, 0.92);
+}
+
+.photo-nav:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.photo-nav :deep(svg) {
+  width: 20px;
+  height: 20px;
 }
 </style>

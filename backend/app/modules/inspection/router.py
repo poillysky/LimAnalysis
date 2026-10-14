@@ -6,6 +6,7 @@ from app.core.inspection import (
     bootstrap,
     image_response,
     list_appearance_folders,
+    list_appearance_view_counts,
     list_dir_entries,
     list_viewer_dates,
     list_viewer_images,
@@ -64,13 +65,19 @@ def inspection_viewer_folders(
 @router.get("/viewer/dates")
 def inspection_viewer_dates(
     project_id: str,
-    machine: str,
+    machine: str = "",
     source: str = "mold",
     camera: str = "",
     dim: str = "tester",
+    body: str = "",
 ):
+    """日期列表。传 body=本体号（如 A1）时按 ServerTime 生产日；否则按机台。"""
     try:
-        return ok(list_viewer_dates(project_id, machine, source, camera, dim=dim))
+        return ok(
+            list_viewer_dates(
+                project_id, machine, source, camera, dim=dim, body=body
+            )
+        )
     except ValueError as exc:
         return JSONResponse(fail(str(exc)), status_code=400)
 
@@ -78,15 +85,19 @@ def inspection_viewer_dates(
 @router.get("/viewer/images")
 def inspection_viewer_images(
     project_id: str,
-    machine: str,
-    cavity: str,
-    date: str,
+    machine: str = "",
+    cavity: str = "",
+    date: str = "",
     status: str = "OK",
     source: str = "mold",
     dim: str = "tester",
     camera: str = "",
+    order: str = "asc",
+    body: str = "",
 ):
+    """取图。传 body 时按本体号；否则按机台×穴位。"""
     try:
+        newest_first = str(order or "asc").strip().lower() == "desc"
         return ok(
             list_viewer_images(
                 project_id,
@@ -97,6 +108,28 @@ def inspection_viewer_images(
                 source,
                 dim=dim,
                 camera=camera,
+                body=body,
+                newest_first=newest_first,
+            )
+        )
+    except ValueError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
+
+
+@router.get("/viewer/appearance-view-counts")
+def inspection_appearance_view_counts(
+    project_id: str,
+    machine: str = "",
+    date: str = "",
+    cavity: str = "",
+    dim: str = "mold",
+    body: str = "",
+):
+    """外观各视角数量：dim=mold 按生产日（机台×穴或本体号）；dim=tester 按截图日目录。"""
+    try:
+        return ok(
+            list_appearance_view_counts(
+                project_id, machine, cavity, date, dim=dim, body=body
             )
         )
     except ValueError as exc:

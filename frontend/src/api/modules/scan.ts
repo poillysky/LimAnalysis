@@ -130,10 +130,41 @@ export type DefectAnalysisRow = {
   rate_pct: number | null;
 };
 
+export type CavityDuty = "白班" | "夜班";
+
+export type DefectAnalysisDatesResult = {
+  success: boolean;
+  data: {
+    project_id: string;
+    today: string;
+    /** 当前班次归属生产日（凌晨夜班为昨天） */
+    default_date?: string;
+    duty: CavityDuty | string;
+    dates: string[];
+    total: number;
+  };
+};
+
+export const getDefectAnalysisDates = (
+  projectId: string,
+  signal?: AbortSignal
+) => {
+  return http.request<DefectAnalysisDatesResult>(
+    "get",
+    `${API_PREFIX}/scan/defect/analysis-dates`,
+    {
+      params: { project_id: projectId },
+      signal
+    }
+  );
+};
+
 export const getDefectAnalysis = (
   params: {
     project_id: string;
     hours?: number;
+    date?: string;
+    duty?: CavityDuty | string;
     defect_item?: string;
     exclude_machine_cavities?: string;
     exclude_body_cavities?: string;
@@ -145,6 +176,8 @@ export const getDefectAnalysis = (
     data: {
       project_id: string;
       hours: number;
+      date?: string;
+      duty?: string;
       from_hour: string;
       to_hour: string;
       defect_item: string;
@@ -152,7 +185,15 @@ export const getDefectAnalysis = (
       bodies: DefectAnalysisRow[];
     };
   }>("get", `${API_PREFIX}/scan/defect/analysis`, {
-    params,
+    params: {
+      project_id: params.project_id,
+      date: params.date || undefined,
+      duty: params.duty || undefined,
+      hours: params.date ? undefined : params.hours,
+      defect_item: params.defect_item || undefined,
+      exclude_machine_cavities: params.exclude_machine_cavities || undefined,
+      exclude_body_cavities: params.exclude_body_cavities || undefined
+    },
     signal,
     timeout: 60000
   });

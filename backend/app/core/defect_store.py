@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
@@ -399,6 +399,30 @@ def _window_hours(hours: int | None) -> int:
     return max(1, min(72, value))
 
 
+_MAX_ANALYSIS_DATES = 90
+
+
+def _parse_analysis_date(value: str | None) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError as exc:
+        raise ValueError("日期格式应为 YYYY-MM-DD") from exc
+
+
+def _normalize_analysis_duty(value: str | None) -> str | None:
+    from app.core.yield_alerts import DUTIES
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text not in DUTIES:
+        raise ValueError("班次应为白班或夜班")
+    return text
+
+
 def _stamp_label(value) -> str:
     if value is None:
         return ""
@@ -587,26 +611,103 @@ def _exclude_body_cavity_sql(body_expr: str, pairs) -> tuple[str, dict]:
     return f" AND NOT ({' OR '.join(clauses)})", params
 
 
-def query_analysis(
-    project_id: str,
-    *,
-    hours: int = 12,
-    defect_item: str | None = None,
-    exclude_machine_cavities=None,
-    exclude_body_cavities=None,
-) -> dict:
-    """窗口内原始库产量 × 次品库 SN：LIM 机台×模穴、本体×模穴。"""
+def list_analysis_dates(project_id: str, *, limit: int = _MAX_ANALYSIS_DATES) -> dict:
+    """lim_raw.ServerTime 按上海时区汇总的有数据日期，新→旧。"""
     from app.core.projects import get_project
+    from app.core.yield_alerts import current_duty, current_duty_date
 
     pid = str(project_id or "").strip()
     project = get_project(pid)
     if project is None:
         raise ValueError("项目不存在")
-    window = _window_hours(hours)
+    layout = _raw_layout(project)
+    now = datetime.now(TZ)
+    today = now.date().isoformat()
+    duty = current_duty(now)
+    default_date = current_duty_date(now).isoformat()
+    empty = {
+        "project_id": pid,
+        "today": today,
+        "default_date": default_date,
+        "duty": duty,
+        "dates": [default_date]
+        if default_date == today
+        else [today, default_date],
+        "total": 1 if default_date == today else 2,
+    }
+    if not layout:
+        return empty
+    table_sql = q(ident(layout["table"]))
+    time_sql = f"NULLIF(BTRIM(({q(ident(layout['time']))})::text), '')::timestamptz"
+    cap = max(1, min(int(limit or _MAX_ANALYSIS_DATES), _MAX_ANALYSIS_DATES))
+    sql = (
+        f"SELECT DISTINCT "
+        f"TO_CHAR(({time_sql} AT TIME ZONE 'Asia/Shanghai')::date, 'YYYY-MM-DD') AS d "
+        f"FROM {table_sql} "
+        f"WHERE {time_sql} IS NOT NULL "
+        f"ORDER BY d DESC "
+        f"LIMIT :lim"
+    )
+    rows = [
+        str(item.get("d") or "")
+        for item in _group_rows(sql, {"lim": cap})
+        if item.get("d")
+    ]
+    # 保证日历今天 + 当前班次生产日都在列表里（凌晨夜班可能是昨天）
+    for day in (today, default_date):
+        if day and day not in rows:
+            rows = [day, *rows]
+    rows = rows[:cap]
+    return {
+        "project_id": pid,
+        "today": today,
+        "default_date": default_date,
+        "duty": duty,
+        "dates": rows,
+        "total": len(rows),
+    }
+
+
+def query_analysis(
+    project_id: str,
+    *,
+    hours: int | None = 12,
+    date_str: str | None = None,
+    duty: str | None = None,
+    defect_item: str | None = None,
+    exclude_machine_cavities=None,
+    exclude_body_cavities=None,
+) -> dict:
+    """窗口内原始库产量 × 次品库 SN：LIM 机台×模穴、本体×模穴。
+
+    优先 ServerTime 日期 + 班次；未传日期时回退近 N 小时。
+    """
+    from app.core.projects import get_project
+    from app.core.yield_alerts import current_duty, duty_bounds
+
+    pid = str(project_id or "").strip()
+    project = get_project(pid)
+    if project is None:
+        raise ValueError("项目不存在")
+    day = _parse_analysis_date(date_str)
+    duty_n = _normalize_analysis_duty(duty)
+    if day is not None:
+        duty_n = duty_n or current_duty()
+        win_start, win_end = duty_bounds(day, duty_n)
+        window = 12
+        mode = "duty"
+    else:
+        if duty_n is not None:
+            raise ValueError("选择班次时请同时指定日期")
+        window = _window_hours(hours)
+        win_start = win_end = None
+        mode = "hours"
     layout = _raw_layout(project)
     empty = {
         "project_id": pid,
         "hours": window,
+        "date": day.isoformat() if day else "",
+        "duty": duty_n or "",
         "from_hour": "",
         "to_hour": "",
         "defect_item": str(defect_item or "").strip(),
@@ -623,16 +724,26 @@ def query_analysis(
         for item in (project.get("machines") or [])
         if str(item).strip()
     ]
-    bounds_sql = (
-        f"WITH bounds AS (SELECT MAX({time_sql}) AS hi FROM {table_sql}) "
-    )
-    time_filter = (
-        f" FROM {table_sql}, bounds "
-        f"WHERE bounds.hi IS NOT NULL "
-        f"AND {time_sql} >= bounds.hi - (:hours) * INTERVAL '1 hour' "
-        f"AND NULLIF(BTRIM(({sn_sql})::text), '') IS NOT NULL"
-    )
-    base_params: dict = {"hours": window}
+    if mode == "duty":
+        bounds_sql = ""
+        time_filter = (
+            f" FROM {table_sql} "
+            f"WHERE {time_sql} >= :win_start "
+            f"AND {time_sql} < :win_end "
+            f"AND NULLIF(BTRIM(({sn_sql})::text), '') IS NOT NULL"
+        )
+        base_params: dict = {"win_start": win_start, "win_end": win_end}
+    else:
+        bounds_sql = (
+            f"WITH bounds AS (SELECT MAX({time_sql}) AS hi FROM {table_sql}) "
+        )
+        time_filter = (
+            f" FROM {table_sql}, bounds "
+            f"WHERE bounds.hi IS NOT NULL "
+            f"AND {time_sql} >= bounds.hi - (:hours) * INTERVAL '1 hour' "
+            f"AND NULLIF(BTRIM(({sn_sql})::text), '') IS NOT NULL"
+        )
+        base_params = {"hours": window}
     lohi_sql = (
         f"{bounds_sql}SELECT MIN({time_sql}) AS lo, MAX({time_sql}) AS hi "
         f"{time_filter}"
@@ -716,6 +827,8 @@ def query_analysis(
     return {
         "project_id": pid,
         "hours": window,
+        "date": day.isoformat() if day else "",
+        "duty": duty_n or "",
         "from_hour": _stamp_label(lohi.get("lo")),
         "to_hour": _stamp_label(lohi.get("hi")),
         "defect_item": str(defect_item or "").strip(),

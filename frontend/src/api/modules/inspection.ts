@@ -36,8 +36,15 @@ export type InspectionImage = {
   view_url: string;
   /** 文件名解析出的二维码 / SN */
   sn?: string;
+  /** lim_raw.ServerTime，ISO 或可解析时间串 */
+  server_time?: string | null;
   status?: string;
   camera?: string;
+};
+
+export type AppearanceViewCount = {
+  camera: string;
+  count: number;
 };
 
 export const getInspectionBootstrap = () => {
@@ -104,7 +111,9 @@ export const getViewerDates = (
   machine: string,
   source: PhotoSource = "mold",
   camera = "",
-  dim: AppearanceDim = "tester"
+  dim: AppearanceDim = "tester",
+  /** 本体号如 A1；有值时按本体口径，可不传机台 */
+  body = ""
 ) => {
   return http.request<{
     success: boolean;
@@ -113,7 +122,8 @@ export const getViewerDates = (
       today: string;
       default_date: string;
       layout: string;
-      dim?: AppearanceDim;
+      dim?: AppearanceDim | string;
+      body?: string;
       cavities: string[];
       statuses: string[];
       testers?: string[];
@@ -123,48 +133,87 @@ export const getViewerDates = (
   }>("get", `${API_PREFIX}/inspection/viewer/dates`, {
     params: {
       project_id: projectId,
-      machine,
+      machine: machine || undefined,
+      body: body || undefined,
       source,
       camera: camera || undefined,
-      dim: source === "appearance" ? dim : undefined
+      dim: source === "appearance" && !body ? dim : undefined
     }
   });
 };
 
 export const getViewerImages = (params: {
   project_id: string;
-  machine: string;
-  cavity: string;
+  machine?: string;
+  cavity?: string;
   date: string;
   status?: string;
   source?: PhotoSource;
   dim?: AppearanceDim;
   camera?: string;
+  /** 本体号如 A1；与 machine×cavity 互斥 */
+  body?: string;
+  /** desc=ServerTime 最新优先（交叉表/通知弹窗）；默认 asc */
+  order?: "asc" | "desc";
 }) => {
   return http.request<{
     success: boolean;
     data: {
       images: InspectionImage[];
       total_count: number;
-      machine: string;
-      cavity: string;
+      machine?: string;
+      cavity?: string;
+      body?: string;
       date_str: string;
       status?: string;
       camera?: string;
-      dim?: AppearanceDim;
+      dim?: AppearanceDim | string;
       hint?: string;
       sn_count?: number;
     };
   }>("get", `${API_PREFIX}/inspection/viewer/images`, {
     params: {
       project_id: params.project_id,
-      machine: params.machine,
-      cavity: params.cavity,
+      machine: params.machine || undefined,
+      cavity: params.cavity || undefined,
+      body: params.body || undefined,
       date: params.date,
       status: params.status || "OK",
       source: params.source || "mold",
-      dim: params.dim || undefined,
-      camera: params.camera || undefined
+      dim: params.body ? undefined : params.dim || undefined,
+      camera: params.camera || undefined,
+      order: params.order || undefined
+    },
+    timeout: 120000
+  });
+};
+
+/** 外观各视角数量：mold=生产日命中；tester=截图日目录张数；可按本体号 */
+export const getAppearanceViewCounts = (params: {
+  project_id: string;
+  machine?: string;
+  date: string;
+  cavity?: string;
+  body?: string;
+  dim?: AppearanceDim;
+}) => {
+  return http.request<{
+    success: boolean;
+    data: {
+      cameras: AppearanceViewCount[];
+      date_str: string;
+      sn_count?: number;
+      dim?: AppearanceDim | string;
+      body?: string;
+    };
+  }>("get", `${API_PREFIX}/inspection/viewer/appearance-view-counts`, {
+    params: {
+      project_id: params.project_id,
+      machine: params.machine || undefined,
+      cavity: params.cavity || undefined,
+      body: params.body || undefined,
+      date: params.date,
+      dim: params.body ? "mold" : params.dim || "mold"
     },
     timeout: 120000
   });

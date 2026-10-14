@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import inspect, text
 
 from app.core import db as stores
 from app.core.projects import get_project, load_projects
 from app.core.sql_ident import ident, q
+
+_TZ = ZoneInfo("Asia/Shanghai")
 
 DIMS = (
     ("line", "自动外观线体", "线体"),
@@ -132,13 +135,39 @@ def _hour_label(value) -> str:
     if value is None:
         return ""
     if isinstance(value, datetime):
-        return value.strftime("%m-%d %H:00")
+        stamp = value.astimezone(_TZ) if value.tzinfo else value.replace(tzinfo=_TZ)
+        return stamp.strftime("%m-%d %H:00")
     text = str(value).replace("T", " ")
     try:
         stamp = datetime.fromisoformat(text.replace("Z", "+00:00")[:32])
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=_TZ)
+        else:
+            stamp = stamp.astimezone(_TZ)
         return stamp.strftime("%m-%d %H:00")
     except ValueError:
         return text[:16]
+
+
+def _clock_window(hours: int) -> tuple[datetime, datetime]:
+    """ADS 无 hour 时：按上海时区当前整点往前 N 桶。"""
+    now = datetime.now(_TZ).replace(minute=0, second=0, microsecond=0)
+    hi = now
+    lo = now - timedelta(hours=max(0, hours - 1))
+    return lo, hi
+
+
+def _ads_window_bounds(table: str, hour_sql: str, hours: int) -> tuple:
+    """返回查询窗口 [lo, hi]；表空则回退当前时刻窗口。"""
+    sql = (
+        f"SELECT MAX({hour_sql}) - (:hours - 1) * INTERVAL '1 hour' AS lo, "
+        f"MAX({hour_sql}) AS hi FROM {q(table)}"
+    )
+    with stores.dwh_engine.connect() as conn:
+        bound = conn.execute(text(sql), {"hours": hours}).first()
+    if bound and bound[1] is not None:
+        return bound[0], bound[1]
+    return _clock_window(hours)
 
 
 def _as_float(value) -> float | None:
@@ -306,6 +335,7 @@ def query_series(
     cavity_letter: str | None = None,
     body_mold: str | None = None,
     body_cavity: str | None = None,
+    hours: int | None = None,
 ) -> dict:
     project = get_project(project_id)
     if project is None or not project.get("enabled", True):
@@ -338,14 +368,34 @@ def query_series(
 
     hour_sql = q(ident("hour"))
     qty_sql, ng_sql = q(ident(qty_col)), q(ident(ng_col))
-    sql = (
-        f"SELECT {hour_sql} AS hour, "
-        f"SUM({qty_sql}) AS qty, "
-        f"SUM({ng_sql}) AS ng "
-        f"FROM {q(table)}{where} "
-        f"GROUP BY {hour_sql} "
-        f"ORDER BY {hour_sql}"
-    )
+    # hours 有值时只取筛选范围内最新小时往前 N 桶（交叉表弹窗近 3 天=72）
+    window = _window_hours(hours) if hours is not None else None
+    base_where = where or ""
+    if window is not None:
+        join = " AND " if base_where else " WHERE "
+        sql = (
+            f"WITH bounds AS ("
+            f"  SELECT MAX({hour_sql}) AS hi FROM {q(table)}{base_where}"
+            f") "
+            f"SELECT {hour_sql} AS hour, "
+            f"SUM({qty_sql}) AS qty, "
+            f"SUM({ng_sql}) AS ng "
+            f"FROM {q(table)}, bounds{base_where}"
+            f"{join}bounds.hi IS NOT NULL "
+            f"AND {hour_sql} >= bounds.hi - (:series_hours - 1) * INTERVAL '1 hour' "
+            f"GROUP BY {hour_sql} "
+            f"ORDER BY {hour_sql}"
+        )
+        params = {**params, "series_hours": window}
+    else:
+        sql = (
+            f"SELECT {hour_sql} AS hour, "
+            f"SUM({qty_sql}) AS qty, "
+            f"SUM({ng_sql}) AS ng "
+            f"FROM {q(table)}{where} "
+            f"GROUP BY {hour_sql} "
+            f"ORDER BY {hour_sql}"
+        )
     with stores.dwh_engine.connect() as conn:
         records = conn.execute(text(sql), params).fetchall()
 
@@ -369,6 +419,7 @@ def query_series(
         "metric": mkey,
         "metric_label": mlabel,
         "filters": filters,
+        "hours": window,
         "rows": rows,
         "total": len(rows),
     }
@@ -562,19 +613,15 @@ def _query_dim_cavity(
         f"ORDER BY BTRIM({dim_sql}), BTRIM({cavity_sql})"
     )
     params = {"hours": window, **machine_params, **body_params}
+    win_lo, win_hi = _ads_window_bounds(table, hour_sql, window)
     with stores.dwh_engine.connect() as conn:
         records = conn.execute(text(sql), params).fetchall()
 
     rows = []
-    win_lo = win_hi = None
     for rec in records:
         qty = _as_float(rec[2]) or 0.0
         ng = _as_float(rec[3]) or 0.0
         rate = (ng / qty) if qty > 0 else None
-        if rec[4] is not None and (win_lo is None or rec[4] < win_lo):
-            win_lo = rec[4]
-        if rec[5] is not None and (win_hi is None or rec[5] > win_hi):
-            win_hi = rec[5]
         rows.append(
             {
                 dim_key: str(rec[0] or ""),
@@ -764,19 +811,15 @@ def query_body_cavity(
         f"ORDER BY {mold_sql}, {cavity_sql}"
     )
     params = {"hours": window, **machine_params, **body_params}
+    win_lo, win_hi = _ads_window_bounds(table, hour_sql, window)
     with stores.dwh_engine.connect() as conn:
         records = conn.execute(text(sql), params).fetchall()
 
     rows = []
-    win_lo = win_hi = None
     for rec in records:
         qty = _as_float(rec[2]) or 0.0
         ng = _as_float(rec[3]) or 0.0
         rate = (ng / qty) if qty > 0 else None
-        if rec[4] is not None and (win_lo is None or rec[4] < win_lo):
-            win_lo = rec[4]
-        if rec[5] is not None and (win_hi is None or rec[5] > win_hi):
-            win_hi = rec[5]
         rows.append(
             {
                 "body": str(rec[0] or ""),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.core.db import MetaSession
-from app.core.defect_store import insert_upload, query_analysis
+from app.core.defect_store import insert_upload, list_analysis_dates, query_analysis
 from app.core.defect_store import list_ops as list_pg_ops
 from app.core.meta_init import (
     DEFECT_ANALYSIS_ALERT_KEY,
@@ -322,10 +322,21 @@ def list_ops(
     )
 
 
+def list_defect_analysis_dates(project_id: str) -> dict:
+    pid = str(project_id or "").strip()
+    if not pid:
+        raise ValueError("请选择项目")
+    if get_project(pid) is None:
+        raise ValueError("项目不存在")
+    return list_analysis_dates(pid)
+
+
 def query_defect_analysis(
     project_id: str,
     *,
-    hours: int = 12,
+    hours: int | None = 12,
+    date_str: str | None = None,
+    duty: str | None = None,
     defect_item: str | None = None,
     exclude_machine_cavities=None,
     exclude_body_cavities=None,
@@ -338,6 +349,8 @@ def query_defect_analysis(
     return query_analysis(
         pid,
         hours=hours,
+        date_str=date_str,
+        duty=duty,
         defect_item=defect_item,
         exclude_machine_cavities=exclude_machine_cavities,
         exclude_body_cavities=exclude_body_cavities,

@@ -8,13 +8,20 @@ import {
 } from "@/api/modules/defect";
 import {
   getViewerDates,
-  getViewerFolders,
-  getViewerImages,
   type InspectionImage,
   type PhotoSource
 } from "@/api/modules/inspection";
 import { backendErrorHint } from "@/api/http";
 import { rulesFromRemote } from "@/utils/cavityAlert";
+import {
+  emptyPhotoHint,
+  fetchAppearanceCameraOptions,
+  fetchCellPhotoDates,
+  fetchCellPhotos,
+  photoDateLabel,
+  pickCameraValue,
+  type PhotoCameraOption
+} from "@/utils/machineCellPhotos";
 import {
   DEFAULT_LIM_HOURS,
   DEFAULT_LIM_HOURS_LABEL,
@@ -174,7 +181,10 @@ const photoProjectId = ref("");
 const photoMachine = ref("");
 const photoCavity = ref("");
 const photoCavities = ref<string[]>([]);
-const photoCameras = ref<string[]>([]);
+const photoDates = ref<string[]>([]);
+const photoDate = ref("");
+const photoToday = ref("");
+const photoCameraOptions = ref<PhotoCameraOption[]>([]);
 const photoCamera = ref("");
 const photoImages = ref<InspectionImage[]>([]);
 const photoIndex = ref(0);
@@ -182,38 +192,31 @@ const photoCurrent = computed(
   () => photoImages.value[photoIndex.value] || null
 );
 
-/** 与模穴页 SeriesPanel 同口径：外观按视角取图 */
-async function ensurePhotoCameras() {
-  if (!photoProjectId.value) {
-    photoCameras.value = [];
-    photoCamera.value = "";
+/** 与模穴页 SeriesPanel 同口径（machineCellPhotos） */
+async function ensurePhotoDates(keepDate = false) {
+  const meta = await fetchCellPhotoDates({
+    projectId: photoProjectId.value,
+    machine: photoMachine.value,
+    source: photoSource.value
+  });
+  photoDates.value = meta.dates;
+  photoToday.value = meta.today;
+  if (keepDate && photoDate.value && meta.dates.includes(photoDate.value)) {
     return;
   }
-  const folders = await getViewerFolders(photoProjectId.value, "", "mold").catch(
-    () => null
-  );
-  const cameras = folders?.data?.cameras || [];
-  photoCameras.value = cameras;
-  if (!cameras.length) {
-    photoCamera.value = "";
-    return;
-  }
-  if (!cameras.includes(photoCamera.value)) {
-    photoCamera.value = cameras[0];
-  }
+  photoDate.value = meta.defaultDate;
 }
 
-async function ensurePhotoCavities(source: PhotoSource) {
+async function ensurePhotoCavities() {
   if (!photoProjectId.value || !photoMachine.value) {
     photoCavities.value = [];
-    photoCavity.value = "";
     return;
   }
   const dates = await getViewerDates(
     photoProjectId.value,
     photoMachine.value,
-    source,
-    source === "appearance" ? photoCamera.value : "",
+    photoSource.value,
+    "",
     "mold"
   ).catch(() => null);
   const cavities = (dates?.data?.cavities || [])
@@ -229,46 +232,65 @@ async function ensurePhotoCavities(source: PhotoSource) {
   }
 }
 
-async function collectImages(source: PhotoSource) {
-  const projectId = photoProjectId.value;
-  const machine = photoMachine.value;
-  const cavity = photoCavity.value;
-  if (!projectId || !machine || !cavity) return [];
-  if (source === "appearance") {
-    const camera = photoCamera.value;
-    if (!camera) return [];
-    const dates = await getViewerDates(
-      projectId,
-      machine,
-      "appearance",
-      camera,
-      "mold"
-    ).catch(() => null);
-    const day = dates?.data?.default_date || dates?.data?.dates?.[0] || "";
-    if (!day) return [];
-    const res = await getViewerImages({
-      project_id: projectId,
-      machine,
-      cavity,
-      date: day,
-      source: "appearance",
-      dim: "mold",
-      camera
-    });
-    return res?.data?.images || [];
+async function ensureAppearanceCameras() {
+  if (!photoDate.value || !photoCavity.value) {
+    photoCameraOptions.value = [];
+    photoCamera.value = "";
+    return;
   }
-  const dates = await getViewerDates(projectId, machine, "mold");
-  const day = dates?.data?.default_date || dates?.data?.dates?.[0] || "";
-  if (!day) return [];
-  const res = await getViewerImages({
-    project_id: projectId,
-    machine,
-    cavity,
-    date: day,
-    status: "OK",
-    source: "mold"
+  const options = await fetchAppearanceCameraOptions({
+    projectId: photoProjectId.value,
+    machine: photoMachine.value,
+    cavity: photoCavity.value,
+    date: photoDate.value
   });
-  return res?.data?.images || [];
+  photoCameraOptions.value = options;
+  photoCamera.value = pickCameraValue(options);
+}
+
+async function reloadPhotoImages() {
+  photoImages.value = [];
+  photoIndex.value = 0;
+  photoHint.value = "";
+  if (!photoProjectId.value || !photoMachine.value) {
+    photoHint.value = "缺少机台";
+    return;
+  }
+  if (!photoCavity.value) {
+    photoHint.value = "该机台没有可用模穴图片";
+    return;
+  }
+  if (!photoDate.value) {
+    photoHint.value = "没有可用日期";
+    return;
+  }
+  if (photoSource.value === "appearance" && !photoCamera.value) {
+    photoHint.value = "没有可用视角";
+    return;
+  }
+  photoLoading.value = true;
+  try {
+    const { images, hint: apiHint } = await fetchCellPhotos({
+      projectId: photoProjectId.value,
+      machine: photoMachine.value,
+      cavity: photoCavity.value,
+      date: photoDate.value,
+      source: photoSource.value,
+      camera: photoCamera.value
+    });
+    photoImages.value = images;
+    if (!images.length) {
+      photoHint.value = emptyPhotoHint(
+        photoDate.value,
+        photoToday.value,
+        apiHint
+      );
+    }
+  } catch (error) {
+    photoHint.value = backendErrorHint(error);
+  } finally {
+    photoLoading.value = false;
+  }
 }
 
 async function loadPhotos() {
@@ -282,21 +304,39 @@ async function loadPhotos() {
   }
   photoLoading.value = true;
   try {
+    await ensurePhotoCavities();
+    if (!photoCavity.value) {
+      photoHint.value = "该机台没有可用模穴图片";
+      return;
+    }
+    await ensurePhotoDates();
+    if (!photoDate.value) {
+      photoHint.value = "没有可用日期";
+      return;
+    }
     if (source === "appearance") {
-      await ensurePhotoCameras();
+      await ensureAppearanceCameras();
       if (!photoCamera.value) {
         photoHint.value = "没有可用视角";
         return;
       }
     }
-    await ensurePhotoCavities(source);
-    if (!photoCavity.value) {
-      photoHint.value = "该机台没有可用模穴图片";
-      return;
-    }
-    const images = await collectImages(source);
+    const { images, hint: apiHint } = await fetchCellPhotos({
+      projectId: photoProjectId.value,
+      machine: photoMachine.value,
+      cavity: photoCavity.value,
+      date: photoDate.value,
+      source,
+      camera: photoCamera.value
+    });
     photoImages.value = images;
-    if (!images.length) photoHint.value = "这一天没有找到图片";
+    if (!images.length) {
+      photoHint.value = emptyPhotoHint(
+        photoDate.value,
+        photoToday.value,
+        apiHint
+      );
+    }
   } catch (error) {
     photoHint.value = backendErrorHint(error);
   } finally {
@@ -314,34 +354,24 @@ async function openPhotos(row: YieldAlertRow, source: PhotoSource) {
   photoMachine.value = row.machine;
   photoCavity.value = "";
   photoCavities.value = [];
+  photoDate.value = "";
+  photoDates.value = [];
+  photoToday.value = "";
   photoCamera.value = "";
-  photoCameras.value = [];
+  photoCameraOptions.value = [];
   photoTitle.value = `${source === "mold" ? "注塑机" : "外观机"} · ${row.machine}`;
   photoOpen.value = true;
   await loadPhotos();
 }
 
-async function reloadPhotoImages() {
-  photoImages.value = [];
-  photoIndex.value = 0;
-  photoHint.value = "";
-  if (!photoProjectId.value || !photoMachine.value) {
-    photoHint.value = "缺少机台";
-    return;
-  }
-  if (photoSource.value === "appearance" && !photoCamera.value) {
-    photoHint.value = "没有可用视角";
-    return;
-  }
-  if (!photoCavity.value) {
-    photoHint.value = "该机台没有可用模穴图片";
-    return;
-  }
+async function onPhotoDateChange() {
   photoLoading.value = true;
+  photoHint.value = "";
   try {
-    const images = await collectImages(photoSource.value);
-    photoImages.value = images;
-    if (!images.length) photoHint.value = "这一天没有找到图片";
+    if (photoSource.value === "appearance") {
+      await ensureAppearanceCameras();
+    }
+    await reloadPhotoImages();
   } catch (error) {
     photoHint.value = backendErrorHint(error);
   } finally {
@@ -351,14 +381,22 @@ async function reloadPhotoImages() {
 
 async function onPhotoCameraChange() {
   if (photoSource.value !== "appearance") return;
-  // 换视角后穴位列表可能变，重新拉元数据
-  photoCavity.value = "";
-  photoCavities.value = [];
-  await loadPhotos();
+  await reloadPhotoImages();
 }
 
 async function onPhotoCavityChange() {
-  await reloadPhotoImages();
+  photoLoading.value = true;
+  photoHint.value = "";
+  try {
+    if (photoSource.value === "appearance") {
+      await ensureAppearanceCameras();
+    }
+    await reloadPhotoImages();
+  } catch (error) {
+    photoHint.value = backendErrorHint(error);
+  } finally {
+    photoLoading.value = false;
+  }
 }
 
 function shiftPhoto(step: number) {
@@ -633,18 +671,32 @@ onUnmounted(() => {
             />
           </el-select>
           <el-select
+            v-model="photoDate"
+            class="photo-dialog__select photo-dialog__select--date"
+            size="small"
+            placeholder="日期"
+            @change="onPhotoDateChange"
+          >
+            <el-option
+              v-for="day in photoDates"
+              :key="day"
+              :label="photoDateLabel(day)"
+              :value="day"
+            />
+          </el-select>
+          <el-select
             v-if="photoSource === 'appearance'"
             v-model="photoCamera"
-            class="photo-dialog__select"
+            class="photo-dialog__select photo-dialog__select--camera"
             size="small"
             placeholder="视角"
             @change="onPhotoCameraChange"
           >
             <el-option
-              v-for="code in photoCameras"
-              :key="code"
-              :label="code"
-              :value="code"
+              v-for="item in photoCameraOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
             />
           </el-select>
           <span v-if="photoCurrent" class="photo-dialog__file">
@@ -985,6 +1037,14 @@ onUnmounted(() => {
 .photo-dialog__select {
   flex: none;
   width: 112px;
+}
+
+.photo-dialog__select--date {
+  width: 128px;
+}
+
+.photo-dialog__select--camera {
+  width: 148px;
 }
 
 .photo-dialog__select :deep(.el-select__wrapper) {

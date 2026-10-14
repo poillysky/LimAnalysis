@@ -56,9 +56,11 @@ internal static class UiGlyphs
         using var fmt = new StringFormat
         {
             Alignment = StringAlignment.Center,
-            LineAlignment = StringAlignment.Center
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoClip
         };
-        g.DrawString(glyph, font, brush, new RectangleF(0, 0, size, size), fmt);
+        // 略下移 0.5px，抵消 GDI+ 图标字体常见的光学偏上
+        g.DrawString(glyph, font, brush, new RectangleF(0, 0.5f, size, size), fmt);
         return bmp;
     }
 

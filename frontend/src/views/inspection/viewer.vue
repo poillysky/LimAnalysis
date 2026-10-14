@@ -17,6 +17,10 @@ import {
   type PhotoSource
 } from "@/api/modules/inspection";
 import { backendErrorHint } from "@/api/http";
+import {
+  fetchAppearanceCameraOptions,
+  type PhotoCameraOption
+} from "@/utils/machineCellPhotos";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import ZoomableImage from "@/components/ZoomableImage/index.vue";
 
@@ -54,6 +58,8 @@ const cavities = ref<string[]>([]);
 const testers = ref<string[]>([]);
 const moldMachines = ref<string[]>([]);
 const cameras = ref<string[]>([]);
+/** 视角名 → 当日数量，供下拉标签 `视角（N）` */
+const cameraOptions = ref<PhotoCameraOption[]>([]);
 const statuses = ref<string[]>(["OK"]);
 const images = ref<InspectionImage[]>([]);
 const index = ref(0);
@@ -100,10 +106,19 @@ const machineFieldLabel = computed(() => {
 const dateFieldLabel = computed(() =>
   isAppearance.value && isMoldDim.value ? "生产日" : "日期"
 );
-/** 扫码后只列出命中视角；否则用目录全量 */
-const cameraChoices = computed(() =>
-  qrSession.value?.cameras?.length ? qrSession.value.cameras : cameras.value
-);
+/** 扫码后只列出命中视角；否则用目录全量；标签带数量 */
+const cameraChoices = computed(() => {
+  const names = qrSession.value?.cameras?.length
+    ? qrSession.value.cameras
+    : cameras.value;
+  const countBy = Object.fromEntries(
+    cameraOptions.value.map(item => [item.value, item.count])
+  );
+  return names.map(name => ({
+    value: name,
+    label: countBy[name] != null ? `${name}（${countBy[name]}）` : name
+  }));
+});
 const current = computed(() => images.value[index.value] || null);
 
 /**
@@ -425,8 +440,39 @@ async function loadAppearanceViews() {
   }
 }
 
+async function refreshCameraCounts() {
+  if (!isAppearance.value || !projectId.value || !machine.value || !dateStr.value) {
+    cameraOptions.value = [];
+    return;
+  }
+  if (isMoldDim.value && !cavity.value) {
+    cameraOptions.value = [];
+    return;
+  }
+  try {
+    const options = await fetchAppearanceCameraOptions({
+      projectId: projectId.value,
+      machine: machine.value,
+      date: dateStr.value,
+      cavity: isMoldDim.value ? cavity.value : undefined,
+      dim: queryDim.value
+    });
+    cameraOptions.value = options;
+    if (options.length) {
+      const names = options.map(item => item.value);
+      // 补全 cameras，保留扫码临时视角
+      for (const name of names) {
+        if (!cameras.value.includes(name)) cameras.value.push(name);
+      }
+    }
+  } catch {
+    cameraOptions.value = [];
+  }
+}
+
 async function loadDates(keepDate = "") {
-  const needCamera = isAppearance.value ? camera.value : true;
+  // 注塑机维日期不依赖视角；外观机维仍要先选视角/外观机
+  const needCamera = isAppearance.value && !isMoldDim.value ? camera.value : true;
   const needCavity = isMoldDim.value ? cavity.value : true;
   if (
     !ready.value ||
@@ -437,6 +483,7 @@ async function loadDates(keepDate = "") {
   ) {
     dates.value = [];
     if (!keepDate) dateStr.value = "";
+    cameraOptions.value = [];
     return;
   }
   try {
@@ -460,6 +507,7 @@ async function loadDates(keepDate = "") {
     if (res?.data?.testers?.length) testers.value = res.data.testers;
     if (res?.data?.machines?.length) moldMachines.value = res.data.machines;
     if (res?.data?.cameras?.length) cameras.value = res.data.cameras;
+    if (isAppearance.value) await refreshCameraCounts();
   } catch (error) {
     hint.value = backendErrorHint(error);
   }
@@ -512,6 +560,8 @@ watch(camera, () => {
   index.value = 0;
   hitRel.value = "";
   started.value = false;
+  // 注塑机维换视角不重拉日期，只重取图条件；外观机维仍级联日期
+  if (isMoldDim.value) return;
   void loadDates();
 });
 
@@ -522,6 +572,11 @@ watch(cavity, () => {
   clearQrSession();
   started.value = false;
   void loadDates();
+});
+
+watch(dateStr, () => {
+  if (locating.value || !isAppearance.value) return;
+  void refreshCameraCounts();
 });
 
 watch(index, () => {
@@ -1025,12 +1080,12 @@ onUnmounted(() => {
 
         <label v-if="isAppearance" class="viewer-field">
           <span>视角</span>
-          <el-select v-model="camera" placeholder="视角" style="width: 132px">
+          <el-select v-model="camera" placeholder="视角" style="width: 168px">
             <el-option
-              v-for="code in cameraChoices"
-              :key="code"
-              :label="code"
-              :value="code"
+              v-for="item in cameraChoices"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
             />
           </el-select>
         </label>

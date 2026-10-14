@@ -100,6 +100,21 @@ function cavityMetricLabel(item: QueryMetric) {
   if (item.key.startsWith("defect:")) return item.key.slice("defect:".length);
   return item.label.replace(/不良率$/, "");
 }
+
+/** 标题用：MM-DD HH:00 ~ MM-DD HH:00（本地整点） */
+function clockWindowLabel(h: number) {
+  const hoursN = Math.max(1, Number(h) || DEFAULT_LIM_HOURS);
+  const end = new Date();
+  end.setMinutes(0, 0, 0);
+  const start = new Date(end.getTime() - (hoursN - 1) * 3600_000);
+  const fmt = (d: Date) => {
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    return `${mm}-${dd} ${hh}:00`;
+  };
+  return `${fmt(start)} ~ ${fmt(end)}`;
+}
 const rows = ref<MachineCavityRow[]>([]);
 const bodyRows = ref<BodyCavityRow[]>([]);
 const bodyHint = ref("");
@@ -111,6 +126,17 @@ const seriesOpen = ref(false);
 const seriesMounted = ref(false);
 const seriesTitle = ref("");
 const seriesFilters = ref<QueryFilters>({});
+/** LIM 机台×模穴，或本体模具×穴位（本体号）格才开看图 */
+const seriesShowPhotos = computed(() => {
+  const f = seriesFilters.value;
+  const lim = Boolean(
+    String(f.machine || "").trim() && String(f.cavity_letter || "").trim()
+  );
+  const body = Boolean(
+    String(f.body_mold || "").trim() && String(f.body_cavity || "").trim()
+  );
+  return lim || body;
+});
 const alertMachineCavities = ref<string[]>([]);
 const alertBodyCavities = ref<string[]>([]);
 const alertRules = ref<AlertRules>(loadCavityAlertRules());
@@ -155,10 +181,16 @@ const droppedBodyHint = computed(() => {
 });
 
 const windowLabel = computed(() => {
-  if (fromHour.value && toHour.value && fromHour.value !== toHour.value) {
-    return `${fromHour.value} ~ ${toHour.value}`;
+  if (fromHour.value && toHour.value) {
+    return fromHour.value === toHour.value
+      ? fromHour.value
+      : `${fromHour.value} ~ ${toHour.value}`;
   }
-  return fromHour.value || toHour.value || windowName.value;
+  if (fromHour.value || toHour.value) {
+    return fromHour.value || toHour.value;
+  }
+  // 接口未带回起止时，也绝不回退成「近 6 小时」文案
+  return clockWindowLabel(hours.value);
 });
 
 const summaryMetrics = computed(() => [
@@ -435,6 +467,9 @@ async function loadTable() {
   loading.value = true;
   hint.value = "";
   bodyHint.value = "";
+  // 每次重查先清空，避免换窗口后标题仍显示上一档起止
+  fromHour.value = "";
+  toHour.value = "";
   try {
     const [machineRes, bodyRes] = await Promise.allSettled([
       getMachineCavityRates(projectId.value, hours.value, metric.value, signal),
@@ -453,9 +488,20 @@ async function loadTable() {
     }
 
     if (bodyRes.status === "fulfilled") {
-      bodyData = bodyRes.value?.data?.rows || [];
+      const data = bodyRes.value?.data;
+      bodyData = data?.rows || [];
+      if (!fromHour.value) fromHour.value = data?.from_hour || "";
+      if (!toHour.value) toHour.value = data?.to_hour || "";
     } else if (!isAbortError(bodyRes.reason)) {
       bodyHint.value = backendErrorHint(bodyRes.reason);
+    }
+
+    // 接口未带回起止时，用本地整点窗口填标题（避免一直显示「近 6 小时」）
+    if (!fromHour.value || !toHour.value) {
+      const label = clockWindowLabel(hours.value);
+      const [lo, hi] = label.split(" ~ ");
+      fromHour.value = fromHour.value || lo || "";
+      toHour.value = toHour.value || hi || "";
     }
 
     alertMachineCavities.value = alertCavityPairs(
@@ -603,7 +649,7 @@ onUnmounted(() => {
 
     <PageMetricBar :title="windowLabel" :metrics="summaryMetrics">
       <div class="cavity-filters">
-        <label class="cavity-filter">
+        <label class="cavity-filter cavity-filter--window">
           <span>窗口</span>
           <el-select
             v-model="hours"
@@ -978,6 +1024,7 @@ onUnmounted(() => {
         :project-id="projectId"
         :metric="metric"
         :filters="seriesFilters"
+        :show-photos="seriesShowPhotos"
       />
     </el-dialog>
   </div>

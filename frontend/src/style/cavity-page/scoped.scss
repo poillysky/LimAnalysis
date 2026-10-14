@@ -84,6 +84,17 @@
   width: 156px;
 }
 
+/* 窗口下拉：原宽减约 40% */
+.cavity-filter--window :deep(.el-select) {
+  width: 94px;
+}
+
+/* 日期 / 班次：原宽减约 30% */
+.cavity-filter--date :deep(.el-select),
+.cavity-filter--duty :deep(.el-select) {
+  width: 109px;
+}
+
 .cavity-filter :deep(.el-select__wrapper) {
   min-height: 30px;
   height: 30px;

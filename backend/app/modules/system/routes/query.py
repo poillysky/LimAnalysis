@@ -52,6 +52,7 @@ def query_series_api(
     cavity_letter: str | None = None,
     body_mold: str | None = None,
     body_cavity: str | None = None,
+    hours: int | None = None,
 ):
     try:
         return ok(
@@ -65,6 +66,7 @@ def query_series_api(
                 cavity_letter=cavity_letter,
                 body_mold=body_mold,
                 body_cavity=body_cavity,
+                hours=hours,
             )
         )
     except ValueError as exc:

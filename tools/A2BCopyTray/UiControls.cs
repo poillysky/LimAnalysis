@@ -495,13 +495,37 @@ internal sealed class FlatMenuColors : ProfessionalColorTable
     public override Color SeparatorLight => UiTheme.PanelBg;
 }
 
+/// <summary>托盘菜单：保留原配色，只修正图标与文字垂直对齐。</summary>
 internal sealed class FlatMenuRenderer : ToolStripProfessionalRenderer
 {
     public FlatMenuRenderer() : base(new FlatMenuColors()) => RoundedEdges = false;
 
+    protected override void OnRenderImageMargin(ToolStripRenderEventArgs e)
+    {
+        // 纯色底，去掉图文之间默认竖线，视觉更干净
+        using var brush = new SolidBrush(e.ToolStrip.BackColor);
+        e.Graphics.FillRectangle(brush, e.AffectedBounds);
+    }
+
+    protected override void OnRenderItemImage(ToolStripItemImageRenderEventArgs e)
+    {
+        if (e.Image is null) return;
+        var img = e.Image;
+        var box = e.ImageRectangle;
+        var x = box.X + Math.Max(0, (box.Width - img.Width) / 2);
+        var y = box.Y + Math.Max(0, (box.Height - img.Height) / 2);
+        e.Graphics.DrawImage(img, new Rectangle(x, y, img.Width, img.Height));
+    }
+
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
         e.TextColor = e.Item.Enabled ? UiTheme.TextPrimary : UiTheme.TextMuted;
+        e.TextFormat |= TextFormatFlags.VerticalCenter;
+        e.TextRectangle = new Rectangle(
+            e.TextRectangle.X,
+            e.Item.ContentRectangle.Y,
+            e.TextRectangle.Width,
+            e.Item.ContentRectangle.Height);
         base.OnRenderItemText(e);
     }
 }

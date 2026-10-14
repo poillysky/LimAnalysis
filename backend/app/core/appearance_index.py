@@ -563,6 +563,49 @@ def ensure_view_dir_indexed(
             db.close()
 
 
+def count_files_by_sns_per_view(
+    project_key: str,
+    sns: set[str] | list[str],
+    *,
+    date_ymds: list[str],
+    views: list[str] | None = None,
+) -> dict[str, int]:
+    """按视角统计 SN 命中文件数（同 rel_path 去重）。"""
+    ensure_appearance_index_schema()
+    key = str(project_key or "").strip()
+    days = [str(d).strip() for d in date_ymds if str(d).strip()]
+    sn_list = sorted({str(s).strip() for s in sns if str(s).strip()})
+    view_list = [str(v).strip() for v in (views or []) if str(v).strip()]
+    if not key or not days or not sn_list:
+        return {name: 0 for name in view_list}
+
+    # view → 去重后的 rel_path
+    buckets: dict[str, set[str]] = {name: set() for name in view_list}
+    db = MetaSession()
+    try:
+        for offset in range(0, len(sn_list), SN_QUERY_CHUNK):
+            chunk = sn_list[offset : offset + SN_QUERY_CHUNK]
+            clauses = [
+                AppearanceFileIndex.project_key == key,
+                AppearanceFileIndex.date_ymd.in_(days),
+                AppearanceFileIndex.sn.in_(chunk),
+            ]
+            if view_list:
+                clauses.append(AppearanceFileIndex.view.in_(view_list))
+            rows = db.scalars(select(AppearanceFileIndex).where(*clauses)).all()
+            for row in rows:
+                view_name = str(row.view or "").strip()
+                rel = str(row.rel_path or "").strip()
+                if not view_name or not rel:
+                    continue
+                buckets.setdefault(view_name, set()).add(rel)
+    finally:
+        db.close()
+    if view_list:
+        return {name: len(buckets.get(name, set())) for name in view_list}
+    return {name: len(paths) for name, paths in buckets.items()}
+
+
 def query_files_by_sns(
     project_key: str,
     sns: set[str] | list[str],

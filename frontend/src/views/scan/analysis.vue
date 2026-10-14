@@ -3,9 +3,11 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getDefectAnalysis,
+  getDefectAnalysisDates,
   getDefectAnalysisRules,
   getScanBootstrap,
   saveDefectAnalysisRules,
+  type CavityDuty,
   type DefectAnalysisRow,
   type ScanDefectOption,
   type ScanProject
@@ -53,7 +55,13 @@ const projects = ref<ScanProject[]>([]);
 const defects = ref<ScanDefectOption[]>([]);
 const projectId = ref("");
 const defectItem = ref("");
-const hours = ref(12);
+const productionDate = ref("");
+const duty = ref<CavityDuty>("白班");
+const dateOptions = ref<string[]>([]);
+const DUTY_OPTIONS: { value: CavityDuty; label: string }[] = [
+  { value: "白班", label: "白班" },
+  { value: "夜班", label: "夜班" }
+];
 const rows = ref<DefectAnalysisRow[]>([]);
 const bodyRows = ref<DefectAnalysisRow[]>([]);
 const fromHour = ref("");
@@ -71,24 +79,11 @@ let tableAbort: AbortController | null = null;
 /** 标红判定读当前规则（活引用，规则改动即时生效） */
 const cellAlert = createCellAlert(() => alertRules.value);
 
-const WINDOW_OPTIONS = [
-  { value: 1, label: "近 1 小时" },
-  { value: 3, label: "近 3 小时" },
-  { value: 12, label: "近 12 小时" },
-  { value: 24, label: "近 1 天" },
-  { value: 72, label: "近 3 天" }
-];
-
 const projectTabs = computed(() =>
   projects.value.map(item => ({
     value: item.project_id,
     label: item.display_name
   }))
-);
-
-const windowName = computed(
-  () =>
-    WINDOW_OPTIONS.find(item => item.value === hours.value)?.label || "近 12 小时"
 );
 
 const defectName = computed(() => {
@@ -97,6 +92,14 @@ const defectName = computed(() => {
     defects.value.find(item => item.key === defectItem.value)?.label ||
     defectItem.value
   );
+});
+
+/** 空表文案用：MM-DD · 白班/夜班 */
+const windowName = computed(() => {
+  const day = String(productionDate.value || "").trim();
+  const short =
+    /^\d{4}-\d{2}-\d{2}$/.test(day) ? day.slice(5) : day || "—";
+  return `${short} · ${duty.value || "白班"}`;
 });
 
 function buildPivot(
@@ -205,13 +208,6 @@ const summary = computed(() =>
     cavityLetter
   )
 );
-
-const windowLabel = computed(() => {
-  if (fromHour.value && toHour.value && fromHour.value !== toHour.value) {
-    return `${fromHour.value} ~ ${toHour.value}`;
-  }
-  return fromHour.value || toHour.value || windowName.value;
-});
 
 const summaryMetrics = computed(() => {
   const r = alertRules.value;
@@ -341,7 +337,8 @@ async function fetchAnalysis(
   return getDefectAnalysis(
     {
       project_id: projectId.value,
-      hours: hours.value,
+      date: productionDate.value,
+      duty: duty.value,
       defect_item: defectItem.value || undefined,
       ...extra
     },
@@ -349,8 +346,37 @@ async function fetchAnalysis(
   );
 }
 
+async function loadDates(id: string, signal?: AbortSignal) {
+  const res = await getDefectAnalysisDates(id, signal);
+  const data = res?.data;
+  dateOptions.value = data?.dates || [];
+  const today = data?.today || "";
+  // 优先当前班次生产日（凌晨夜班=昨天），再回退日历今天
+  const defaultDate = data?.default_date || today || "";
+  const fresh = !productionDate.value;
+  if (fresh) {
+    duty.value = data?.duty === "夜班" ? "夜班" : "白班";
+  }
+  if (
+    productionDate.value &&
+    dateOptions.value.includes(productionDate.value)
+  ) {
+    return;
+  }
+  if (defaultDate && dateOptions.value.includes(defaultDate)) {
+    productionDate.value = defaultDate;
+  } else if (today && dateOptions.value.includes(today)) {
+    productionDate.value = today;
+  } else {
+    productionDate.value = dateOptions.value[0] || defaultDate || today || "";
+  }
+  if (fresh || !DUTY_OPTIONS.some(item => item.value === duty.value)) {
+    duty.value = data?.duty === "夜班" ? "夜班" : "白班";
+  }
+}
+
 async function loadTable() {
-  if (!projectId.value) {
+  if (!projectId.value || !productionDate.value) {
     rows.value = [];
     bodyRows.value = [];
     return;
@@ -427,12 +453,31 @@ async function loadBootstrap(id = "") {
     if (!defects.value.some(item => item.key === defectItem.value)) {
       defectItem.value = "";
     }
-    if (!projects.value.length) hint.value = "还没有启用的项目";
+    if (!projects.value.length) {
+      hint.value = "还没有启用的项目";
+      dateOptions.value = [];
+      productionDate.value = "";
+      rows.value = [];
+      bodyRows.value = [];
+      return;
+    }
     try {
       const rulesRes = await getDefectAnalysisRules(bootAbort.signal);
       alertRules.value = rulesFromRemote(rulesRes?.data);
     } catch {
       alertRules.value = { ...DEFAULT_CAVITY_ALERT };
+    }
+    if (!projectId.value) {
+      rows.value = [];
+      bodyRows.value = [];
+      return;
+    }
+    await loadDates(projectId.value, bootAbort.signal);
+    if (!productionDate.value) {
+      hint.value = "暂无 ServerTime 日期可选";
+      rows.value = [];
+      bodyRows.value = [];
+      return;
     }
     await loadTable();
   } catch (error) {
@@ -444,6 +489,8 @@ async function loadBootstrap(id = "") {
 
 function onProjectChange(id: string) {
   projectId.value = id;
+  // 换项目后按新项目的当前班次生产日 / 班次重新默认
+  productionDate.value = "";
   loadBootstrap(id);
 }
 
@@ -476,19 +523,37 @@ onUnmounted(() => {
       </el-button>
     </div>
 
-    <PageMetricBar :title="windowLabel" :metrics="summaryMetrics">
+    <PageMetricBar :metrics="summaryMetrics">
       <div class="cavity-filters">
-        <label class="cavity-filter">
-          <span>窗口</span>
+        <label class="cavity-filter cavity-filter--date">
+          <span>日期</span>
           <el-select
-            v-model="hours"
+            v-model="productionDate"
             size="small"
-            placeholder="时间窗口"
+            filterable
+            placeholder="ServerTime 日期"
             popper-class="cavity-filter-popper"
             @change="loadTable"
           >
             <el-option
-              v-for="item in WINDOW_OPTIONS"
+              v-for="item in dateOptions"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </label>
+        <label class="cavity-filter cavity-filter--duty">
+          <span>班次</span>
+          <el-select
+            v-model="duty"
+            size="small"
+            placeholder="班次"
+            popper-class="cavity-filter-popper"
+            @change="loadTable"
+          >
+            <el-option
+              v-for="item in DUTY_OPTIONS"
               :key="item.value"
               :label="item.label"
               :value="item.value"

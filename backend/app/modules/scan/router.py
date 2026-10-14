@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from app.core.defect_scans import (
     bootstrap,
     import_sn_file,
+    list_defect_analysis_dates,
     list_ops,
     load_analysis_alert_rules,
     load_project_items,
@@ -28,11 +29,23 @@ def scan_bootstrap(project_id: str | None = None):
         return JSONResponse(fail(str(exc)), status_code=400)
 
 
+@router.get("/defect/analysis-dates")
+def scan_analysis_dates(project_id: str):
+    try:
+        return ok(list_defect_analysis_dates(project_id))
+    except ValueError as exc:
+        return JSONResponse(fail(str(exc)), status_code=400)
+    except Exception as exc:
+        return JSONResponse(fail(str(exc)[:300]), status_code=500)
+
+
 @router.get("/defect/analysis")
 def scan_analysis(
     project_id: str,
     defect_item: str | None = None,
-    hours: int = Query(default=12, ge=1, le=72),
+    hours: int | None = Query(default=None, ge=1, le=72),
+    date: str | None = None,
+    duty: str | None = None,
     exclude_machine_cavities: str = "",
     exclude_body_cavities: str = "",
 ):
@@ -40,7 +53,9 @@ def scan_analysis(
         return ok(
             query_defect_analysis(
                 project_id,
-                hours=hours,
+                hours=12 if hours is None and not date else hours,
+                date_str=date,
+                duty=duty,
                 defect_item=defect_item,
                 exclude_machine_cavities=exclude_machine_cavities,
                 exclude_body_cavities=exclude_body_cavities,

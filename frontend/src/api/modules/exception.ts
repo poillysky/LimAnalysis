@@ -2,6 +2,9 @@ import { http } from "@/utils/http";
 import { API_PREFIX } from "@/api/http";
 import { DEFAULT_LIM_HOURS } from "@/utils/pivotTable";
 
+/** 模穴交叉表弹窗历史曲线：最近 3 天（72 小时桶） */
+export const SERIES_MAX_HOURS = 72;
+
 export type BoardProject = {
   project_id: string;
   display_name: string;
@@ -124,10 +127,16 @@ export const getQuerySeries = (
   projectId: string,
   metric: string,
   filters?: QueryFilters,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  hours?: number
 ) => {
   return http.request<QuerySeriesResult>("get", `${API_PREFIX}/system/query/series`, {
-    params: { project_id: projectId, metric, ...(filters || {}) },
+    params: {
+      project_id: projectId,
+      metric,
+      ...(filters || {}),
+      ...(hours != null ? { hours } : {})
+    },
     signal
   });
 };

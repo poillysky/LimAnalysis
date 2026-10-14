@@ -164,7 +164,6 @@ public sealed class TrayApplicationContext : ApplicationContext
                 var old = _pauseItem.Image;
                 _menuImages.Add(img);
                 _pauseItem.Image = img;
-                // 旧的暂停/播放图标不再被引用，直接释放，避免反复切换时堆积
                 if (old is Bitmap ob && _menuImages.Remove(ob)) ob.Dispose();
             }
         }

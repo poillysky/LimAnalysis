@@ -92,13 +92,6 @@ function statusTone(slot: A2bHeartbeatSlot) {
   return "never";
 }
 
-function shortPath(path: string) {
-  const text = (path || "").trim();
-  if (!text) return "—";
-  if (text.length <= 28) return text;
-  return `…${text.slice(-26)}`;
-}
-
 function stationLabel(slot: A2bHeartbeatSlot) {
   const st = String(slot.station || "").trim();
   return st ? `工站 ${st}` : "工站";
@@ -360,17 +353,14 @@ onUnmounted(stopPoll);
           <span class="a2b-group__count">{{ group.machines.length }} 台</span>
         </header>
 
-        <div
-          class="a2b-grid"
-          :class="{ 'a2b-grid--appearance': mode === 'appearance' }"
-        >
+        <div class="a2b-grid">
           <article
             v-for="card in group.machines"
             :key="card.key"
             class="machine"
             :class="[`machine--${card.tone}`, { 'machine--dual': mode === 'appearance' }]"
           >
-            <div class="machine__head">
+            <header class="machine__head">
               <div class="machine__title">
                 <span
                   class="machine__dot"
@@ -393,63 +383,63 @@ onUnmounted(stopPoll);
                     : stationStatusText(card.stations[0])
                 }}
               </span>
-            </div>
+            </header>
 
-            <!-- 外观：两工站 -->
-            <div v-if="mode === 'appearance'" class="lamps">
+            <!-- 外观：双工站横排，与注塑共用 machine__body 密度 -->
+            <div v-if="mode === 'appearance'" class="machine__body machine__body--split">
               <div
                 v-for="slot in card.stations"
                 :key="slot.slot_key"
-                class="lamp"
-                :class="`lamp--${statusTone(slot)}`"
+                class="station"
+                :class="`station--${statusTone(slot)}`"
               >
-                <span class="lamp__dot" aria-hidden="true" />
-                <div class="lamp__body">
-                  <span class="lamp__label">{{ stationLabel(slot) }}</span>
-                  <strong class="lamp__state">{{ stationStatusText(slot) }}</strong>
-                  <span class="lamp__meta">
-                    {{ slot.last_seen_at || "尚无心跳" }}
-                  </span>
+                <div class="station__top">
+                  <span class="station__label">{{ stationLabel(slot) }}</span>
+                  <span class="station__pill">{{ stationStatusText(slot) }}</span>
                 </div>
+                <span class="station__time">
+                  {{ slot.last_seen_at || "尚无心跳" }}
+                </span>
+                <span
+                  v-if="slot.host_name"
+                  class="station__host"
+                  :title="slot.host_name"
+                >
+                  {{ slot.host_name }}
+                  <template v-if="slot.client_version">
+                    · {{ slot.client_version }}
+                  </template>
+                </span>
               </div>
             </div>
 
-            <!-- 注塑：单机详情 -->
-            <dl v-else class="machine__meta">
-              <div>
-                <dt>心跳</dt>
-                <dd>{{ card.stations[0]?.last_seen_at || "—" }}</dd>
-              </div>
-              <div>
-                <dt>成败</dt>
-                <dd>
-                  {{ card.stations[0]?.ok_count ?? 0 }}
-                  <span class="machine__sep">/</span>
-                  {{ card.stations[0]?.fail_count ?? 0 }}
-                </dd>
-              </div>
-              <div>
-                <dt>源</dt>
-                <dd :title="card.stations[0]?.source">
-                  {{ shortPath(card.stations[0]?.source || "") || "—" }}
-                </dd>
-              </div>
-              <div>
-                <dt>目标</dt>
-                <dd :title="card.stations[0]?.target">
-                  {{ shortPath(card.stations[0]?.target || "") || "—" }}
-                </dd>
-              </div>
-              <div>
-                <dt>主机</dt>
-                <dd>
-                  {{ card.stations[0]?.host_name || "—" }}
+            <!-- 注塑：与外观同密度，只保留状态/心跳/主机 -->
+            <div v-else class="machine__body">
+              <div
+                class="station station--solo"
+                :class="`station--${statusTone(card.stations[0])}`"
+              >
+                <div class="station__top">
+                  <span class="station__label">心跳</span>
+                  <span class="station__pill">
+                    {{ stationStatusText(card.stations[0]) }}
+                  </span>
+                </div>
+                <span class="station__time">
+                  {{ card.stations[0]?.last_seen_at || "尚无心跳" }}
+                </span>
+                <span
+                  v-if="card.stations[0]?.host_name"
+                  class="station__host"
+                  :title="card.stations[0]?.host_name"
+                >
+                  {{ card.stations[0]?.host_name }}
                   <template v-if="card.stations[0]?.client_version">
                     · {{ card.stations[0].client_version }}
                   </template>
-                </dd>
+                </span>
               </div>
-            </dl>
+            </div>
           </article>
         </div>
       </section>
@@ -480,7 +470,7 @@ onUnmounted(stopPoll);
             class="machine machine--unreg"
             :class="`machine--${statusTone(slot)}`"
           >
-            <div class="machine__head">
+            <header class="machine__head">
               <div class="machine__title">
                 <span
                   class="machine__dot"
@@ -495,29 +485,33 @@ onUnmounted(stopPoll);
               >
                 {{ slot.client_status || presenceLabel(slot.presence) }}
               </span>
-            </div>
-            <dl class="machine__meta">
-              <div>
-                <dt>配置</dt>
-                <dd>
-                  {{ slot.project_name || "—" }} · {{ slot.machine || "—" }}
-                  <template v-if="slot.station"> · 工站{{ slot.station }}</template>
-                </dd>
-              </div>
-              <div>
-                <dt>心跳</dt>
-                <dd>{{ slot.last_seen_at || "—" }}</dd>
-              </div>
-              <div>
-                <dt>主机</dt>
-                <dd>
-                  {{ slot.host_name || "—" }}
+            </header>
+            <div class="machine__body">
+              <div
+                class="station station--solo"
+                :class="`station--${statusTone(slot)}`"
+              >
+                <div class="station__top">
+                  <span class="station__label">心跳</span>
+                  <span class="station__pill">
+                    {{ stationStatusText(slot) }}
+                  </span>
+                </div>
+                <span class="station__time">
+                  {{ slot.last_seen_at || "尚无心跳" }}
+                </span>
+                <span
+                  v-if="slot.host_name"
+                  class="station__host"
+                  :title="slot.host_name"
+                >
+                  {{ slot.host_name }}
                   <template v-if="slot.client_version">
                     · {{ slot.client_version }}
                   </template>
-                </dd>
+                </span>
               </div>
-            </dl>
+            </div>
           </article>
         </div>
       </section>
@@ -707,44 +701,30 @@ onUnmounted(stopPoll);
 
 .a2b-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 10px;
-}
-
-.a2b-grid--appearance {
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 }
 
 .machine {
   --machine-accent: var(--la-text-faint, #98a2b3);
-  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 14px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--la-border-subtle, #e4e7ec);
+  min-height: 0;
+  border-radius: var(--la-radius-md, 8px);
+  border: 1px solid var(--la-border-default, #d0d5dd);
   background: var(--la-surface-card, #fff);
-  transition: border-color 0.16s ease;
-}
-
-.machine::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 14px;
-  left: 14px;
-  height: 1px;
-  background: color-mix(in srgb, var(--machine-accent) 55%, transparent);
-  border-radius: 1px;
+  box-shadow: var(--la-shadow-sm);
+  overflow: hidden;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .machine:hover {
   border-color: color-mix(
     in srgb,
-    var(--machine-accent) 28%,
-    var(--la-border-subtle, #e4e7ec)
+    var(--machine-accent) 42%,
+    var(--la-border-default, #d0d5dd)
   );
+  box-shadow: var(--la-shadow-md);
 }
 
 .machine--ok {
@@ -765,11 +745,10 @@ onUnmounted(stopPoll);
 
 .machine--never {
   --machine-accent: var(--la-text-faint, #98a2b3);
-  background: color-mix(in srgb, var(--la-surface-sunken, #f2f4f7) 55%, #fff);
 }
 
 .machine--unreg {
-  background: color-mix(in srgb, var(--el-color-warning) 4%, var(--la-surface-card, #fff));
+  background: color-mix(in srgb, var(--el-color-warning) 5%, var(--la-surface-card, #fff));
 }
 
 .machine__head {
@@ -778,6 +757,9 @@ onUnmounted(stopPoll);
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
+  padding: 10px 12px 9px;
+  border-bottom: 1px solid var(--la-border-subtle, #eef0f3);
+  background: color-mix(in srgb, var(--machine-accent) 7%, var(--la-surface-card, #fff));
 }
 
 .machine__title {
@@ -795,10 +777,15 @@ onUnmounted(stopPoll);
   background: var(--machine-accent);
 }
 
+.machine--ok .machine__dot,
+.machine--sync .machine__dot {
+  animation: a2b-pulse 2.8s ease-out infinite;
+}
+
 .machine__name {
   overflow: hidden;
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--la-text-md, 14px);
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--la-text-strong, #1f2733);
   text-overflow: ellipsis;
@@ -810,9 +797,9 @@ onUnmounted(stopPoll);
   max-width: 46%;
   overflow: hidden;
   padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
+  border-radius: var(--la-radius-pill);
+  font-size: var(--la-text-2xs, 11px);
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   color: var(--la-text-muted, #667085);
@@ -824,7 +811,7 @@ onUnmounted(stopPoll);
 .machine__badge.is-ok,
 .machine__badge.is-sync {
   color: var(--el-color-success);
-  background: color-mix(in srgb, var(--el-color-success) 10%, transparent);
+  background: color-mix(in srgb, var(--el-color-success) 12%, transparent);
 }
 
 .machine__badge.is-warn {
@@ -835,129 +822,101 @@ onUnmounted(stopPoll);
 .machine__badge.is-off,
 .machine__badge.is-bad {
   color: var(--el-color-danger);
-  background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
+  background: color-mix(in srgb, var(--el-color-danger) 12%, transparent);
 }
 
 .machine__badge.is-never {
   color: var(--la-text-muted, #667085);
-  background: color-mix(in srgb, var(--la-text-faint, #98a2b3) 14%, transparent);
+  background: color-mix(in srgb, var(--la-text-faint, #98a2b3) 16%, transparent);
 }
 
-.machine__meta {
-  margin: 0;
-  display: grid;
-  gap: 6px;
-  padding-top: 2px;
-  border-top: 1px solid var(--la-border-subtle, #eef0f3);
-}
-
-.machine__meta > div {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
+.machine__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   gap: 8px;
-  align-items: baseline;
-  font-size: 12px;
-  line-height: 1.4;
+  padding: 10px 12px 12px;
 }
 
-.machine__meta dt {
-  margin: 0;
-  color: var(--la-text-faint, #98a2b3);
-  font-size: 11px;
-}
-
-.machine__meta dd {
-  margin: 0;
-  overflow: hidden;
-  color: var(--la-text-body, #364152);
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.machine__sep {
-  margin: 0 2px;
-  color: var(--la-text-faint, #98a2b3);
-}
-
-/* —— 外观双工站 —— */
-.lamps {
+.machine__body--split {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
-.lamp {
-  --lamp-color: var(--la-text-faint, #98a2b3);
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  min-height: 64px;
-  padding: 10px;
-  border-radius: 10px;
-  background: var(--la-surface-sunken, #f2f4f7);
-}
-
-.lamp--ok {
-  --lamp-color: var(--el-color-success);
-}
-
-.lamp--sync {
-  --lamp-color: var(--el-color-primary);
-}
-
-.lamp--warn {
-  --lamp-color: var(--el-color-warning);
-}
-
-.lamp--off {
-  --lamp-color: var(--el-color-danger);
-}
-
-.lamp--never {
-  --lamp-color: var(--la-text-faint, #98a2b3);
-}
-
-.lamp__dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--lamp-color);
-}
-
-.lamp--ok .lamp__dot,
-.lamp--sync .lamp__dot {
-  animation: a2b-pulse 2.8s ease-out infinite;
-}
-
-.lamp__body {
+.station {
+  --station-accent: var(--la-text-faint, #98a2b3);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--la-radius-sm, 5px);
+  background: var(--la-surface-sunken, #f2f4f7);
+  border: 1px solid color-mix(in srgb, var(--station-accent) 18%, transparent);
+}
+
+.station--solo {
+  padding: 8px 10px;
+}
+
+.station--ok {
+  --station-accent: var(--el-color-success);
+}
+
+.station--sync {
+  --station-accent: var(--el-color-primary);
+}
+
+.station--warn {
+  --station-accent: var(--el-color-warning);
+}
+
+.station--off {
+  --station-accent: var(--el-color-danger);
+}
+
+.station--never {
+  --station-accent: var(--la-text-faint, #98a2b3);
+}
+
+.station__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 0;
 }
 
-.lamp__label {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--la-text-faint, #98a2b3);
-}
-
-.lamp__state {
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  color: var(--la-text-strong, #1f2733);
-}
-
-.lamp__meta {
-  overflow: hidden;
-  font-size: 11px;
+.station__label {
+  font-size: var(--la-text-2xs, 11px);
+  font-weight: 600;
   color: var(--la-text-muted, #667085);
+}
+
+.station__pill {
+  flex: none;
+  overflow: hidden;
+  max-width: 58%;
+  font-size: var(--la-text-2xs, 11px);
+  font-weight: 700;
+  color: var(--station-accent);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.station__time,
+.station__host {
+  overflow: hidden;
+  font-size: var(--la-text-2xs, 11px);
+  font-variant-numeric: tabular-nums;
+  color: var(--la-text-body, #364152);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.station__host {
+  color: var(--la-text-muted, #667085);
 }
 
 .a2b-empty {
@@ -966,27 +925,26 @@ onUnmounted(stopPoll);
   font-size: var(--la-text-sm, 13px);
   color: var(--la-text-muted, #667085);
   border: 1px dashed var(--la-border-default, #d0d5dd);
-  border-radius: 12px;
+  border-radius: var(--la-radius-md, 8px);
   background: var(--la-surface-card, #fff);
 }
 
 @keyframes a2b-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--lamp-color) 0%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--machine-accent) 0%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--lamp-color) 16%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--machine-accent) 16%, transparent);
   }
 }
 
 @media (max-width: 720px) {
-  .lamps {
+  .machine__body--split {
     grid-template-columns: 1fr;
   }
 
-  .a2b-grid,
-  .a2b-grid--appearance {
+  .a2b-grid {
     grid-template-columns: 1fr;
   }
 }
