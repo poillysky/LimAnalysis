@@ -30,6 +30,8 @@ export type InspectionImage = {
   id: string;
   machine: string;
   cavity: string;
+  /** 外观截图所属外观机/线体号（注塑维取图时 machine 仍是注塑机台） */
+  tester?: string;
   filename: string;
   date_str: string;
   rel_path: string;

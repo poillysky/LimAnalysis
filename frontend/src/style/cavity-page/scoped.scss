@@ -149,6 +149,17 @@
   padding-left: 6px;
 }
 
+.alert-set-tabs {
+  margin-bottom: 8px;
+}
+
+.alert-set-hint {
+  margin: 0 0 14px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .alert-dialog__head {
   display: flex;
   flex-wrap: wrap;

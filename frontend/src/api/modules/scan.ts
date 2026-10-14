@@ -200,15 +200,15 @@ export const getDefectAnalysis = (
 };
 
 export const getDefectAnalysisRules = (signal?: AbortSignal) => {
-  return http.request<{ success: boolean; data: Record<string, number> }>(
+  return http.request<{ success: boolean; data: Record<string, unknown> }>(
     "get",
     `${API_PREFIX}/scan/defect/analysis-rules`,
     { signal }
   );
 };
 
-export const saveDefectAnalysisRules = (data: Record<string, number>) => {
-  return http.request<{ success: boolean; data: Record<string, number> }>(
+export const saveDefectAnalysisRules = (data: Record<string, unknown>) => {
+  return http.request<{ success: boolean; data: Record<string, unknown> }>(
     "put",
     `${API_PREFIX}/scan/defect/analysis-rules`,
     { data }

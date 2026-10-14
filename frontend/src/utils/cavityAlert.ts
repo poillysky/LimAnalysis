@@ -1,4 +1,4 @@
-/** LIM 机台/模穴、本体模具/模穴：两套标红规则。 */
+/** LIM 机台/模穴、本体模具/模穴标红规则；总不良与子不良各一套。 */
 import { http } from "@/utils/http";
 import { API_PREFIX } from "@/api/http";
 
@@ -18,6 +18,14 @@ export type AlertRules = {
   machineMinQty: number;
 };
 
+/** total=总不良（外观/注塑）；item=筛选到的其他子不良 */
+export type AlertRulesBundle = {
+  total: AlertRules;
+  item: AlertRules;
+};
+
+export type AlertRuleSetKind = keyof AlertRulesBundle;
+
 export const CAVITY_ALERT_KEY = "limanalysis.cavity.alertRules";
 export const DEFAULT_CAVITY_ALERT: AlertRules = {
   limCavityRateAbovePct: 5,
@@ -34,6 +42,16 @@ export const DEFAULT_CAVITY_ALERT: AlertRules = {
   machineMinQty: 30
 };
 
+export const DEFAULT_CAVITY_ALERT_BUNDLE: AlertRulesBundle = {
+  total: { ...DEFAULT_CAVITY_ALERT },
+  item: { ...DEFAULT_CAVITY_ALERT }
+};
+
+export function isTotalDefectMetric(metricKey: string) {
+  const key = String(metricKey || "").trim();
+  return key === "appearance" || key === "mold";
+}
+
 function clampPct(value: unknown, fallback: number) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -46,9 +64,7 @@ function clampQty(value: unknown, fallback: number) {
   return Math.max(0, n);
 }
 
-function firstNumber(
-  ...values: unknown[]
-): number | undefined {
+function firstNumber(...values: unknown[]): number | undefined {
   for (const value of values) {
     if (value == null || value === "") continue;
     const n = Number(value);
@@ -57,26 +73,31 @@ function firstNumber(
   return undefined;
 }
 
+type AlertRulesRaw = Partial<AlertRules> & {
+  rateAbovePct?: number;
+  minQty?: number;
+  yieldBelowPct?: number;
+  rate_above_pct?: number;
+  min_qty?: number;
+  cavity_rate_above_pct?: number;
+  cavity_min_qty?: number;
+  machine_rate_above_pct?: number;
+  machine_min_qty?: number;
+  lim_cavity_rate_above_pct?: number;
+  lim_cavity_min_qty?: number;
+  lim_machine_rate_above_pct?: number;
+  lim_machine_min_qty?: number;
+  body_cavity_rate_above_pct?: number;
+  body_cavity_min_qty?: number;
+  body_machine_rate_above_pct?: number;
+  body_machine_min_qty?: number;
+  item?: AlertRulesRaw | null;
+  total?: AlertRulesRaw | null;
+};
+
 export function normalizeAlertRules(
-  raw?: Partial<AlertRules> & {
-    rateAbovePct?: number;
-    minQty?: number;
-    yieldBelowPct?: number;
-    rate_above_pct?: number;
-    min_qty?: number;
-    cavity_rate_above_pct?: number;
-    cavity_min_qty?: number;
-    machine_rate_above_pct?: number;
-    machine_min_qty?: number;
-    lim_cavity_rate_above_pct?: number;
-    lim_cavity_min_qty?: number;
-    lim_machine_rate_above_pct?: number;
-    lim_machine_min_qty?: number;
-    body_cavity_rate_above_pct?: number;
-    body_cavity_min_qty?: number;
-    body_machine_rate_above_pct?: number;
-    body_machine_min_qty?: number;
-  } | null
+  raw?: AlertRulesRaw | null,
+  fallback: AlertRules = DEFAULT_CAVITY_ALERT
 ): AlertRules {
   const parsed = raw || {};
   let legacyRate = parsed.rateAbovePct ?? parsed.rate_above_pct;
@@ -93,7 +114,7 @@ export function normalizeAlertRules(
       parsed.cavity_rate_above_pct,
       legacyRate
     ),
-    DEFAULT_CAVITY_ALERT.limCavityRateAbovePct
+    fallback.limCavityRateAbovePct
   );
   const limCavityMinQty = clampQty(
     firstNumber(
@@ -103,7 +124,7 @@ export function normalizeAlertRules(
       parsed.cavity_min_qty,
       legacyQty
     ),
-    DEFAULT_CAVITY_ALERT.limCavityMinQty
+    fallback.limCavityMinQty
   );
   const limMachineRateAbovePct = clampPct(
     firstNumber(
@@ -113,7 +134,7 @@ export function normalizeAlertRules(
       parsed.machine_rate_above_pct,
       legacyRate
     ),
-    DEFAULT_CAVITY_ALERT.limMachineRateAbovePct
+    fallback.limMachineRateAbovePct
   );
   const limMachineMinQty = clampQty(
     firstNumber(
@@ -123,7 +144,7 @@ export function normalizeAlertRules(
       parsed.machine_min_qty,
       legacyQty
     ),
-    DEFAULT_CAVITY_ALERT.limMachineMinQty
+    fallback.limMachineMinQty
   );
   const bodyCavityRateAbovePct = clampPct(
     firstNumber(
@@ -131,7 +152,7 @@ export function normalizeAlertRules(
       parsed.body_cavity_rate_above_pct,
       limCavityRateAbovePct
     ),
-    DEFAULT_CAVITY_ALERT.bodyCavityRateAbovePct
+    fallback.bodyCavityRateAbovePct
   );
   const bodyCavityMinQty = clampQty(
     firstNumber(
@@ -139,7 +160,7 @@ export function normalizeAlertRules(
       parsed.body_cavity_min_qty,
       limCavityMinQty
     ),
-    DEFAULT_CAVITY_ALERT.bodyCavityMinQty
+    fallback.bodyCavityMinQty
   );
   const bodyMachineRateAbovePct = clampPct(
     firstNumber(
@@ -147,7 +168,7 @@ export function normalizeAlertRules(
       parsed.body_machine_rate_above_pct,
       limMachineRateAbovePct
     ),
-    DEFAULT_CAVITY_ALERT.bodyMachineRateAbovePct
+    fallback.bodyMachineRateAbovePct
   );
   const bodyMachineMinQty = clampQty(
     firstNumber(
@@ -155,7 +176,7 @@ export function normalizeAlertRules(
       parsed.body_machine_min_qty,
       limMachineMinQty
     ),
-    DEFAULT_CAVITY_ALERT.bodyMachineMinQty
+    fallback.bodyMachineMinQty
   );
 
   return {
@@ -174,18 +195,57 @@ export function normalizeAlertRules(
   };
 }
 
-export function loadCavityAlertRules(): AlertRules {
+export function normalizeAlertBundle(
+  raw?: AlertRulesRaw | AlertRulesBundle | null
+): AlertRulesBundle {
+  const parsed = (raw || {}) as AlertRulesRaw;
+  // 旧版扁平：整包当总不良；有 total/item 时分别读
+  const flatSrc = {
+    ...parsed,
+    item: undefined,
+    total: undefined
+  } as AlertRulesRaw;
+  const total = normalizeAlertRules(
+    parsed.total != null ? parsed.total : flatSrc
+  );
+  const item = normalizeAlertRules(
+    parsed.item != null ? parsed.item : undefined,
+    total
+  );
+  return { total, item };
+}
+
+export function pickAlertRules(
+  bundle: AlertRulesBundle,
+  metricKey: string
+): AlertRules {
+  return isTotalDefectMetric(metricKey) ? bundle.total : bundle.item;
+}
+
+export function loadCavityAlertBundle(): AlertRulesBundle {
   try {
     const raw = localStorage.getItem(CAVITY_ALERT_KEY);
-    if (!raw) return { ...DEFAULT_CAVITY_ALERT };
-    return normalizeAlertRules(JSON.parse(raw));
+    if (!raw) return structuredClone(DEFAULT_CAVITY_ALERT_BUNDLE);
+    return normalizeAlertBundle(JSON.parse(raw));
   } catch {
-    return { ...DEFAULT_CAVITY_ALERT };
+    return structuredClone(DEFAULT_CAVITY_ALERT_BUNDLE);
   }
 }
 
+/** @deprecated 仅扫码页等仍读单套时用；模穴页请用 loadCavityAlertBundle */
+export function loadCavityAlertRules(): AlertRules {
+  return loadCavityAlertBundle().total;
+}
+
+export function saveCavityAlertBundle(bundle: AlertRulesBundle) {
+  const next = normalizeAlertBundle(bundle);
+  localStorage.setItem(CAVITY_ALERT_KEY, JSON.stringify(next));
+}
+
+/** @deprecated */
 export function saveCavityAlertRules(rules: AlertRules) {
-  localStorage.setItem(CAVITY_ALERT_KEY, JSON.stringify(normalizeAlertRules(rules)));
+  const prev = loadCavityAlertBundle();
+  saveCavityAlertBundle({ ...prev, total: normalizeAlertRules(rules) });
 }
 
 export function isDefaultAlertRules(rules: AlertRules) {
@@ -193,12 +253,22 @@ export function isDefaultAlertRules(rules: AlertRules) {
   return (
     next.limCavityRateAbovePct === DEFAULT_CAVITY_ALERT.limCavityRateAbovePct &&
     next.limCavityMinQty === DEFAULT_CAVITY_ALERT.limCavityMinQty &&
-    next.limMachineRateAbovePct === DEFAULT_CAVITY_ALERT.limMachineRateAbovePct &&
+    next.limMachineRateAbovePct ===
+      DEFAULT_CAVITY_ALERT.limMachineRateAbovePct &&
     next.limMachineMinQty === DEFAULT_CAVITY_ALERT.limMachineMinQty &&
-    next.bodyCavityRateAbovePct === DEFAULT_CAVITY_ALERT.bodyCavityRateAbovePct &&
+    next.bodyCavityRateAbovePct ===
+      DEFAULT_CAVITY_ALERT.bodyCavityRateAbovePct &&
     next.bodyCavityMinQty === DEFAULT_CAVITY_ALERT.bodyCavityMinQty &&
-    next.bodyMachineRateAbovePct === DEFAULT_CAVITY_ALERT.bodyMachineRateAbovePct &&
+    next.bodyMachineRateAbovePct ===
+      DEFAULT_CAVITY_ALERT.bodyMachineRateAbovePct &&
     next.bodyMachineMinQty === DEFAULT_CAVITY_ALERT.bodyMachineMinQty
+  );
+}
+
+export function isDefaultAlertBundle(bundle: AlertRulesBundle) {
+  const next = normalizeAlertBundle(bundle);
+  return (
+    isDefaultAlertRules(next.total) && isDefaultAlertRules(next.item)
   );
 }
 
@@ -220,22 +290,36 @@ export function toRemoteAlertRules(rules: AlertRules) {
   };
 }
 
-export const saveCavityAlertRulesRemote = (rules: AlertRules) => {
+export function toRemoteAlertBundle(bundle: AlertRulesBundle) {
+  const next = normalizeAlertBundle(bundle);
+  return {
+    ...toRemoteAlertRules(next.total),
+    item: toRemoteAlertRules(next.item)
+  };
+}
+
+export const saveCavityAlertRulesRemote = (bundle: AlertRulesBundle) => {
   return http.request<{
     success: boolean;
-    data: Record<string, number>;
+    data: Record<string, unknown>;
   }>("put", `${API_PREFIX}/system/alert-rules`, {
-    data: toRemoteAlertRules(rules)
+    data: toRemoteAlertBundle(bundle)
   });
 };
 
 export const getCavityAlertRulesRemote = () => {
   return http.request<{
     success: boolean;
-    data: Record<string, number>;
+    data: Record<string, unknown>;
   }>("get", `${API_PREFIX}/system/alert-rules`);
 };
 
-export function rulesFromRemote(data?: Record<string, number>): AlertRules {
-  return normalizeAlertRules(data);
+export function rulesFromRemote(data?: Record<string, unknown>): AlertRules {
+  return normalizeAlertBundle(data as AlertRulesRaw).total;
+}
+
+export function bundleFromRemote(
+  data?: Record<string, unknown>
+): AlertRulesBundle {
+  return normalizeAlertBundle(data as AlertRulesRaw);
 }

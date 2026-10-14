@@ -11,6 +11,7 @@ from app.core.projects import (
     create_project,
     delete_project,
     get_project,
+    list_appearance_view_options,
     load_machine_catalog,
     load_projects,
     load_system_defaults,
@@ -41,6 +42,18 @@ def add_project(body: ProjectCreate, _admin: dict = Depends(require_admin)):
         return JSONResponse(fail(str(exc)), status_code=400)
 
 
+@router.get("/projects/{project_id}/appearance-view-options")
+def appearance_view_options(project_id: str):
+    """编辑项目「视角名」下拉：来自该项目聚合度量 *不良数。"""
+    if get_project(project_id) is None:
+        return JSONResponse(fail("项目不存在"), status_code=404)
+    try:
+        items = list_appearance_view_options(project_id)
+    except Exception as exc:
+        return JSONResponse(fail(f"读取聚合字段失败：{exc}"), status_code=500)
+    return ok({"project_id": project_id, "items": items})
+
+
 @router.get("/projects/{project_id}")
 def read_project(project_id: str):
     item = get_project(project_id)
@@ -55,7 +68,13 @@ def edit_project(
     body: ProjectUpdate,
     _admin: dict = Depends(require_admin),
 ):
-    item = update_project(project_id, body.model_dump(exclude_unset=True))
+    try:
+        item = update_project(project_id, body.model_dump(exclude_unset=True))
+    except Exception as exc:
+        return JSONResponse(
+            fail(f"保存失败：{exc}"),
+            status_code=503 if "locked" in str(exc).lower() else 500,
+        )
     if item is None:
         return JSONResponse(fail("项目不存在"), status_code=404)
     return ok(item)
@@ -63,6 +82,13 @@ def edit_project(
 
 @router.delete("/projects/{project_id}")
 def remove_project(project_id: str, _admin: dict = Depends(require_admin)):
-    if not delete_project(project_id):
+    try:
+        deleted = delete_project(project_id)
+    except Exception as exc:
+        return JSONResponse(
+            fail(f"删除失败：{exc}"),
+            status_code=503 if "locked" in str(exc).lower() else 500,
+        )
+    if not deleted:
         return JSONResponse(fail("项目不存在"), status_code=404)
     return ok({"project_id": project_id})

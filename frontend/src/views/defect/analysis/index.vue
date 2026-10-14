@@ -136,21 +136,9 @@ function machineLine(row: {
     : `${row.machine} ${rate}`;
 }
 
-const CAMERA_ITEMS = new Set([
-  "外长直边",
-  "正面硅胶",
-  "内长直边",
-  "反面烟囱",
-  "正面支架",
-  "反面边框",
-  "硅胶短边"
-]);
-
+/** 异常说明：后端已按项目登记的视角名排除；未登记则原样展示 */
 function machineIssueText(row: YieldAlertRow) {
-  const defects = (row.defects || []).filter(item => {
-    const name = String(item.label || item.item || "").trim();
-    return name && !CAMERA_ITEMS.has(name);
-  });
+  const defects = row.defects || [];
   if (defects.length) {
     return defects
       .map(item => {
@@ -162,14 +150,9 @@ function machineIssueText(row: YieldAlertRow) {
       })
       .join("、");
   }
-  const reasons = (row.reasons || []).filter(
-    name => name && !CAMERA_ITEMS.has(String(name).trim())
-  );
+  const reasons = (row.reasons || []).filter(Boolean);
   if (reasons.length) return reasons.join("、");
-  if (Number(row.ng || 0) > 0) {
-    return `外观不良 ${Number(row.ng).toLocaleString()}pcs`;
-  }
-  return "窗口内无分项不良";
+  return "窗口内无具体不良项";
 }
 
 const photoOpen = ref(false);

@@ -3,9 +3,10 @@
 拆自原 system/router.py。只读查询类接口。
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
+from app.api.deps import require_admin
 from app.core.ads_query import (
     DEFAULT_LIM_HOURS,
     list_query_catalog,
@@ -139,7 +140,9 @@ def alert_rules_get():
 
 
 @router.put("/alert-rules")
-def alert_rules_put(body: CavityAlertRulesIn):
+def alert_rules_put(
+    body: CavityAlertRulesIn, _admin: dict = Depends(require_admin)
+):
     return ok(save_alert_rules(body.model_dump()))
 
 

@@ -36,6 +36,8 @@ export type ProjectItem = {
   machines?: string[];
   /** 外观机自由列表，如 GV-0701 */
   appearance_machines?: string[];
+  /** 外观视角名（登记后预警异常说明按此排除） */
+  appearance_views?: string[];
   owners?: ProjectOwners;
   column_map?: ColumnMapItem[];
 };
@@ -58,17 +60,29 @@ export const createProject = (
     display_name: string;
     machines?: string[];
     appearance_machines?: string[];
+    appearance_views?: string[];
   }
 ) => {
   return http.request("post", `${API_PREFIX}/system/projects`, { data });
 };
 
 export const updateProject = (projectId: string, data: Partial<ProjectItem>) => {
-  return http.request("put", `${API_PREFIX}/system/projects/${projectId}`, {
+  const id = encodeURIComponent(String(projectId || "").trim());
+  return http.request("put", `${API_PREFIX}/system/projects/${id}`, {
     data
   });
 };
 
 export const deleteProject = (projectId: string) => {
-  return http.request("delete", `${API_PREFIX}/system/projects/${projectId}`);
+  const id = encodeURIComponent(String(projectId || "").trim());
+  return http.request("delete", `${API_PREFIX}/system/projects/${id}`);
+};
+
+/** 视角名下拉选项：项目聚合度量 *不良数 → 去掉后缀 */
+export const listAppearanceViewOptions = (projectId: string) => {
+  const id = encodeURIComponent(String(projectId || "").trim());
+  return http.request<{
+    success: boolean;
+    data: { project_id: string; items: string[] };
+  }>("get", `${API_PREFIX}/system/projects/${id}/appearance-view-options`);
 };

@@ -13,11 +13,12 @@ from zoneinfo import ZoneInfo
 
 from app.core.ads_query import (
     DEFAULT_LIM_HOURS,
-    _APPEARANCE_ITEMS,
     _enabled_project,
+    _is_camera_view_item,
     query_machine_cavity,
     query_machine_cavity_breakdown,
 )
+from app.core.projects import appearance_view_names
 from app.core.db import MetaSession
 from app.core.duty_roster import list_roster
 from app.core.meta_init import CAVITY_ALERT_RULES_KEY, init_meta_store
@@ -64,8 +65,12 @@ def _first(value: dict, *keys):
     return None
 
 
-def _normalize_rules(raw: dict | None) -> dict:
+def _normalize_rule_fields(
+    raw: dict | None, *, fallback: dict | None = None
+) -> dict:
+    """归一化一套 LIM/本体阈值；缺省时优先 fallback，再退 DEFAULT_RULES。"""
     value = dict(raw) if isinstance(raw, dict) else {}
+    base = dict(fallback) if isinstance(fallback, dict) else DEFAULT_RULES
     legacy_rate = value.get("rate_above_pct")
     legacy_qty = value.get("min_qty")
     lim_cavity_rate = _first(
@@ -86,13 +91,15 @@ def _normalize_rules(raw: dict | None) -> dict:
         lim_machine_qty = legacy_qty
 
     lim_cavity_rate = _pct(
-        lim_cavity_rate, DEFAULT_RULES["lim_cavity_rate_above_pct"]
+        lim_cavity_rate, base.get("lim_cavity_rate_above_pct", 5.0)
     )
-    lim_cavity_qty = _qty(lim_cavity_qty, DEFAULT_RULES["lim_cavity_min_qty"])
+    lim_cavity_qty = _qty(lim_cavity_qty, base.get("lim_cavity_min_qty", 30.0))
     lim_machine_rate = _pct(
-        lim_machine_rate, DEFAULT_RULES["lim_machine_rate_above_pct"]
+        lim_machine_rate, base.get("lim_machine_rate_above_pct", 5.0)
     )
-    lim_machine_qty = _qty(lim_machine_qty, DEFAULT_RULES["lim_machine_min_qty"])
+    lim_machine_qty = _qty(
+        lim_machine_qty, base.get("lim_machine_min_qty", 30.0)
+    )
 
     body_cavity_rate = _first(value, "body_cavity_rate_above_pct")
     if body_cavity_rate is None:
@@ -113,16 +120,17 @@ def _normalize_rules(raw: dict | None) -> dict:
         "lim_machine_rate_above_pct": lim_machine_rate,
         "lim_machine_min_qty": lim_machine_qty,
         "body_cavity_rate_above_pct": _pct(
-            body_cavity_rate, DEFAULT_RULES["body_cavity_rate_above_pct"]
+            body_cavity_rate, base.get("body_cavity_rate_above_pct", lim_cavity_rate)
         ),
         "body_cavity_min_qty": _qty(
-            body_cavity_qty, DEFAULT_RULES["body_cavity_min_qty"]
+            body_cavity_qty, base.get("body_cavity_min_qty", lim_cavity_qty)
         ),
         "body_machine_rate_above_pct": _pct(
-            body_machine_rate, DEFAULT_RULES["body_machine_rate_above_pct"]
+            body_machine_rate,
+            base.get("body_machine_rate_above_pct", lim_machine_rate),
         ),
         "body_machine_min_qty": _qty(
-            body_machine_qty, DEFAULT_RULES["body_machine_min_qty"]
+            body_machine_qty, base.get("body_machine_min_qty", lim_machine_qty)
         ),
     }
     rules["cavity_rate_above_pct"] = rules["lim_cavity_rate_above_pct"]
@@ -131,6 +139,17 @@ def _normalize_rules(raw: dict | None) -> dict:
     rules["machine_min_qty"] = rules["lim_machine_min_qty"]
     rules["rate_above_pct"] = rules["lim_machine_rate_above_pct"]
     rules["min_qty"] = rules["lim_machine_min_qty"]
+    return rules
+
+
+def _normalize_rules(raw: dict | None) -> dict:
+    """顶层 = 总不良（外观/注塑）；item = 子不良项另一套。通知中心只用顶层。"""
+    value = dict(raw) if isinstance(raw, dict) else {}
+    item_raw = value.get("item") if isinstance(value.get("item"), dict) else {}
+    total_src = {k: v for k, v in value.items() if k != "item"}
+    rules = _normalize_rule_fields(total_src)
+    # 未配置子不良时先跟总不良同阈值，避免换筛选项后标红口径突变
+    rules["item"] = _normalize_rule_fields(item_raw, fallback=rules)
     return rules
 
 
@@ -242,7 +261,11 @@ def _phone_for(entry: dict, persons: list[dict]) -> str:
     return ""
 
 
-def _defect_index(breakdown: dict | None) -> dict[tuple[str, str], list[dict]]:
+def _defect_index(
+    breakdown: dict | None,
+    *,
+    views: frozenset[str] | None = None,
+) -> dict[tuple[str, str], list[dict]]:
     """machine + 原始模穴 → 不良项列表（仅挂明细，不参与 qty/ng）。"""
     index: dict[tuple[str, str], list[dict]] = {}
     if not breakdown:
@@ -255,8 +278,8 @@ def _defect_index(breakdown: dict | None) -> dict[tuple[str, str], list[dict]]:
         defects = [
             defect
             for defect in (row.get("defects") or [])
-            if str(defect.get("item") or "").strip() not in _APPEARANCE_ITEMS
-            and str(defect.get("label") or "").strip() not in _APPEARANCE_ITEMS
+            if not _is_camera_view_item(defect.get("item"), views=views)
+            and not _is_camera_view_item(defect.get("label"), views=views)
         ]
         if defects:
             index[(machine, cavity)] = defects
@@ -321,7 +344,8 @@ def list_yield_alerts(
 
         try:
             defect_by = _defect_index(
-                query_machine_cavity_breakdown(project["project_id"], hours=hours)
+                query_machine_cavity_breakdown(project["project_id"], hours=hours),
+                views=appearance_view_names(project),
             )
         except ValueError:
             defect_by = {}

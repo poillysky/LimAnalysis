@@ -14,6 +14,8 @@ class ProjectCreate(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     machines: list[str] = Field(default_factory=list)
     appearance_machines: list[str] = Field(default_factory=list)
+    # 外观视角名（如外长直边…）；预警异常说明按此排除
+    appearance_views: list[str] = Field(default_factory=list)
     owners: dict[str, Any] = Field(default_factory=dict)
     # CSV 原列名 → 入库列名，如 BCoverSN → FCoverSN
     column_map: list[dict[str, str]] = Field(default_factory=list)
@@ -29,6 +31,7 @@ class ProjectUpdate(BaseModel):
     config: dict[str, Any] | None = None
     machines: list[str] | None = None
     appearance_machines: list[str] | None = None
+    appearance_views: list[str] | None = None
     owners: dict[str, Any] | None = None
     column_map: list[dict[str, str]] | None = None
 
@@ -93,7 +96,7 @@ class ManualNoticeCreate(BaseModel):
     recipients: list[ManualNoticeRecipientIn] = Field(default_factory=list)
 
 
-class CavityAlertRulesIn(BaseModel):
+class CavityAlertRuleFields(BaseModel):
     cavity_rate_above_pct: float | None = Field(default=None, ge=0, le=100)
     cavity_min_qty: float | None = Field(default=None, ge=0)
     machine_rate_above_pct: float | None = Field(default=None, ge=0, le=100)
@@ -106,6 +109,12 @@ class CavityAlertRulesIn(BaseModel):
     body_cavity_min_qty: float | None = Field(default=None, ge=0)
     body_machine_rate_above_pct: float | None = Field(default=None, ge=0, le=100)
     body_machine_min_qty: float | None = Field(default=None, ge=0)
+
+
+class CavityAlertRulesIn(CavityAlertRuleFields):
+    """顶层字段 = 总不良；item = 子不良项另一套规则。"""
+
+    item: CavityAlertRuleFields | None = None
 
 
 class PgConnIn(BaseModel):

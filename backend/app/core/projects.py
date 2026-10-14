@@ -58,6 +58,83 @@ def _normalize_appearance_machines(raw) -> list[str]:
     return out
 
 
+# 兼容旧引用；可选视角名现从项目聚合度量字段读取
+DEFAULT_APPEARANCE_VIEWS = (
+    "外长直边",
+    "正面硅胶",
+    "内长直边",
+    "反面烟囱",
+    "正面支架",
+    "反面边框",
+    "硅胶短边",
+)
+
+
+def _normalize_appearance_views(raw) -> list[str]:
+    """已勾选的视角/分项名；未登记为空。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in raw or []:
+        name = str(item).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name[:80])
+    return out
+
+
+def appearance_view_names(project: dict | None) -> frozenset[str]:
+    """项目已登记视角名；未登记返回空（不做排除）。"""
+    if not isinstance(project, dict):
+        return frozenset()
+    return frozenset(_normalize_appearance_views(project.get("appearance_views")))
+
+
+def _measure_item_name(target_field: str) -> str | None:
+    """度量 `xxx不良数` → `xxx`；总不良 / 非不良数列忽略。"""
+    name = str(target_field or "").strip()
+    if not name.endswith("不良数") or "总不良" in name:
+        return None
+    item = name[: -len("不良数")].strip()
+    return item or None
+
+
+def list_appearance_view_options(project_id: str) -> list[str]:
+    """从项目聚合模型的度量字段取可选名（*不良数，去掉后缀）。"""
+    from sqlalchemy import select
+
+    from app.core.meta_models import MetaAggModel, MetaAggModelField
+
+    pid = str(project_id or "").strip()
+    if not pid:
+        return []
+    db = _session()
+    try:
+        model = db.scalars(
+            select(MetaAggModel).where(MetaAggModel.project_id == pid)
+        ).first()
+        if model is None:
+            return []
+        rows = db.scalars(
+            select(MetaAggModelField)
+            .where(MetaAggModelField.model_id == model.id)
+            .order_by(MetaAggModelField.sort_order, MetaAggModelField.id)
+        ).all()
+        seen: set[str] = set()
+        out: list[str] = []
+        for row in rows:
+            if str(row.field_category or "").strip() != "measure":
+                continue
+            item = _measure_item_name(str(row.target_field or ""))
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            out.append(item)
+        return out
+    finally:
+        db.close()
+
+
 def _to_dict(row: MetaProject, defaults: dict) -> dict:
     item = {**defaults}
     item.update(row.config or {})
@@ -72,6 +149,9 @@ def _to_dict(row: MetaProject, defaults: dict) -> dict:
             "machines": list((row.config or {}).get("machines") or []),
             "appearance_machines": _normalize_appearance_machines(
                 (row.config or {}).get("appearance_machines")
+            ),
+            "appearance_views": _normalize_appearance_views(
+                (row.config or {}).get("appearance_views")
             ),
             "owners": _normalize_owners((row.config or {}).get("owners")),
             "column_map": normalize_column_map(
@@ -136,9 +216,18 @@ def _normalize_machines(raw) -> list[str]:
 
 
 def _person_ids(raw) -> list[int]:
+    """兼容旧配置：曾把单个负责人写成标量而非列表。"""
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (int, float)):
+        raw = [raw]
+    elif isinstance(raw, str):
+        raw = [raw]
+    elif not isinstance(raw, (list, tuple, set)):
+        return []
     seen: set[int] = set()
     out: list[int] = []
-    for item in raw or []:
+    for item in raw:
         try:
             value = int(item)
         except (TypeError, ValueError):
@@ -195,6 +284,14 @@ def _merge_project_config(data: dict, existing: dict | None = None) -> dict:
     else:
         config["appearance_machines"] = _normalize_appearance_machines(
             config.get("appearance_machines") or []
+        )
+    if "appearance_views" in data and data["appearance_views"] is not None:
+        config["appearance_views"] = _normalize_appearance_views(
+            data["appearance_views"]
+        )
+    else:
+        config["appearance_views"] = _normalize_appearance_views(
+            config.get("appearance_views") or []
         )
     if "owners" in data and data["owners"] is not None:
         config["owners"] = _normalize_owners(data["owners"])
@@ -345,6 +442,8 @@ def update_project(project_id: str, data: dict) -> dict | None:
         if (
             ("config" in data and data["config"] is not None)
             or ("machines" in data and data["machines"] is not None)
+            or ("appearance_machines" in data and data["appearance_machines"] is not None)
+            or ("appearance_views" in data and data["appearance_views"] is not None)
             or ("owners" in data and data["owners"] is not None)
             or ("appearance_folder" in data and data["appearance_folder"] is not None)
             or ("column_map" in data and data["column_map"] is not None)
@@ -361,16 +460,34 @@ def update_project(project_id: str, data: dict) -> dict | None:
 
 
 def delete_project(project_id: str) -> bool:
-    db = _session()
-    try:
-        row = db.get(MetaProject, project_id)
-        if row is None:
-            return False
-        db.delete(row)
-        db.commit()
-        return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    """删除项目。NAS 多容器共写 SQLite 时遇 database is locked 会短重试。"""
+    import time
+
+    from sqlalchemy.exc import OperationalError
+
+    last_exc: Exception | None = None
+    for attempt in range(4):
+        db = _session()
+        try:
+            row = db.get(MetaProject, project_id)
+            if row is None:
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+        except OperationalError as exc:
+            db.rollback()
+            last_exc = exc
+            # 锁冲突：让出后重试（外观索引/采集写 meta 时常见）
+            if attempt < 3 and "locked" in str(exc).lower():
+                time.sleep(0.35 * (attempt + 1))
+                continue
+            raise
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    if last_exc:
+        raise last_exc
+    return False

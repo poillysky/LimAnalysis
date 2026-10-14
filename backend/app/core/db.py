@@ -80,9 +80,11 @@ defect_engine = create_engine(
 
 @event.listens_for(meta_engine, "connect")
 def _sqlite_wal(dbapi_connection, _connection_record) -> None:
+    # NAS：API + collector + agg + cleanup 共写一份 meta SQLite，忙等要够长
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.close()
 
 

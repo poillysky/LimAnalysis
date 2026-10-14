@@ -347,7 +347,10 @@ def requeue_stale_running(
     *,
     started_before: str | None = None,
 ) -> int:
-    """Worker 重启时回收「本进程启动之前就已在 running」的残留任务，避免永久占坑。
+    """Worker 重启时把「本进程启动之前就已在 running」的残留重新入队（queued）。
+
+    根因修复：旧实现只标 failed，任务永久丢掉；函数名是 requeue，应回到 queued
+    供 claim_next_job 再次领取。
 
     ⚠️ 归属判定为什么用 started_before 而不加 worker_id 字段：
     `meta_jobs` 表没有 owner 列，而 `MetaBase.metadata.create_all()` 只会建新表、
@@ -379,11 +382,12 @@ def requeue_stale_running(
             )
         rows = list(db.scalars(stmt).all())
         count = 0
-        ended = _now()
         for row in rows:
-            row.status = STATUS_FAILED
-            row.message = message[:500]
-            row.ended_at = ended
+            # 真正重新入队，而不是标失败后永久丢掉
+            row.status = STATUS_QUEUED
+            row.message = (message or "requeued")[:500]
+            row.started_at = ""
+            row.ended_at = ""
             count += 1
         db.commit()
         return count

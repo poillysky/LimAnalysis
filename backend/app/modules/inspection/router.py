@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
+from app.api.deps import require_admin
 from app.core.inspection import (
     appearance_index_status,
     bootstrap,
@@ -35,7 +36,9 @@ def inspection_settings_get():
 
 
 @router.put("/settings")
-def inspection_settings_put(body: InspectionSettingsIn):
+def inspection_settings_put(
+    body: InspectionSettingsIn, _admin: dict = Depends(require_admin)
+):
     return ok(save_settings(body.model_dump(exclude_unset=True)))
 
 

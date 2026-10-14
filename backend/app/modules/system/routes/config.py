@@ -32,7 +32,9 @@ def workshop_get():
 
 
 @router.put("/workshop")
-def workshop_put(body: WorkshopUpdate):
+def workshop_put(
+    body: WorkshopUpdate, _admin: dict = Depends(require_admin)
+):
     try:
         return ok(save_workshop_config(body.model_dump(exclude_unset=True)))
     except Exception as exc:
@@ -87,7 +89,9 @@ def pipeline_linkage_get():
 
 
 @router.put("/pipeline-linkage")
-def pipeline_linkage_put(body: PipelineLinkageUpdate):
+def pipeline_linkage_put(
+    body: PipelineLinkageUpdate, _admin: dict = Depends(require_admin)
+):
     try:
         return ok(save_linkage_config(body.model_dump(exclude_unset=True)))
     except Exception as exc:
@@ -100,5 +104,5 @@ def get_defaults():
 
 
 @router.put("/defaults")
-def put_defaults(body: DefaultsUpdate):
+def put_defaults(body: DefaultsUpdate, _admin: dict = Depends(require_admin)):
     return ok(save_system_defaults(body.value))

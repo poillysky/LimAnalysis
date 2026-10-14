@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createProject,
   deleteProject,
+  listAppearanceViewOptions,
   listProjects,
   updateProject,
   type MachineGroup,
@@ -14,10 +15,19 @@ import {
 import { listPersons, type PersonItem } from "@/api/modules/persons";
 import { backendErrorHint } from "@/api/http";
 import { switchValue } from "@/utils/switchValue";
+import { useUserStoreHook } from "@/store/modules/user";
 
 defineOptions({
   name: "FeatureIndex"
 });
+
+const userStore = useUserStoreHook();
+/** 列表可读；新增/编辑/删除/启停仅管理员（与后端 require_admin 一致） */
+const isAdmin = computed(() => userStore.roles.includes("admin"));
+
+function denyWrite() {
+  ElMessage.warning("需要管理员权限才能修改项目");
+}
 
 const DEFAULT_MACHINE_GROUPS: MachineGroup[] = [
   { name: "D", machines: Array.from({ length: 13 }, (_, i) => `D${i + 1}`) },
@@ -98,6 +108,7 @@ const form = reactive({
   enabled: true,
   machines: [] as string[],
   appearance_machines: [] as string[],
+  appearance_views: [] as string[],
   owners: emptyOwners()
 });
 
@@ -182,6 +193,40 @@ function toggleGroup(group: MachineGroup) {
 /** 外观机预设：与注塑机同款按钮，编号 1–10 */
 const APPEARANCE_PRESETS = Array.from({ length: 10 }, (_, i) => String(i + 1));
 
+/** 视角名下拉：来自当前项目聚合度量字段 */
+const viewOptions = ref<string[]>([]);
+const viewOptionsHint = ref("");
+
+const viewSelectOptions = computed(() => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of [...viewOptions.value, ...form.appearance_views]) {
+    const text = String(name || "").trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out;
+});
+
+async function loadViewOptions(projectId: string) {
+  viewOptions.value = [];
+  viewOptionsHint.value = "";
+  if (!projectId) {
+    viewOptionsHint.value = "新增项目保存后，再编辑可从聚合字段选视角名";
+    return;
+  }
+  try {
+    const res = await listAppearanceViewOptions(projectId);
+    viewOptions.value = res?.data?.items || [];
+    if (!viewOptions.value.length) {
+      viewOptionsHint.value = "该项目聚合还没有 *不良数 度量字段";
+    }
+  } catch (error) {
+    viewOptionsHint.value = backendErrorHint(error) || "读取聚合字段失败";
+  }
+}
+
 function isAppearanceOn(code: string) {
   return form.appearance_machines.includes(code);
 }
@@ -260,26 +305,44 @@ function resetForm() {
   form.enabled = true;
   form.machines = [];
   form.appearance_machines = [];
+  form.appearance_views = [];
   form.owners = emptyOwners();
+  viewOptions.value = [];
+  viewOptionsHint.value = "";
 }
 
-function openCreate() {
+async function openCreate() {
+  if (!isAdmin.value) {
+    denyWrite();
+    return;
+  }
   editingId.value = null;
   resetForm();
+  viewOptionsHint.value = "新增项目保存后，再编辑可从聚合字段选视角名";
   dialogVisible.value = true;
 }
 
-function openEdit(row: ProjectItem) {
+async function openEdit(row: ProjectItem) {
+  if (!isAdmin.value) {
+    denyWrite();
+    return;
+  }
   editingId.value = row.project_id;
   form.display_name = row.display_name;
   form.enabled = row.enabled;
   form.machines = [...(row.machines || [])];
   form.appearance_machines = [...(row.appearance_machines || [])];
+  form.appearance_views = [...(row.appearance_views || [])];
   form.owners = cloneOwners(row.owners);
   dialogVisible.value = true;
+  await loadViewOptions(row.project_id);
 }
 
 async function submit() {
+  if (!isAdmin.value) {
+    denyWrite();
+    return;
+  }
   if (!form.display_name.trim()) {
     ElMessage.warning("请填写名称");
     return;
@@ -290,6 +353,9 @@ async function submit() {
     machines: [...form.machines],
     appearance_machines: form.appearance_machines
       .map(item => item.trim())
+      .filter(Boolean),
+    appearance_views: form.appearance_views
+      .map(item => String(item || "").trim())
       .filter(Boolean),
     owners: cloneOwners(form.owners)
   };
@@ -303,21 +369,35 @@ async function submit() {
     }
     dialogVisible.value = false;
     await load();
-  } catch {
-    ElMessage.error(editingId.value ? "保存失败" : "添加失败（后端未启动或名称无法生成编号）");
+  } catch (error) {
+    ElMessage.error(
+      backendErrorHint(error) ||
+        (editingId.value
+          ? "保存失败"
+          : "添加失败（后端未启动或名称无法生成编号）")
+    );
   }
 }
 
 async function onEnabledChange(row: ProjectItem, value: boolean) {
+  if (!isAdmin.value) {
+    row.enabled = !value;
+    denyWrite();
+    return;
+  }
   try {
     await updateProject(row.project_id, { enabled: value });
-  } catch {
+  } catch (error) {
     row.enabled = !value;
-    ElMessage.error("更新失败");
+    ElMessage.error(backendErrorHint(error) || "更新失败");
   }
 }
 
 async function onDelete(row: ProjectItem) {
+  if (!isAdmin.value) {
+    denyWrite();
+    return;
+  }
   try {
     await ElMessageBox.confirm(`删除项目 ${row.display_name}？`, "确认", {
       type: "warning"
@@ -329,8 +409,8 @@ async function onDelete(row: ProjectItem) {
     await deleteProject(row.project_id);
     ElMessage.success("已删除");
     await load();
-  } catch {
-    ElMessage.error("删除失败");
+  } catch (error) {
+    ElMessage.error(backendErrorHint(error) || "删除失败");
   }
 }
 
@@ -350,9 +430,22 @@ onMounted(load);
       <template #header>
         <div class="flex items-center justify-between">
           <span>项目管理</span>
-          <el-button type="primary" @click="openCreate">新增项目</el-button>
+          <el-button
+            type="primary"
+            :disabled="!isAdmin"
+            @click="openCreate"
+          >
+            新增项目
+          </el-button>
         </div>
       </template>
+      <el-alert
+        v-if="!isAdmin"
+        class="mb-3"
+        type="info"
+        :closable="false"
+        title="当前为普通用户：可查看项目，编辑/删除需管理员账号"
+      />
       <el-table v-loading="loading" :data="rows" stripe>
         <el-table-column prop="display_name" label="名称" width="120" />
         <el-table-column prop="project_id" label="项目ID" width="140" />
@@ -365,12 +458,20 @@ onMounted(load);
             <span v-else class="cell-muted">未配置</span>
           </template>
         </el-table-column>
-        <el-table-column label="外观机" min-width="160">
+        <el-table-column label="外观机" min-width="120">
           <template #default="{ row }">
             <span v-if="(row.appearance_machines || []).length" class="machine-list">
               {{ (row.appearance_machines || []).join("  ") }}
             </span>
             <span v-else class="cell-muted">未配置</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="视角" width="72" align="center">
+          <template #default="{ row }">
+            <span v-if="(row.appearance_views || []).length">
+              {{ (row.appearance_views || []).length }}
+            </span>
+            <span v-else class="cell-muted">0</span>
           </template>
         </el-table-column>
         <el-table-column label="负责人" width="88">
@@ -390,14 +491,29 @@ onMounted(load);
           <template #default="{ row }">
             <el-switch
               v-model="row.enabled"
+              :disabled="!isAdmin"
               @change="val => onEnabledChange(row, switchValue(val))"
             />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="120">
           <template #default="{ row }">
-            <el-button type="primary" link @click="openEdit(row)">编辑</el-button>
-            <el-button type="danger" link @click="onDelete(row)">删除</el-button>
+            <el-button
+              type="primary"
+              link
+              :disabled="!isAdmin"
+              @click="openEdit(row)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              type="danger"
+              link
+              :disabled="!isAdmin"
+              @click="onDelete(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -473,6 +589,38 @@ onMounted(load);
             </div>
             <div class="machine-hint">
               已选 {{ form.appearance_machines.length }} 台 · 点「外」全选
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="视角名">
+          <div class="view-board">
+            <el-select
+              v-model="form.appearance_views"
+              class="view-select"
+              multiple
+              filterable
+              clearable
+              collapse-tags
+              collapse-tags-tooltip
+              :max-collapse-tags="4"
+              :disabled="!editingId"
+              placeholder="多选；选中才登记，未选不排除"
+            >
+              <el-option
+                v-for="item in viewSelectOptions"
+                :key="item"
+                :label="item"
+                :value="item"
+              />
+            </el-select>
+            <div class="machine-hint">
+              <template v-if="viewOptionsHint">{{ viewOptionsHint }}</template>
+              <template v-else-if="form.appearance_views.length">
+                已选 {{ form.appearance_views.length }} 个 · 预警异常说明按此排除
+              </template>
+              <template v-else>
+                选项来自聚合度量 *不良数 · 未选则不排除
+              </template>
             </div>
           </div>
         </el-form-item>
@@ -652,6 +800,17 @@ onMounted(load);
   margin-top: 2px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+
+.view-board {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.view-select {
+  width: 100%;
 }
 
 .owner-board {

@@ -8,7 +8,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import inspect, text
 
 from app.core import db as stores
-from app.core.projects import get_project, load_projects
+from app.core.projects import (
+    DEFAULT_APPEARANCE_VIEWS,
+    appearance_view_names,
+    get_project,
+    load_projects,
+)
 from app.core.sql_ident import ident, q
 
 _TZ = ZoneInfo("Asia/Shanghai")
@@ -26,22 +31,17 @@ _DIM_COL = {key: col for key, col, _ in DIMS}
 DEFAULT_LIM_HOURS = 6
 _MAX_CAVITY_HOURS = 72
 
-_APPEARANCE_ITEMS = (
-    "外长直边",
-    "正面硅胶",
-    "内长直边",
-    "反面烟囱",
-    "正面支架",
-    "反面边框",
-    "硅胶短边",
-)
-_MOLD_ITEMS = (
-    "B5合模线溢胶",
-    "B1缺胶气泡",
-    "B2凹坑",
-    "底涂",
-    "硅胶",
-    "定位",
+# 兼容旧引用：默认视角名；实际排除以项目登记 appearance_views 为准
+_APPEARANCE_ITEMS = frozenset(DEFAULT_APPEARANCE_VIEWS)
+_MOLD_ITEMS = frozenset(
+    {
+        "B5合模线溢胶",
+        "B1缺胶气泡",
+        "B2凹坑",
+        "底涂",
+        "硅胶",
+        "定位",
+    }
 )
 
 
@@ -54,10 +54,21 @@ def _defect_item(column: str) -> str | None:
     return col[: -len("不良数")]
 
 
-def _defect_family(item: str) -> str:
-    if item in _APPEARANCE_ITEMS:
+def _is_camera_view_item(
+    name: str | None,
+    *,
+    views: frozenset[str] | None = None,
+) -> bool:
+    """是否外观视角分项。views 为空/None 时不排除（未登记）。"""
+    if not views:
+        return False
+    return str(name or "").strip() in views
+
+
+def _defect_family(item: str, *, views: frozenset[str] | None = None) -> str:
+    if _is_camera_view_item(item, views=views):
         return "外观"
-    if item in _MOLD_ITEMS:
+    if str(item or "").strip() in _MOLD_ITEMS:
         return "注塑"
     return "外观"
 
@@ -186,7 +197,7 @@ def _table_columns(table: str) -> list[str]:
         return []
 
 
-def _metrics(table: str) -> list[dict]:
+def _metrics(table: str, *, views: frozenset[str] | None = None) -> list[dict]:
     cols = _table_columns(table)
     items: list[dict] = []
     if "自动外观总产量" in cols and "自动外观总不良数" in cols:
@@ -195,8 +206,9 @@ def _metrics(table: str) -> list[dict]:
         items.append({"key": "mold", "label": "注塑机不良率"})
     for col in cols:
         name = _defect_item(col)
-        if name:
-            items.append({"key": f"defect:{name}", "label": f"{name}不良率"})
+        if not name or _is_camera_view_item(name, views=views):
+            continue
+        items.append({"key": f"defect:{name}", "label": f"{name}不良率"})
     return items
 
 
@@ -254,7 +266,9 @@ def list_query_catalog(
         "table": table if ready else "",
         "dims": dims,
         "dim_fields": [{"key": k, "column": c, "label": lab} for k, c, lab in DIMS],
-        "metrics": _metrics(table) if ready else [],
+        "metrics": (
+            _metrics(table, views=appearance_view_names(chosen)) if ready else []
+        ),
     }
 
 
@@ -675,6 +689,8 @@ def query_machine_cavity_breakdown(
     ctx = _cavity_ctx(
         project_id, hours=hours, metric="appearance", extra_cols=("机台", "模穴")
     )
+    project = get_project(project_id)
+    view_names = appearance_view_names(project)
     cols = set(_table_columns(ctx["table"]))
     items = []
     seen: set[str] = set()
@@ -682,7 +698,8 @@ def query_machine_cavity_breakdown(
         name = _defect_item(col)
         if not name or name in seen or f"{name}不良数" not in cols:
             continue
-        if str(name).strip() in _APPEARANCE_ITEMS:
+        # 异常说明只要具体不良；视角名以项目登记为准
+        if _is_camera_view_item(name, views=view_names):
             continue
         seen.add(name)
         items.append(name)

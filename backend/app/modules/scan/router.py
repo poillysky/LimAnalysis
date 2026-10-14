@@ -1,6 +1,7 @@
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.api.deps import require_admin
 from app.core.defect_scans import (
     bootstrap,
     import_sn_file,
@@ -71,7 +72,9 @@ def scan_analysis_rules_get():
 
 
 @router.put("/defect/analysis-rules")
-def scan_analysis_rules_put(body: CavityAlertRulesIn):
+def scan_analysis_rules_put(
+    body: CavityAlertRulesIn, _admin: dict = Depends(require_admin)
+):
     return ok(save_analysis_alert_rules(body.model_dump()))
 
 

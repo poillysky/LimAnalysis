@@ -148,13 +148,15 @@ router.beforeEach((to: ToRouteType, _from, next) => {
     whiteList.includes(to.fullPath) ? next(_from.fullPath) : next();
   }
   if (Cookies.get(multipleTabsKey) && userInfo) {
-    // 无权限跳转403页面
+    // 无权限跳转403页面（必须 return，避免后面再 next 冲掉）
     if (to.meta?.roles && !isOneOfArray(to.meta?.roles, userInfo?.roles)) {
       next({ path: "/error/403" });
+      return;
     }
     // 开启隐藏首页后在浏览器地址栏手动输入首页welcome路由则跳转到404页面
     if (VITE_HIDE_HOME === "true" && to.fullPath === "/welcome") {
       next({ path: "/error/404" });
+      return;
     }
     if (_from?.name) {
       // name为超链接

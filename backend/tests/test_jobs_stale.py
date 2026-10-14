@@ -118,18 +118,19 @@ class StaleRequeueTest(_JobTestBase):
         """核心用例：A 重启只回收自己的残留，B 正在跑的必须活着。"""
         n = self._requeue()
         self.assertEqual(n, 2, "应只回收 id=1（本进程残留）和 id=3（started_at 空）")
-        self.assertEqual(self._status(1), "failed", "A 自己的残留应被回收")
-        self.assertEqual(self._status(3), "failed", "started_at 为空的异常 running 应被回收")
+        self.assertEqual(self._status(1), "queued", "A 自己的残留应重新入队")
+        self.assertEqual(self._status(3), "queued", "started_at 为空的异常 running 应重新入队")
         self.assertEqual(self._status(2), "running", "B 正在跑的任务绝不能被误杀")
         self.assertEqual(self._status(4), "queued", "queued 不受影响")
         self.assertEqual(self._status(5), "running", "类型不匹配的任务不受影响")
 
-    def test_preserves_message_and_sets_ended(self) -> None:
-        """回收要写 message 与 ended_at，前端才看得到失败原因。"""
+    def test_preserves_message_and_clears_run_times(self) -> None:
+        """重新入队要写 message，并清空 started_at/ended_at 以便再次 claim。"""
         self._requeue()
         row = self._row(1)
         self.assertEqual(row.message, "worker restarted")
-        self.assertTrue(row.ended_at, "ended_at 必须写入")
+        self.assertEqual(row.started_at, "")
+        self.assertEqual(row.ended_at, "")
 
     def test_boundary_equal_timestamp(self) -> None:
         """started_at 恰好等于启动时刻也要回收（用 <= 而非 <）。
@@ -139,7 +140,7 @@ class StaleRequeueTest(_JobTestBase):
         """
         n = self._requeue(started_before="2026-10-06 09:50:00")
         self.assertEqual(n, 2, "边界等值必须算作残留，否则任务永久占坑")
-        self.assertEqual(self._status(1), "failed")
+        self.assertEqual(self._status(1), "queued")
 
     def test_no_started_before_keeps_legacy_behavior(self) -> None:
         """不传 started_before 时退化为旧行为（全收），不破坏既有调用契约。"""
@@ -152,7 +153,7 @@ class StaleRequeueTest(_JobTestBase):
         self.assertEqual(n, 3, "id=1,3（crawl）+ id=5（upload，早于基准）")
 
     def test_is_idempotent(self) -> None:
-        """重复调用不再改写：已 failed 的已不在 running 集合里。"""
+        """重复调用不再改写：已入队的已不在 running 集合里。"""
         from collector.jobs import requeue_stale_running
 
         first = self._requeue()
@@ -160,7 +161,6 @@ class StaleRequeueTest(_JobTestBase):
         self.assertEqual(first, 2)
         self.assertEqual(second, 0, "第二次不该再回收任何东西")
         self.assertEqual(self._row(1).message, "worker restarted", "message 不该被二次调用覆盖")
-
     def test_now_str_matches_started_at_format(self) -> None:
         """now_str() 必须与写入 started_at 的格式一致，否则字符串比较会错。"""
         from collector.jobs import now_str

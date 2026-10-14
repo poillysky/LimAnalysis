@@ -12,14 +12,17 @@ import {
 } from "@/api/modules/exception";
 import { backendErrorHint } from "@/api/http";
 import {
-  loadCavityAlertRules,
-  saveCavityAlertRules,
+  loadCavityAlertBundle,
+  saveCavityAlertBundle,
   saveCavityAlertRulesRemote,
   getCavityAlertRulesRemote,
-  rulesFromRemote,
-  normalizeAlertRules,
-  isDefaultAlertRules,
-  type AlertRules
+  bundleFromRemote,
+  normalizeAlertBundle,
+  isDefaultAlertBundle,
+  pickAlertRules,
+  isTotalDefectMetric,
+  type AlertRulesBundle,
+  type AlertRuleSetKind
 } from "@/utils/cavityAlert";
 import PageTabs from "@/components/PageTabs/index.vue";
 import PageMetricBar from "@/components/PageMetricBar/index.vue";
@@ -139,14 +142,25 @@ const seriesShowPhotos = computed(() => {
 });
 const alertMachineCavities = ref<string[]>([]);
 const alertBodyCavities = ref<string[]>([]);
-const alertRules = ref<AlertRules>(loadCavityAlertRules());
+const alertBundle = ref<AlertRulesBundle>(loadCavityAlertBundle());
 const alertOpen = ref(false);
-const alertDraft = ref<AlertRules>({ ...alertRules.value });
+const alertDraft = ref<AlertRulesBundle>(
+  normalizeAlertBundle(alertBundle.value)
+);
+const alertDraftKind = ref<AlertRuleSetKind>("total");
+const alertDraftSet = computed(() => alertDraft.value[alertDraftKind.value]);
+const ALERT_SET_TABS = [
+  { value: "total", label: "总不良" },
+  { value: "item", label: "子不良" }
+];
 let catalogAbort: AbortController | null = null;
 let tableAbort: AbortController | null = null;
 
-/** 标红判定读当前规则（活引用，规则改动即时生效） */
-const cellAlert = createCellAlert(() => alertRules.value);
+/** 标红：总不良用 total，筛选子不良项用 item */
+const activeAlertRules = computed(() =>
+  pickAlertRules(alertBundle.value, metric.value)
+);
+const cellAlert = createCellAlert(() => activeAlertRules.value);
 
 const summary = computed(() =>
   pivotKeptTotals(
@@ -420,14 +434,15 @@ function alertCavityPairs(
 }
 
 function openAlertConfig() {
-  alertDraft.value = { ...alertRules.value };
+  alertDraft.value = normalizeAlertBundle(alertBundle.value);
+  alertDraftKind.value = isTotalDefectMetric(metric.value) ? "total" : "item";
   alertOpen.value = true;
 }
 
 function saveAlertConfig() {
-  const next = normalizeAlertRules(alertDraft.value);
-  alertRules.value = next;
-  saveCavityAlertRules(next);
+  const next = normalizeAlertBundle(alertDraft.value);
+  alertBundle.value = next;
+  saveCavityAlertBundle(next);
   void saveCavityAlertRulesRemote(next);
   alertOpen.value = false;
   loadTable();
@@ -605,18 +620,24 @@ function onMetricChange() {
 onMounted(async () => {
   try {
     const res = await getCavityAlertRulesRemote();
-    const remote = rulesFromRemote(res?.data);
-    const local = loadCavityAlertRules();
-    const hasLocal = Boolean(localStorage.getItem("limanalysis.cavity.alertRules"));
-    if (hasLocal && isDefaultAlertRules(remote) && !isDefaultAlertRules(local)) {
+    const remote = bundleFromRemote(res?.data);
+    const local = loadCavityAlertBundle();
+    const hasLocal = Boolean(
+      localStorage.getItem("limanalysis.cavity.alertRules")
+    );
+    if (
+      hasLocal &&
+      isDefaultAlertBundle(remote) &&
+      !isDefaultAlertBundle(local)
+    ) {
       await saveCavityAlertRulesRemote(local);
-      alertRules.value = local;
+      alertBundle.value = local;
     } else {
-      alertRules.value = remote;
-      saveCavityAlertRules(remote);
+      alertBundle.value = remote;
+      saveCavityAlertBundle(remote);
     }
   } catch {
-    alertRules.value = loadCavityAlertRules();
+    alertBundle.value = loadCavityAlertBundle();
   }
   loadCatalog();
 });
@@ -862,7 +883,7 @@ onUnmounted(() => {
     <el-dialog
       v-model="alertOpen"
       class="alert-dialog"
-      width="680px"
+      width="720px"
       align-center
       destroy-on-close
     >
@@ -872,6 +893,20 @@ onUnmounted(() => {
           <span>不良率达标且产量足够才标红</span>
         </div>
       </template>
+      <PageTabs
+        v-model="alertDraftKind"
+        class="alert-set-tabs"
+        :options="ALERT_SET_TABS"
+        size="small"
+        aria-label="规则套别"
+      />
+      <p class="alert-set-hint">
+        {{
+          alertDraftKind === "total"
+            ? "应用于不良项「总不良（外观）」「总不良（注塑）」；系统通知也用这套"
+            : "应用于筛选到的其他子不良项（如具体缺陷名）"
+        }}
+      </p>
       <div class="alert-grid">
         <section class="alert-group">
           <header class="alert-group__head">
@@ -884,7 +919,7 @@ onUnmounted(() => {
               <label class="alert-field">
                 <span>不良率 ≥</span>
                 <el-input-number
-                  v-model="alertDraft.limCavityRateAbovePct"
+                  v-model="alertDraftSet.limCavityRateAbovePct"
                   :min="0"
                   :max="100"
                   :precision="2"
@@ -897,7 +932,7 @@ onUnmounted(() => {
               <label class="alert-field alert-field--wide">
                 <span>产量不低于</span>
                 <el-input-number
-                  v-model="alertDraft.limCavityMinQty"
+                  v-model="alertDraftSet.limCavityMinQty"
                   :min="0"
                   :max="1000000"
                   :step="10"
@@ -911,7 +946,7 @@ onUnmounted(() => {
               <label class="alert-field">
                 <span>不良率 ≥</span>
                 <el-input-number
-                  v-model="alertDraft.limMachineRateAbovePct"
+                  v-model="alertDraftSet.limMachineRateAbovePct"
                   :min="0"
                   :max="100"
                   :precision="2"
@@ -924,7 +959,7 @@ onUnmounted(() => {
               <label class="alert-field alert-field--wide">
                 <span>产量不低于</span>
                 <el-input-number
-                  v-model="alertDraft.limMachineMinQty"
+                  v-model="alertDraftSet.limMachineMinQty"
                   :min="0"
                   :max="1000000"
                   :step="10"
@@ -946,7 +981,7 @@ onUnmounted(() => {
               <label class="alert-field">
                 <span>不良率 ≥</span>
                 <el-input-number
-                  v-model="alertDraft.bodyCavityRateAbovePct"
+                  v-model="alertDraftSet.bodyCavityRateAbovePct"
                   :min="0"
                   :max="100"
                   :precision="2"
@@ -959,7 +994,7 @@ onUnmounted(() => {
               <label class="alert-field alert-field--wide">
                 <span>产量不低于</span>
                 <el-input-number
-                  v-model="alertDraft.bodyCavityMinQty"
+                  v-model="alertDraftSet.bodyCavityMinQty"
                   :min="0"
                   :max="1000000"
                   :step="10"
@@ -969,11 +1004,11 @@ onUnmounted(() => {
               </label>
             </div>
             <div class="alert-block">
-              <div class="alert-block__title">机台</div>
+              <div class="alert-block__title">模具</div>
               <label class="alert-field">
                 <span>不良率 ≥</span>
                 <el-input-number
-                  v-model="alertDraft.bodyMachineRateAbovePct"
+                  v-model="alertDraftSet.bodyMachineRateAbovePct"
                   :min="0"
                   :max="100"
                   :precision="2"
@@ -986,7 +1021,7 @@ onUnmounted(() => {
               <label class="alert-field alert-field--wide">
                 <span>产量不低于</span>
                 <el-input-number
-                  v-model="alertDraft.bodyMachineMinQty"
+                  v-model="alertDraftSet.bodyMachineMinQty"
                   :min="0"
                   :max="1000000"
                   :step="10"

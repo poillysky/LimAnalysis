@@ -277,6 +277,8 @@ def _to_client_image(item: dict, root: Path, source: str) -> dict | None:
         "id": rel,
         "machine": item["machine"],
         "cavity": item["cavity"],
+        # 外观截图所属外观机/线体（注塑维取图时 machine 仍是注塑机台）
+        "tester": str(item.get("tester") or "").strip(),
         "filename": filename,
         "date_str": item["date_str"],
         "rel_path": rel,
@@ -1780,6 +1782,7 @@ def list_appearance_images(
                     "machine": tester_name,
                     "cavity": camera_name,
                     "camera": camera_name,
+                    "tester": tester_name,
                     "filename": image_file.name,
                     "date_str": disk_date,
                     "path": str(image_file.resolve()),

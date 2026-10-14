@@ -104,7 +104,7 @@ def persons_list():
 
 
 @router.post("/persons")
-def persons_add(body: PersonCreate):
+def persons_add(body: PersonCreate, _admin: dict = Depends(require_admin)):
     try:
         return ok(create_person(body.model_dump()))
     except ValueError as exc:
@@ -120,7 +120,9 @@ def persons_read(person_id: int):
 
 
 @router.put("/persons/{person_id}")
-def persons_edit(person_id: int, body: PersonUpdate):
+def persons_edit(
+    person_id: int, body: PersonUpdate, _admin: dict = Depends(require_admin)
+):
     try:
         return ok(update_person(person_id, body.model_dump(exclude_unset=True)))
     except LookupError as exc:
@@ -130,7 +132,7 @@ def persons_edit(person_id: int, body: PersonUpdate):
 
 
 @router.delete("/persons/{person_id}")
-def persons_remove(person_id: int):
+def persons_remove(person_id: int, _admin: dict = Depends(require_admin)):
     try:
         delete_person(person_id)
         return ok({"id": person_id})
@@ -144,7 +146,9 @@ def duty_roster_list():
 
 
 @router.post("/duty-roster")
-def duty_roster_add(body: DutyRosterCreate):
+def duty_roster_add(
+    body: DutyRosterCreate, _admin: dict = Depends(require_admin)
+):
     try:
         return ok(create_roster_entry(body.model_dump()))
     except ValueError as exc:
@@ -152,7 +156,9 @@ def duty_roster_add(body: DutyRosterCreate):
 
 
 @router.put("/duty-roster/{entry_id}")
-def duty_roster_edit(entry_id: int, body: DutyRosterUpdate):
+def duty_roster_edit(
+    entry_id: int, body: DutyRosterUpdate, _admin: dict = Depends(require_admin)
+):
     try:
         return ok(update_roster_entry(entry_id, body.model_dump(exclude_unset=True)))
     except LookupError as exc:
@@ -162,7 +168,7 @@ def duty_roster_edit(entry_id: int, body: DutyRosterUpdate):
 
 
 @router.delete("/duty-roster/{entry_id}")
-def duty_roster_remove(entry_id: int):
+def duty_roster_remove(entry_id: int, _admin: dict = Depends(require_admin)):
     try:
         delete_roster_entry(entry_id)
         return ok({"id": entry_id})
@@ -177,6 +183,7 @@ def manual_notices_list():
 
 @router.post("/manual-notices")
 def manual_notices_send(body: ManualNoticeCreate):
+    """任意登录用户可发通知；删除需管理员。"""
     try:
         return ok(send_manual_notice(body.model_dump()))
     except ValueError as exc:
@@ -184,7 +191,9 @@ def manual_notices_send(body: ManualNoticeCreate):
 
 
 @router.delete("/manual-notices/{notice_id}")
-def manual_notices_remove(notice_id: int):
+def manual_notices_remove(
+    notice_id: int, _admin: dict = Depends(require_admin)
+):
     try:
         delete_manual_notice(notice_id)
         return ok({"id": notice_id})

@@ -72,6 +72,24 @@ const photoCamera = ref("");
 const photoCurrent = computed(
   () => photoImages.value[photoIndex.value] || null
 );
+/** 当前外观图对应的外观线体号（随翻图更新） */
+const photoTesterLabel = computed(() => {
+  if (pane.value !== "appearance") return "";
+  return String(photoCurrent.value?.tester || "").trim();
+});
+/** 当前图 ServerTime：月-日 时:分 */
+const photoServerTimeLabel = computed(() => {
+  const raw = String(photoCurrent.value?.server_time || "").trim();
+  if (!raw) return "";
+  const stamp = Date.parse(raw.includes("T") ? raw : raw.replace(" ", "T"));
+  if (Number.isNaN(stamp)) return "";
+  const d = new Date(stamp);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}-${dd} ${hh}:${mi}`;
+});
 const photoMachine = computed(() => String(props.filters?.machine || "").trim());
 const photoCavity = computed(() =>
   String(props.filters?.cavity_letter || props.filters?.cavity || "")
@@ -592,6 +610,20 @@ watch(
   }
 );
 
+watch(
+  () => [props.projectId, props.metric, props.filters] as const,
+  async () => {
+    await loadSeries();
+    if (
+      props.showPhotos &&
+      (pane.value === "mold" || pane.value === "appearance")
+    ) {
+      await loadPhotos(pane.value);
+    }
+  },
+  { deep: true }
+);
+
 watch(pane, async value => {
   if (value === "chart") {
     await nextTick();
@@ -741,16 +773,28 @@ onUnmounted(() => {
           />
         </el-select>
         <span v-if="photoCurrent" class="photo-file">{{ photoCurrent.filename }}</span>
-        <span v-if="photoImages.length" class="photo-count">
-          {{ photoIndex + 1 }} / {{ photoImages.length }}
-        </span>
-        <button
-          type="button"
-          class="photo-reload"
-          @click="loadPhotos(pane === 'mold' ? 'mold' : 'appearance')"
-        >
-          刷新
-        </button>
+        <div class="photo-head-trail">
+          <span v-if="photoTesterLabel" class="photo-tester" title="自动外观线体号">
+            外观线 {{ photoTesterLabel }}
+          </span>
+          <span
+            v-if="photoServerTimeLabel"
+            class="photo-server-time"
+            title="ServerTime"
+          >
+            {{ photoServerTimeLabel }}
+          </span>
+          <span v-if="photoImages.length" class="photo-count">
+            {{ photoIndex + 1 }} / {{ photoImages.length }}
+          </span>
+          <button
+            type="button"
+            class="photo-reload"
+            @click="loadPhotos(pane === 'mold' ? 'mold' : 'appearance')"
+          >
+            刷新
+          </button>
+        </div>
       </div>
       <div class="photo-stage">
         <p v-if="photoHint" class="photo-empty">{{ photoHint }}</p>
@@ -1005,6 +1049,37 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.photo-head-trail {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.query-panel--photo .query-panel__head .photo-tester {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: var(--el-color-success);
+  background: color-mix(in srgb, var(--el-color-success) 14%, transparent);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.query-panel--photo .query-panel__head .photo-server-time {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: var(--la-media-text);
+  background: var(--la-media-field);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
 .photo-count {
   flex: none;
   padding: 2px 8px;
@@ -1017,7 +1092,6 @@ onUnmounted(() => {
 
 .photo-reload {
   flex: none;
-  margin-left: auto;
   border: 0;
   padding: 2px 8px;
   border-radius: 6px;
